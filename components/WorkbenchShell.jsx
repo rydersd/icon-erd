@@ -55,10 +55,10 @@ export function WorkbenchShell() {
       <h2 id="treeH">Layers <span className="h-actions"><Button className="btn sm" id="addLayerBtn" aria-label="Add layer" data-icon-ui="plus-outline">Layer</Button></span></h2>
       <div className="tree" id="tree" role="tree" aria-label="Layers and booleans"></div>
       <div className="tree-tools">
-        <Button className="btn sm" data-group="union" title="Group selection into union (⌘G)" data-icon-ui="union">Union</Button>
-        <Button className="btn sm" data-group="subtract" title="First minus the rest: later children become cutters" data-icon-ui="subtract">Subtract</Button>
-        <Button className="btn sm" data-group="intersect" data-icon-ui="intersect">Intersect</Button>
-        <Button className="btn sm" data-group="exclude" data-icon-ui="exclude">Exclude</Button>
+        <Button className="btn sm icon" data-group="union" aria-label="Union" data-control-tooltip="Union: combine selected shapes" title="Group selection into union (⌘G)" data-icon-ui="union"></Button>
+        <Button className="btn sm icon" data-group="subtract" aria-label="Subtract" data-control-tooltip="Subtract: first shape minus the rest" title="First minus the rest: later children become cutters" data-icon-ui="subtract"></Button>
+        <Button className="btn sm icon" data-group="intersect" aria-label="Intersect" data-control-tooltip="Intersect: keep only the overlap" data-icon-ui="intersect"></Button>
+        <Button className="btn sm icon" data-group="exclude" aria-label="Exclude" data-control-tooltip="Exclude: remove the overlap" data-icon-ui="exclude"></Button>
         <Button className="btn sm" id="ungroupBtn" data-icon-ui="ungroup">Ungroup</Button>
         <Button className="btn sm" id="makeCutterBtn" data-icon-ui="cutter">Use as cutter</Button>
         <Button className="btn sm icon" id="upBtn" title="Move up" aria-label="Move up" data-icon-ui="up"></Button>
@@ -74,11 +74,11 @@ export function WorkbenchShell() {
     <section className="panel" aria-label="Canvas">
       <div className="canvas-tools">
         <div className="row"><span className="lbl">Tool</span>
-          <div className="seg" role="group" aria-label="Tool"><Button className="btn sm" data-tool="select" title="Select (V)" data-icon-ui="select">Select</Button><Button className="btn sm" data-tool="direct" title="Direct selection (A)" data-icon-ui="direct">Direct</Button><Button className="btn sm" data-tool="pen" title="Pen (P): click an outline to add a point; Alt-click an anchor to remove it; click empty space to draw" data-icon-ui="pen">Pen</Button></div>
+          <div className="seg" role="group" aria-label="Tool"><Button className="btn sm icon" data-tool="select" data-control-tooltip="Select (V)" aria-label="Select" title="Select (V)" data-icon-ui="select"></Button><Button className="btn sm icon" data-tool="direct" data-control-tooltip="Direct selection (A)" aria-label="Direct selection" title="Direct selection (A)" data-icon-ui="direct"></Button><Button className="btn sm icon" data-tool="pen" data-control-tooltip="Pen (P)" aria-label="Pen" title="Pen (P): click an outline to add a point; Alt-click an anchor to remove it; click empty space to draw" data-icon-ui="pen"></Button></div>
           <span className="lbl">Handles</span>
           <div className="seg" role="group" aria-label="Handle mode"><Button className="btn sm" data-hmode="shape" title="Edit the form's own parameters" data-icon-ui="path">Shape</Button><Button className="btn sm" data-hmode="transform" title="Rotate / scale about the anchor point (T)" data-icon-ui="transform">Transform</Button></div></div>
         <div className="row"><span className="lbl">Boolean</span>
-          <div className="seg" role="group" aria-label="Boolean on selection"><Button className="btn sm" data-group="union" title="Union selection (⌘G)" data-icon-ui="union">Union</Button><Button className="btn sm" data-group="subtract" title="First minus the rest: later children become cutters" data-icon-ui="subtract">Subtract</Button><Button className="btn sm" data-group="intersect" data-icon-ui="intersect">Intersect</Button><Button className="btn sm" data-group="exclude" data-icon-ui="exclude">Exclude</Button></div></div>
+          <div className="seg" role="group" aria-label="Boolean on selection"><Button className="btn sm icon" data-group="union" aria-label="Union" data-control-tooltip="Union: combine selected shapes" title="Union selection (⌘G)" data-icon-ui="union"></Button><Button className="btn sm icon" data-group="subtract" aria-label="Subtract" data-control-tooltip="Subtract: first shape minus the rest" title="First minus the rest: later children become cutters" data-icon-ui="subtract"></Button><Button className="btn sm icon" data-group="intersect" aria-label="Intersect" data-control-tooltip="Intersect: keep only the overlap" data-icon-ui="intersect"></Button><Button className="btn sm icon" data-group="exclude" aria-label="Exclude" data-control-tooltip="Exclude: remove the overlap" data-icon-ui="exclude"></Button></div></div>
         <div className="row"><span className="lbl">Snap</span>
           <div className="seg" role="group" aria-label="Snap step" id="snapSeg">
             <Button className="btn sm" data-snap="0.1">0.1</Button><Button className="btn sm" data-snap="0.3">0.3</Button><Button className="btn sm" data-snap="0.5">0.5</Button><Button className="btn sm" data-snap="0">off</Button>

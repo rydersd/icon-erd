@@ -1,4 +1,5 @@
 import { formsIn, findSharedForms, linkSharedForms, publishSharedForms, remapSharedForms } from './shared-forms.js';
+import { mountControlTooltips } from './control-tooltips.js';
 import { createGlyphCore } from './glyph-core.js';
 import { LIBRARY } from './starter-library.js';
 import { uiSVG } from './ui-icons.js';
@@ -22,6 +23,7 @@ const abort = new AbortController();
 let disposed = false;
 const listen = (target, event, handler, options = {}) => target.addEventListener(event, handler, { ...options, signal: abort.signal });
 const core = createGlyphCore(paper);
+mountControlTooltips(root, listen);
 const $ = id => root.querySelector(`#${id}`);
 const SVGNS = 'http://www.w3.org/2000/svg';
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -192,7 +194,10 @@ function restoreHistory(from,to) {
   const entry=from.pop();
   to.push({glyph:lastSnap,peers:entry.peers.map(g=>S.lib[idx(g.name)]).filter(Boolean).map(clone)});
   for(const peer of entry.peers){const at=idx(peer.name);if(at>=0){S.lib[at]=clone(peer);queueSave(peer.name);updateLibItem(peer.name);}}
+  const oldWeight=S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
   lastSnap=entry.glyph;S.glyph=JSON.parse(lastSnap);storeCurrent();
+  const restoredWeight=S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
+  if(oldWeight!==restoredWeight)S.rt.weight=restoredWeight;
   journalSharedChanges(entry.peers.map(g=>g.name));
   pruneSel();renderAll();updateHistoryBtns();
 }
@@ -957,6 +962,7 @@ function overRuler(ev, axis) { const r = cv.getBoundingClientRect(); return axis
 let drag = null;
 function restore(n, snap) { Object.keys(n).forEach(k => delete n[k]); Object.assign(n, clone(snap)); }
 listen(cv, 'pointerdown', ev => {
+  if(ev.button === 2)return;
   if (ev.button === 1 || ev.altKey && S.tool === 'select' && !activeHandles.length) { drag = { pan: true, x: ev.clientX, y: ev.clientY, v: Object.assign({}, S.view) }; cv.classList.add('panning'); cv.setPointerCapture(ev.pointerId); return; }
   const pos = toUnits(ev); const px = 1 / pxPerUnit();
   cv.focus({ preventScroll: true });
@@ -1224,6 +1230,7 @@ let popup = null;
 const itemMenu = document.createElement('div');
 itemMenu.id = 'itemMenu'; itemMenu.className = 'floating-panel item-menu';
 itemMenu.setAttribute('role', 'menu'); itemMenu.hidden = true; root.appendChild(itemMenu);
+cv.setAttribute('aria-haspopup','menu');cv.setAttribute('aria-controls','itemMenu');cv.setAttribute('aria-expanded','false');
 function closePopup(restoreFocus = false) {
   if (!popup) return;
   const current = popup; popup = null; current.panel.hidden = true;
@@ -1322,6 +1329,59 @@ function groupMenu(selection, node) {
     $('symScope').value = 'group'; S.sel = [selection]; commit(); refresh(true);
   }, node.symmetry?.rotate === 6 && !node.symmetry?.mirror);
 }
+function snapSelectedAnchors() {
+  if(!S.snap)return;
+  const selected=S.selectedAnchors.length ? S.selectedAnchors : S.anchor!=null && primarySel()?.p!==null ? [{selection:primarySel(),index:S.anchor}] : [];
+  for(const anchor of selected) {
+    const point=getNode(anchor.selection)?.pts?.[anchor.index];if(!point)continue;
+    const matrix=fullMatrix(anchor.selection), world=ap(matrix,point);
+    const local=ap(inv(matrix),{x:snapV(world.x),y:snapV(world.y)});
+    point.x=r4(local.x);point.y=r4(local.y);
+  }
+  commit();refresh(true);status(`Snapped ${selected.length} anchor${selected.length===1?'':'s'} to the nearest ${S.snap}-unit grid intersection.`);
+}
+function openCanvasMenu(event) {
+  event.preventDefault();drag=null;lastDown=null;
+  const keyboard=event.type==='keydown';
+  if(!keyboard) {
+    const pos=toUnits(event), tolerance=8/pxPerUnit();
+    let anchorHit=null;
+    for(const form of formCache) {
+      if(form.n.shape!=='pen' || form.n.hidden || S.glyph.layers[form.l].visible===false || !inIso(form.l,form.p))continue;
+      const selection={l:form.l,p:form.p}, matrix=fullMatrix(selection);
+      form.n.pts.forEach((point,index)=>{const world=ap(matrix,point),distance=Math.hypot(world.x-pos.x,world.y-pos.y);if(distance<=tolerance && (!anchorHit || distance<anchorHit.distance))anchorHit={selection,index,distance};});
+    }
+    if(anchorHit){if(!anchorSelected(anchorHit.selection,anchorHit.index))selectAnchor(anchorHit.selection,anchorHit.index);S.hmode='shape';}
+    else {
+      const form=hitForm(pos);
+      if(form && !selCovers(form.l,form.p)){S.sel=[isoTargetFor(form)||{l:form.l,p:form.p}];S.anchor=null;S.selectedAnchors=[];}
+    }
+    refresh(true);
+  }
+  itemMenu.replaceChildren();
+  const selection=primarySel(), node=selection?.p!==null && selection ? getNode(selection) : null;
+  const anchors=S.selectedAnchors.length || (node?.shape==='pen' && S.anchor!=null ? 1 : 0);
+  itemMenu.setAttribute('aria-label', anchors ? 'Anchor options' : S.sel.length ? 'Selection options' : 'Canvas options');
+  menuHeading(anchors ? `${anchors} selected anchor${anchors===1?'':'s'}` : S.sel.length ? `${S.sel.length} selected object${S.sel.length===1?'':'s'}` : 'Canvas');
+  menuAction('Undo','undo',undo,null,!S.undo.length);menuAction('Redo','redo',redo,null,!S.redo.length);
+  if(anchors) {
+    menuHeading(S.snap ? `Snap spacing: ${S.snap}` : 'Snap is off');
+    menuAction('Snap to nearest','grid',snapSelectedAnchors,null,!S.snap);
+    if(anchors===1 && node?.shape==='pen')menuAction('Toggle corner / smooth','anchor',()=>toggleSmooth(selection,S.anchor));
+    menuAction('Delete selected anchors','delete',()=>{if(!deleteSelectedAnchors())deleteAnchor();});
+  } else if(S.sel.length) {
+    menuAction('Duplicate','duplicate',duplicate);menuAction('Delete selected objects','delete',del);
+    if(node?.children)groupMenu(selection,node);
+    else if(node && node.shape!=='pen')menuAction('Convert to editable path','pen',()=>{const converted=core.toPen(node);if(!converted)return;if(selection.p.length)getParent(selection).children[selection.p.at(-1)]=converted;else layerOf(selection).node=converted;commit();refresh(true);});
+    if(node)menuAction('Use as cutter','cutter',cutterAction,!!selection.p.length && getParent(selection)?.op==='subtract' && selection.p.at(-1)>0,!selection.p.length || getParent(selection)?.children.length<2);
+    if(S.sel.length>1)for(const op of ['union','subtract','intersect','exclude'])menuAction(op[0].toUpperCase()+op.slice(1),op,()=>group(op));
+    if(node?.component)menuAction('Detach shared instance','ungroup',()=>{delete node.component;commit();refresh(true);});
+  } else menuAction('Select all objects','select',()=>{S.sel=S.glyph.layers.map((_,l)=>({l,p:[]}));refresh(true);});
+  const bounds=cv.getBoundingClientRect();
+  openPopup(itemMenu,cv,keyboard?bounds.left+bounds.width/2:event.clientX,keyboard?bounds.top+bounds.height/2:event.clientY,()=>cv);
+}
+listen(cv,'contextmenu',openCanvasMenu);
+listen(cv,'keydown',event=>{if(event.key==='ContextMenu' || event.key==='F10' && event.shiftKey){event.stopPropagation();openCanvasMenu(event);}});
 function openTreeMenu(selection, event) {
   event.preventDefault(); selectRow(selection);
   itemMenu.replaceChildren();
@@ -2120,6 +2180,7 @@ function renderLibrary() {
 function updateLibItem(name) {
   const b = LIBEL.get(name); if (!b) return;
   const g = S.lib[idx(name)]; if (!g) return;
+  thumbCache.delete(g); // Shared forms publish into existing peer objects; cached thumbnails must follow.
   b.querySelector('.edited').hidden = !isEdited(g); b.title = tileTitle(g);
   if (b.dataset.painted) paintThumb(b);
 }
@@ -2258,9 +2319,10 @@ function applySetSettings() {
     rounding: $('setRoundingEnabled').checked ? Math.max(0, Math.min(6, +$('setRounding').value || 0)) : 0,
     endRounding: $('setEndRoundingEnabled').checked ? Math.max(0, Math.min(6, +$('setEndRounding').value || 0)) : 0,
   };
-  try { localStorage.setItem('gw-open-pending-set-style', JSON.stringify(style)); } catch {}
-  S.glyph.setStyle = clone(style); commit();
-  S.lib = S.lib.map(glyph => ({ ...glyph, setStyle: clone(style) }));
+  const peers=S.lib.filter((glyph,i)=>i!==S.cur && JSON.stringify(glyph.setStyle)!==JSON.stringify(style)).map(clone);
+  S.glyph.setStyle = clone(style);
+  S.lib = S.lib.map((glyph,i) => i===S.cur ? glyph : ({ ...glyph, setStyle: clone(style) }));
+  commit(peers);
   for (const glyph of S.lib) queueSave(glyph.name);
   S.rt.weight = style.thickness ?? S.glyph.weight ?? 1.2;
   refresh(true); renderLibrary(); status(`Set settings applied to ${S.lib.length} icons.`);

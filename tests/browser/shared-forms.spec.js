@@ -10,9 +10,11 @@ test('shared forms link through UI, propagate direct edits, undo every peer, pre
  await expect(page.locator('.shared-form-card')).toHaveCount(1);await page.getByRole('button',{name:'Link repeated form',exact:true}).click();
  await expect(page.locator('#gForms [data-component]')).toHaveCount(1);
  expect(await page.evaluate(()=>window.__gw.S.lib.find(g=>g.name==='test-cloud-rain').layers[0].node.component.name)).toBe('Cloud silhouette');
+ const peerThumb=page.locator('.lib-item[data-name="test-cloud-rain"] .thumb');await peerThumb.scrollIntoViewIfNeeded();await expect(peerThumb.locator('svg')).toHaveCount(1);const originalThumb=await peerThumb.innerHTML();
  await page.evaluate(()=>{const w=window.__gw;w.S.sel=[{l:0,p:[]}];w.S.glyph.layers[0].node.pts[1].y=3;w.commit();w.refresh(true);});
  expect(await page.evaluate(()=>window.__gw.S.lib.find(g=>g.name==='test-cloud-rain').layers[0].node.pts[1])).toMatchObject({x:16,y:3});
- await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.lib.find(g=>g.name==='test-cloud-rain').layers[0].node.pts[1].y)).toBe(4);
+ expect(await peerThumb.innerHTML()).not.toBe(originalThumb);
+ await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.lib.find(g=>g.name==='test-cloud-rain').layers[0].node.pts[1].y)).toBe(4);await expect(peerThumb).toHaveJSProperty('innerHTML',originalThumb);
  await page.locator('#redoBtn').click();expect(await page.evaluate(()=>window.__gw.S.lib.find(g=>g.name==='test-cloud-rain').layers[0].node.pts[1].y)).toBe(3);
  // Object movement moves only this instance; direct-selection geometry is shared.
  await page.evaluate(()=>{window.__gw.setTool('select');document.activeElement?.blur();});await page.keyboard.press('ArrowRight');

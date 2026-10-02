@@ -98,3 +98,11 @@ Final handoff and deployment: application source `e64a40f`, Cloudflare version `
 - Hosted shared-form tests: 3 passed, covering the actual EDS nine-cloud inspector edit, peer-aware undo/redo, instance movement/detach, reload and import ID isolation. Live HTML plus all nine linked assets byte-match the locally tested build.
 - The owner's saved 584-icon browser library was refreshed without losing edits. The reviewed nine-cloud proposal was linked as `Cloud silhouette`; the live inspector reports nine instances in nine icons and browser storage reports Saved. Screenshot: `artifacts/owner-shared-cloud.jpg` (ignored).
 - Refreshed ignored `eds-icons-current.zip` from owner export `glyph-library-all-20261002-2023.zip`: 580 EDS icons, 580 originals, 580 SVG files, nine linked cloud instances sharing one component ID. Existing reconstruction statuses remain 164 existing centerlines and 416 needing review.
+
+## Icon controls, canvas menus and Undo redraws
+
+- Selection/Direct Selection/Pen and Boolean actions are icon-only, with accessible names, hover/focus tooltips, hoverable tooltip surfaces and Escape dismissal. Group frames have rectangular individual buttons, two-pixel spacing and subtle shadows. Original Boolean diagrams distinguish Union, Subtract, Intersect and Exclude; Cutter remains scissors.
+- Canvas context menus target anchors or object selections; Shift+F10 / Context Menu opens the same accessible menu. Anchor Snap to nearest uses the active Snap spacing in drawing-plane coordinates, including transformed objects and multi-anchor selections. Snap off disables it, and right-click does not draw in Pen mode.
+- Fixed stale Undo/Redo runtime stroke weight, peer-aware undo for set-wide style edits, and cached shared-instance library thumbnails. The tests compare rendered SVG paths/styles as well as document data.
+- Verified static build, 33 unit cases and 37 local browser cases. A prior full-run attempt hit ENOSPC and a separate test expectation incorrectly assumed starter weight 1.2 rather than the actual 1.6; the corrected regression and full rerun passed after generated Next output/cache cleanup. The tested out/ output was retained.
+- This validation covers the changed controls' keyboard, labeling and tooltip behavior; it is not a whole-application accessibility certification.
