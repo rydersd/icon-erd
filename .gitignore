@@ -14,3 +14,6 @@ out/
 
 # Current private EDS icon handoff exported from owner browser.
 /eds-icons-current.zip
+
+# Local feature wiki and private IllTool adaptation notes.
+/wiki/

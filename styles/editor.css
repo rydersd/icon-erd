@@ -182,6 +182,7 @@ textarea { height: auto; padding: 6px; width: 100%; resize: vertical; font-famil
 .ruler-corner { background: var(--ruler-bg); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 #canvas { display: block; width: 100%; aspect-ratio: 1; background: var(--canvas-out); touch-action: none; cursor: default; }
 #canvas.pen { cursor: crosshair; }
+#canvas.area { cursor: crosshair; }
 .palette .more { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 4px; }
 .palette .more .btn { min-width: 0; overflow: hidden; }
 .palette .more .btn { height: 32px; flex-direction: row; font-size: 10.5px; }

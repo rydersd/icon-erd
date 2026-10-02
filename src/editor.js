@@ -15,6 +15,8 @@ import { TEMPLATES, DEFAULT_SHAPES, PRIMARY_TOOLS, MORE_TOOLS } from './template
 import { ID, mul, ap, apv, inv } from './affine.js';
 import { regularEllipse } from './regular-shape.js';
 import { mergeNearbyAnchors } from './anchor-merge.js';
+import { cleanupAnchors } from './anchor-cleanup.js';
+import { mergeAnchorCorners } from './anchor-corner.js';
 import { anchorMarker } from './anchor-marker.js';
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, setShortcut, shortcutFromEvent } from './shortcuts.js';
 import { inspectGeometry } from './geometry-inspection.js';
@@ -59,10 +61,13 @@ const S = {
   selectedAnchors: [],
   anchor: null, // index of the selected anchor on the selected pen path
   tool: 'select', hmode: 'shape', lockAspect: true,
+  areaMode: 'marquee', areaScope: 'objects',
   rt: { weight: 1.2, cap: 'round', join: 'round', hint: false, rtl: false },
   undo: [], redo: [], resolved: [],
 };
 let penDraft = null; // { s } while the pen is placing anchors
+let areaPolygon = null;
+try { const mode=localStorage.getItem('gw-area-mode');if(['marquee','lasso','polygon'].includes(mode))S.areaMode=mode; }catch{}
 function idx(name) { return S.lib.findIndex(g => g.name === name); }
 
 // ---------- node addressing ----------
@@ -337,6 +342,7 @@ function status(msg, err) { const el = $('status'); el.textContent = msg || ''; 
 
 // ---------- load ----------
 function loadGlyph(i) {
+  areaPolygon=null;if(drag?.kind==='area-selection')drag=null;$('anchorMarquee')?.remove();
   closeGroupReview();
   S.cur = i; S.glyph = clone(S.lib[i] || TEMPLATES.blank()); S.sel = []; lastSnap = JSON.stringify(S.glyph); penDraft = null; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
   ensureLayerNames(S.glyph); lastSnap = JSON.stringify(S.glyph);
@@ -847,6 +853,37 @@ function selectAnchor(selection, index, extend = false) {
   S.sel = S.selectedAnchors.length ? S.selectedAnchors.map(anchor => anchor.selection).filter((selection, i, all) => all.findIndex(other => same(other, selection)) === i) : [selection];
   S.anchor = S.selectedAnchors.find(anchor => same(anchor.selection, primarySel()))?.index ?? null;
 }
+const areaLabels={marquee:'Marquee',lasso:'Lasso',polygon:'Polygon lasso'};
+function areaBase(event, scope) { return {scope,combine:event.altKey?'subtract':event.shiftKey?'add':'replace',base:clone(scope==='anchors'?S.selectedAnchors:S.sel)}; }
+function renderArea(points) {
+  $('anchorMarquee')?.remove();if(!points.length)return;
+  el('path',{id:'anchorMarquee',d:points.map((p,i)=>`${i?'L':'M'}${p.x},${p.y}`).join('')+(points.length>2?'Z':''),fill:'var(--sel)','fill-opacity':0.12,stroke:'var(--sel)','stroke-width':1/pxPerUnit(),'stroke-dasharray':`${4/pxPerUnit()} ${3/pxPerUnit()}`,'pointer-events':'none'},cv);
+}
+function applyAreaSelection(points, state) {
+  $('anchorMarquee')?.remove();if(points.length<3)return;
+  const region=new paper.Path({insert:false,closed:true,segments:points.map(p=>[p.x,p.y])}), hits=[];
+  if(state.scope==='anchors') {
+    for(const form of leafList()) {
+      if(form.n.shape!=='pen' || form.n.hidden || S.glyph.layers[form.l].visible===false || !inIso(form.l,form.p))continue;
+      const selection={l:form.l,p:form.p}, matrix=fullMatrix(selection);
+      form.n.pts.forEach((point,index)=>{const p=ap(matrix,point);if(region.contains([p.x,p.y]))hits.push({selection,index});});
+    }
+  } else {
+    for(const form of formCache) {
+      if(form.n.hidden || S.glyph.layers[form.l].visible===false || !inIso(form.l,form.p) || !form.fm)continue;
+      const paths=[...(form.fm.closed?[form.fm.closed]:[]),...form.fm.open];
+      if(paths.some(path=>region.getIntersections(path).length || path.contains(region.firstSegment.point) || region.contains(path.firstSegment?.point || path.bounds.center)))hits.push(isoTargetFor(form)||{l:form.l,p:form.p});
+    }
+  }
+  region.remove();
+  const equal=state.scope==='anchors'?(a,b)=>same(a.selection,b.selection)&&a.index===b.index:same;
+  const values=(state.combine==='subtract'?state.base.filter(a=>!hits.some(b=>equal(a,b))):state.combine==='add'?[...state.base,...hits]:hits).filter((a,i,all)=>all.findIndex(b=>equal(a,b))===i);
+  if(state.scope==='anchors'){S.selectedAnchors=values;S.sel=values.map(a=>a.selection).filter((s,i,all)=>all.findIndex(other=>same(other,s))===i);S.hmode='shape';}
+  else {S.sel=values;S.selectedAnchors=[];}
+  S.anchor=S.selectedAnchors.find(a=>same(a.selection,primarySel()))?.index ?? null;S.sourceAnchor=null;refresh(true);
+  status(`Selected ${values.length} ${state.scope}. Shift adds; Option/Alt subtracts.`);
+}
+function finishAreaPolygon() { if(!areaPolygon)return;const pending=areaPolygon;areaPolygon=null;applyAreaSelection(pending.points,pending); }
 function pointMarker(point, size, kind, selected, parent, attrs = {}) {
   const common = { fill: selected ? 'var(--sel)' : 'var(--canvas-bg)', stroke: 'var(--sel)', 'stroke-width': 1.5 / pxPerUnit(), 'data-point-kind': kind, 'data-selected': String(selected), ...attrs };
   if (kind === 'circle') return el('circle', { ...common, cx: point.x, cy: point.y, r: size }, parent);
@@ -872,7 +909,8 @@ function renderSelection() {
   const ps = primarySel(); const n = ps && ps.p !== null && getNode(ps);
   const sz = 4.5 * px;
   const square = h => el('rect', Object.assign({ x: h.x - sz, y: h.y - sz, width: sz * 2, height: sz * 2, fill: 'var(--canvas-bg)', stroke: 'var(--sel)', 'stroke-width': 1.5 }, NS), gS);
-  const shapeSelections = S.tool === 'direct' ? S.sel : S.sel.length === 1 && (S.tool === 'select' || (S.tool === 'pen' && !penDraft)) && S.hmode === 'shape' ? [ps] : [];
+  const anchorMode=S.tool==='direct' || S.tool==='area' && S.areaScope==='anchors';
+  const shapeSelections = anchorMode ? S.sel : S.sel.length === 1 && (S.tool === 'select' || (S.tool === 'pen' && !penDraft)) && S.hmode === 'shape' ? [ps] : [];
   for (const selection of shapeSelections) {
     if (selection.p === null) continue;
     const node = getNode(selection); if (!node?.shape || S.tool === 'direct' && node.shape !== 'pen') continue;
@@ -887,7 +925,7 @@ function renderSelection() {
       else el('path', Object.assign({ d: `M${H.x} ${H.y-sz*1.2}L${H.x+sz*1.2} ${H.y}L${H.x} ${H.y+sz*1.2}L${H.x-sz*1.2} ${H.y}Z`, fill: 'var(--sel)', stroke: 'var(--sel)', 'stroke-width': 1 }, NS), gS);
     }
   }
-  if (n && S.sel.length === 1 && S.tool !== 'direct') {
+  if (n && S.sel.length === 1 && !anchorMode) {
     if (S.hmode === 'transform') {
       const b = core.rawBounds(n);
       if (b) {
@@ -1023,7 +1061,7 @@ function toggleSmooth(s, i) {
   S.anchor = i; commit(); refresh(true);
 }
 function deleteSelectedAnchors() {
-  if (S.tool !== 'direct' || S.selectedAnchors.length < 2) return false;
+  if (!(S.tool==='direct' || S.tool==='area' && S.areaScope==='anchors') || S.selectedAnchors.length < 2) return false;
   const groups = new Map();
   for (const anchor of S.selectedAnchors) { const key = treeKey(anchor.selection); if (!groups.has(key)) groups.set(key, { selection: anchor.selection, indices: [] }); groups.get(key).indices.push(anchor.index); }
   for (const { selection, indices } of groups.values()) { const node = getNode(selection); if (node.pts.length-indices.length < (node.closed ? 3 : 2)) { status('Keep at least three points on a closed path or two on an open path.', true); return true; } }
@@ -1060,6 +1098,14 @@ listen(cv, 'pointerdown', ev => {
   if (ev.button === 1 || ev.altKey && S.tool === 'select' && !activeHandles.length) { drag = { pan: true, x: ev.clientX, y: ev.clientY, v: Object.assign({}, S.view) }; cv.classList.add('panning'); cv.setPointerCapture(ev.pointerId); return; }
   const pos = toUnits(ev); const px = 1 / pxPerUnit();
   cv.focus({ preventScroll: true });
+  if(S.tool==='area') {
+    if(S.areaMode==='polygon') {
+      if(areaPolygon?.points.length>=3 && Math.hypot(pos.x-areaPolygon.points[0].x,pos.y-areaPolygon.points[0].y)<8/pxPerUnit()){finishAreaPolygon();return;}
+      if(!areaPolygon)areaPolygon={...areaBase(ev,S.areaScope),points:[]};
+      areaPolygon.points.push(pos);renderArea(areaPolygon.points);return;
+    }
+    drag={kind:'area-selection',mode:S.areaMode,...areaBase(ev,S.areaScope),from:pos,to:pos,points:[pos]};cv.setPointerCapture(ev.pointerId);return;
+  }
   const now = performance.now();
   if (S.tool === 'select' && ev.button === 0 && !ev.altKey && lastDown && now - lastDown.t < 400 && Math.hypot(ev.clientX - lastDown.x, ev.clientY - lastDown.y) < 5) { lastDown = null; drag = null; onDoubleClick(ev); return; }
   lastDown = { t: now, x: ev.clientX, y: ev.clientY };
@@ -1079,6 +1125,7 @@ listen(cv, 'pointerdown', ev => {
   if (hit) {
     const s = hit.s || primarySel(); const n = getNode(s);
     if (S.tool === 'direct' && hit.ai != null && hit.kind === 'pt') {
+      if(ev.altKey) { S.selectedAnchors=S.selectedAnchors.filter(a=>!same(a.selection,s)||a.index!==hit.ai);S.anchor=null;refresh(true);return; }
       if (ev.shiftKey || !anchorSelected(s, hit.ai)) selectAnchor(s, hit.ai, ev.shiftKey);
       renderTree(); renderInspector(); renderSelection();
       if (anchorSelected(s, hit.ai)) startAnchorDrag(pos, ev.pointerId);
@@ -1092,7 +1139,10 @@ listen(cv, 'pointerdown', ev => {
   const gi = hitGuide(pos);
   if (gi >= 0) { drag = { kind: 'guide', i: gi, moved: false }; cv.setPointerCapture(ev.pointerId); return; }
   const f = hitForm(pos);
-  if (!f) { if (!ev.shiftKey) { S.sel = []; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null; renderTree(); renderSelection(); renderInspector(); } return; }
+  if (!f) {
+    if(S.tool==='direct') { drag={kind:'area-selection',mode:'marquee',...areaBase(ev,'anchors'),from:pos,to:pos,points:[pos]};cv.setPointerCapture(ev.pointerId);return; }
+    if (!ev.shiftKey) { S.sel = []; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null; renderTree(); renderSelection(); renderInspector(); } return;
+  }
   S.anchor = null;
   if (S.tool === 'direct') {
     let target = { l: f.l, p: f.p }, node = getNode(target);
@@ -1112,10 +1162,10 @@ listen(cv, 'pointerdown', ev => {
         if (!best) return; target = { l: best.candidate.l, p: best.candidate.p }; node = getNode(target);
       }
     }
-    if (!ev.shiftKey) S.selectedAnchors = [];
+    if (!ev.shiftKey && !ev.altKey) S.selectedAnchors = [];
     S.sel = [target]; S.hmode = 'shape';
     const index = node.pts.findIndex(q => { const world = ap(fullMatrix(target), q); return Math.hypot(world.x - pos.x, world.y - pos.y) <= 8 * px; });
-    if (index >= 0) selectAnchor(target, index, ev.shiftKey); else S.anchor = null;
+    if (index >= 0) { if(ev.altKey)S.selectedAnchors=S.selectedAnchors.filter(a=>!same(a.selection,target)||a.index!==index);else selectAnchor(target, index, ev.shiftKey); } else S.anchor = null;
     renderTree(); renderInspector(); renderSelection();
     if (index >= 0) {
       const handle = activeHandles.find(handle => handle.ai === index && handle.kind === 'pt');
@@ -1139,9 +1189,14 @@ listen(cv, 'pointermove', ev => {
   const pos = toUnits(ev);
   handlePointer = pos; renderHandleHover();
   if (!drag) {
+    if(areaPolygon){renderArea([...areaPolygon.points,pos]);return;}
     if (S.tool === 'pen' && penDraft) { penHover = snapPt(pos); renderSelection(); }
     else if (S.tool === 'pen') { const o = hitOutline(pos); const had = !!insertHover; insertHover = o ? { x: o.x, y: o.y } : null; cv.classList.toggle('insert', !!o); if (o || had) renderSelection(); }
     return;
+  }
+  if(drag.kind==='area-selection') {
+    drag.to=pos;if(drag.mode==='lasso')drag.points.push(pos);
+    renderArea(drag.mode==='lasso'?drag.points:[drag.from,{x:pos.x,y:drag.from.y},pos,{x:drag.from.x,y:pos.y}]);return;
   }
   if (drag.kind === 'anchors') {
     const dx = snapV(pos.x-drag.from.x), dy = snapV(pos.y-drag.from.y);
@@ -1218,6 +1273,14 @@ function mergeDraggedAnchors() {
 }
 function endDrag(ev) {
   if (!drag) return; cv.classList.remove('panning');
+  if(drag.kind==='area-selection') {
+    $('anchorMarquee')?.remove();
+    if(ev?.type!=='pointercancel') {
+      const {from,to}=drag;
+      applyAreaSelection(drag.mode==='lasso'?drag.points:[from,{x:to.x,y:from.y},to,{x:from.x,y:to.y}],drag);
+    }
+    drag=null;refresh(true);return;
+  }
   if (drag.kind === 'pen') { penUp(); drag = null; return; }
   if (drag.kind === 'anchor' || drag.kind === 'axis-move' || drag.kind === 'axis-rot') { commit(); refresh(true); drag = null; return; }
   if (drag.kind === 'guide' || drag.kind === 'newGuide') {
@@ -1232,6 +1295,7 @@ function endDrag(ev) {
 listen(cv, 'pointerup', ev => { endDrag(ev); handlePointer = toUnits(ev); renderHandleHover(); });
 listen(cv, 'pointercancel', ev => { endDrag(ev); handlePointer = null; renderHandleHover(); });
 listen(cv, 'pointerleave', () => { handlePointer = null; renderHandleHover(); if (penHover || insertHover) { penHover = null; insertHover = null; renderSelection(); } });
+listen(cv,'dblclick',()=>{if(S.tool==='area' && S.areaMode==='polygon')finishAreaPolygon();});
 // double-click is detected from pointerdowns: the canvas re-renders between the two clicks, so the native
 // dblclick (which needs both clicks on the same element) is unreliable here
 let lastDown = null;
@@ -1468,8 +1532,40 @@ function snapSelectedAnchors() {
   }
   commit();refresh(true);status(`Snapped ${selected.length} anchor${selected.length===1?'':'s'} to the nearest ${S.snap}-unit grid intersection.`);
 }
+function cleanupSelectedAnchors() {
+  const anchors=S.selectedAnchors.length ? S.selectedAnchors : S.anchor!=null && primarySel()?.p!==null ? [{selection:primarySel(),index:S.anchor}] : [];
+  const groups=new Map();let removed=0;
+  for(const anchor of anchors) { const key=treeKey(anchor.selection);if(!groups.has(key))groups.set(key,{selection:anchor.selection,indices:[]});groups.get(key).indices.push(anchor.index); }
+  for(const {selection,indices} of groups.values()) {
+    const node=getNode(selection);if(!node || node.deform?.length)continue;
+    const result=cleanupAnchors(node,indices,fullMatrix(selection));removed+=result.removed;
+    S.selectedAnchors=S.selectedAnchors.map(anchor=>same(anchor.selection,selection)?{...anchor,index:result.indexMap[anchor.index]}:anchor).filter(anchor=>anchor.index>=0);
+  }
+  S.anchor=S.selectedAnchors.find(anchor=>same(anchor.selection,primarySel()))?.index ?? null;S.sourceAnchor=null;
+  if(removed){commit();refresh(true);}
+  status(removed ? `Cleanup removed ${removed} redundant anchor${removed===1?'':'s'} (0.03-unit outline tolerance). Sharp corners and unselected anchors retained. Undo restores the original.` : 'Cleanup found no redundant selected anchors within 0.03 units. Sharp corners and unselected anchors retained.');
+}
+function selectAllAnchors() {
+  const forms=leafList().filter(form=>form.n.shape==='pen' && !form.n.hidden && S.glyph.layers[form.l].visible!==false && inIso(form.l,form.p) && (!S.sel.length || selCovers(form.l,form.p)));
+  S.selectedAnchors=forms.flatMap(form=>form.n.pts.map((_,index)=>({selection:{l:form.l,p:form.p},index})));
+  S.sel=forms.map(form=>({l:form.l,p:form.p}));S.anchor=S.selectedAnchors.find(anchor=>same(anchor.selection,primarySel()))?.index ?? null;
+  S.hmode='shape';refresh(true);status(`Selected ${S.selectedAnchors.length} anchors. Right-click for Cleanup.`);
+}
+function mergeSelectedCorners() {
+  const groups=new Map();let merged=0;
+  for(const anchor of S.selectedAnchors) { const key=treeKey(anchor.selection);if(!groups.has(key))groups.set(key,{selection:anchor.selection,indices:[]});groups.get(key).indices.push(anchor.index); }
+  for(const {selection,indices} of groups.values()) {
+    const node=getNode(selection);if(!node || node.deform?.length)continue;
+    const result=mergeAnchorCorners(node,indices);merged+=result.merged;
+    S.selectedAnchors=S.selectedAnchors.map(anchor=>same(anchor.selection,selection)?{...anchor,index:result.indexMap[anchor.index]}:anchor);
+  }
+  S.selectedAnchors=S.selectedAnchors.filter((anchor,i,all)=>all.findIndex(other=>same(anchor.selection,other.selection) && anchor.index===other.index)===i);
+  S.anchor=S.selectedAnchors.find(anchor=>same(anchor.selection,primarySel()))?.index ?? null;S.sourceAnchor=null;
+  if(merged){commit();refresh(true);}
+  status(merged ? `Merged ${merged} redundant anchors into sharp corners. Exterior controls retained; apply procedural rounding to the new corners. Undo restores the original.` : 'Select two or more consecutive anchors at each corner. Whole paths, open endpoints and distant tangent intersections are retained.');
+}
 function openCanvasMenu(event) {
-  event.preventDefault();drag=null;lastDown=null;
+  event.preventDefault();drag=null;lastDown=null;areaPolygon=null;$('anchorMarquee')?.remove();
   const keyboard=event.type==='keydown';
   if(!keyboard) {
     const pos=toUnits(event), tolerance=8/pxPerUnit();
@@ -1495,6 +1591,9 @@ function openCanvasMenu(event) {
   if(anchors) {
     menuHeading(S.snap ? `Snap spacing: ${S.snap}` : 'Snap is off');
     menuAction('Snap to nearest','grid',snapSelectedAnchors,null,!S.snap);
+    menuAction('Cleanup','anchor',cleanupSelectedAnchors);
+    menuAction('Merge to corner','anchor',mergeSelectedCorners,null,anchors<2);
+    menuAction('Select all anchors','select',selectAllAnchors);
     if(anchors===1 && node?.shape==='pen')menuAction('Toggle corner / smooth','anchor',()=>toggleSmooth(selection,S.anchor));
     menuAction('Delete selected anchors','delete',()=>{if(!deleteSelectedAnchors())deleteAnchor();});
   } else if(S.sel.length) {
@@ -1756,7 +1855,7 @@ function del() {
 }
 function nudge(dx, dy) {
   const selected = primarySel(), node = selected?.p !== null && selected && getNode(selected);
-  if (S.tool === 'direct' && S.selectedAnchors.length) {
+  if ((S.tool === 'direct' || S.tool==='area' && S.areaScope==='anchors') && S.selectedAnchors.length) {
     for (const anchor of S.selectedAnchors) { const point = getNode(anchor.selection)?.pts?.[anchor.index]; if (!point) continue; const delta = apv(inv(fullMatrix(anchor.selection)), { x: dx, y: dy }); point.x = r4(point.x+delta.x); point.y = r4(point.y+delta.y); }
     commit(); refresh(true); return true;
   }
@@ -1764,10 +1863,14 @@ function nudge(dx, dy) {
   nodes.forEach(s => translateSel(s, dx, dy)); commit(); refresh(true); return true;
 }
 function setTool(t) {
+  if(t==='area' && S.tool!=='area')S.areaScope=S.tool==='direct'?'anchors':'objects';
+  areaPolygon=null;$('anchorMarquee')?.remove();
   if (S.tool === 'pen' && t !== 'pen') finishPen();
   S.tool = t; if (t === 'direct') S.hmode = 'shape'; else if (t === 'select') { S.anchor = null; S.selectedAnchors = []; S.hmode = 'transform'; }
-  cv.classList.toggle('direct', t === 'direct'); cv.classList.toggle('pen', t === 'pen'); syncToggles(); renderSelection();
+  cv.classList.toggle('direct', t === 'direct'); cv.classList.toggle('pen', t === 'pen');cv.classList.toggle('area',t==='area'); syncToggles(); renderSelection();
   if (t === 'pen') status('Pen: click to place anchors, drag for curves, click the first anchor to close, Enter or Esc to finish.');
+  if(t==='area')status(`${areaLabels[S.areaMode]} selection: ${S.areaScope}. Shift adds; Option/Alt subtracts. ${S.areaMode==='polygon'?'Click vertices; Enter, double-click or click first vertex to finish; Escape cancels.':'Drag to select.'}`);
+  const area=$('areaSelectBtn');area.classList.toggle('active',t==='area');area.setAttribute('aria-pressed',String(t==='area'));
 }
 
 // Keyboard preferences are editor chrome, kept outside exported artwork.
@@ -2417,6 +2520,14 @@ MORE_TOOLS.forEach(k => palBtn(k, more));
 root.querySelectorAll('[data-group]').forEach(b => b.onclick = () => group(b.dataset.group));
 root.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
 root.querySelectorAll('[data-hmode]').forEach(b => b.onclick = () => { S.hmode = b.dataset.hmode; syncToggles(); renderSelection(); });
+function updateAreaTool() {
+  const button=$('areaSelectBtn'),name=areaLabels[S.areaMode];button.innerHTML=uiSVG(S.areaMode==='polygon'?'polygon-lasso':S.areaMode);button.setAttribute('aria-label',`${name} selection`);button.dataset.controlTooltip=`${name} selection. Shift adds; Option/Alt subtracts.`;
+  root.querySelectorAll('[data-area-choice]').forEach(choice=>choice.setAttribute('aria-checked',String(choice.dataset.areaChoice===S.areaMode)));
+}
+$('areaSelectBtn').onclick=()=>setTool('area');
+$('areaSelectToggle').onclick=()=>{if(popup?.panel===$('areaSelectionMenu')){closePopup(true);return;}const button=$('areaSelectToggle'),bounds=button.getBoundingClientRect();openPopup($('areaSelectionMenu'),button,bounds.left,bounds.bottom+6,()=>button);};
+root.querySelectorAll('[data-area-choice]').forEach(choice=>choice.onclick=()=>{S.areaMode=choice.dataset.areaChoice;try{localStorage.setItem('gw-area-mode',S.areaMode);}catch{}updateAreaTool();closePopup(true);setTool('area');});
+updateAreaTool();
 $('ungroupBtn').onclick = ungroup; $('upBtn').onclick = () => move(-1); $('downBtn').onclick = () => move(1);
 $('dupBtn').onclick = duplicate; $('delBtn').onclick = del; $('addLayerBtn').onclick = () => addLayer(true);
 $('undoBtn').onclick = undo; $('redoBtn').onclick = redo;
@@ -2610,6 +2721,7 @@ listen(document, 'keydown', e => {
     if(e.key === 'Escape'){e.preventDefault();$('clearIconSelectionBtn').click();return;}
   }
   if (penDraft && (e.key === 'Enter' || e.key === 'Escape')) { e.preventDefault(); finishPen(); setTool('select'); return; }
+  if(areaPolygon && (e.key==='Enter' || e.key==='Escape')){e.preventDefault();if(e.key==='Enter')finishAreaPolygon();else {areaPolygon=null;$('anchorMarquee')?.remove();status('Polygon selection cancelled.');}return;}
   const key = shortcutFromEvent(e), action = Object.keys(shortcuts).find(action => shortcuts[action] === key);
   if (action) {
     e.preventDefault();
@@ -2617,7 +2729,7 @@ listen(document, 'keydown', e => {
     else if (action === 'undo') undo(); else if (action === 'redo') redo();
     else if (action === 'duplicate') duplicate(); else if (action === 'group') group('union'); else if (action === 'ungroup') ungroup();
     else if (action === 'delete') { if (!deleteAnchor()) del(); }
-    else if (action === 'selectAll') { S.sel = S.glyph.layers.filter(layer => layer.visible !== false).map(layer => ({ l: S.glyph.layers.indexOf(layer), p: [] })); S.anchor = null; refresh(true); }
+    else if (action === 'selectAll') { if(S.tool==='direct' || S.tool==='area' && S.areaScope==='anchors')selectAllAnchors();else { S.sel = S.glyph.layers.filter(layer => layer.visible !== false).map(layer => ({ l: S.glyph.layers.indexOf(layer), p: [] })); S.anchor = null; S.selectedAnchors=[];refresh(true); } }
     else if (action === 'handles') { S.hmode = S.hmode === 'transform' ? 'shape' : 'transform'; syncToggles(); renderSelection(); }
     return;
   }
