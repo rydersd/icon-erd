@@ -32,3 +32,14 @@ Application source commit: `279b0f3a444300abe81da9dcbfaaa9e2bdf55153`. Cloudflar
 - `npm test`: 19 passed. Static build passed. Local Chromium suite: 11 passed. Private import validation: all 962 imported icons parsed, resolved and round-tripped.
 - Five targeted Chromium tests passed against the live site: rounding, group menus/cutter geometry, physical dragging/undo/reload, Show palette/mobile bounds and thumbnail menus. All ten referenced deployed HTML/JS/CSS files matched the local build byte for byte.
 - A first menu test exposed dismissal caused by programmatic focus scrolling; changing dismissal to outside wheel input repaired it. The final full local suite and targeted hosted tests passed after that repair.
+
+## Independent rounding, anchor tags, grid spacing and cutter toggles
+
+This update supersedes the combined corner/end-cap rounding behavior recorded above.
+
+- Separate Corner radius and End radius controls each have an enable switch. Older JSON without `endRounding` retains its prior combined behavior until settings are edited.
+- Stroke tips use explicit filled geometry: small radii round the two outer tip corners, saturating at half the stroke width. Canvas, isolation, previews, runtime SVG, baked SVG and PNG share this geometry. Runtime stroke-width overrides scale the cap geometry proportionally.
+- Source-anchor rows support click and keyboard selection, highlight the selected point and select a corresponding editable pen anchor when available. Round checkboxes opt individual source anchors in/out; tags survive undo, browser reload and JSON. Tags follow node transforms and symmetry. Set rounding applies after open strokes are joined, including isolated geometry.
+- View grid spacing is independent of Snap and persists locally.
+- Use as cutter is a checked toggle in the context menu, Layers toolbar and inspector. Toggle off restores normal geometry; when other cutters remain, their subtraction stays grouped separately.
+- `npm test`: 23 passed. Static build passed. Local Chromium suite: 17 passed, including private-pack round trips, independent radii, actual SVG raster-pixel checks, anchor tags/selection/undo/reload, grid spacing and cutter toggling. Desktop/mobile and dark-theme screenshots were inspected.

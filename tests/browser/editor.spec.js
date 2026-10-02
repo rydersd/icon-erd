@@ -57,6 +57,7 @@ test('app icon, per-layer colors, set settings, points and overlap diagnostics',
   await expect(page.locator('#pvLight path[fill="#ff0000"]').first()).toHaveCount(1);
   const pngPromise=page.waitForEvent('download');await page.locator('#downloadPng').click();const png=await pngPromise;const bytes=await readFile(await png.path());expect(bytes.readUInt32BE(16)).toBe(1024);expect(bytes.readUInt32BE(20)).toBe(1024);
   await page.locator('#setThicknessEnabled').check(); await page.locator('#setRoundingEnabled').check();
+  await page.locator('#setEndRoundingEnabled').check();
   expect(await page.evaluate(()=>window.__gw.S.lib.every(g=>g.setStyle.thickness===1.6&&g.setStyle.rounding===0.5))).toBe(true);
   await expect(page.locator('#pointRows tr').first()).toBeVisible();
   await page.evaluate(()=>{const app=window.__gw; app.S.glyph.layers[1].node.children=[{shape:'line',x1:4,y1:12,x2:20,y2:12},{shape:'line',x1:20,y1:12,x2:4,y2:12}];app.refresh(true);});
@@ -72,15 +73,17 @@ test('corner rounding controls stroke joins and caps across canvas, previews and
   await expect(canvas).toHaveAttribute('stroke-linecap', 'butt');
   await expect(canvas).toHaveAttribute('stroke-linejoin', 'miter');
   await page.locator('#setRoundingEnabled').check();
-  await expect(canvas).toHaveAttribute('stroke-linecap', 'round');
+  await page.locator('#setEndRoundingEnabled').check();
+  await expect(canvas).toHaveAttribute('stroke-linecap', 'butt');
   await expect(canvas).toHaveAttribute('stroke-linejoin', 'round');
   const previewStyle = () => page.locator('#pvLight path').first().evaluate(path => ({ cap: getComputedStyle(path).strokeLinecap, join: getComputedStyle(path).strokeLinejoin }));
-  expect(await previewStyle()).toEqual({ cap: 'round', join: 'round' });
+  expect(await previewStyle()).toEqual({ cap: 'butt', join: 'round' });
   await page.locator('#expSvg').click();
-  expect(await page.locator('#ioText').inputValue()).toContain('stroke-linecap:round;stroke-linejoin:round');
+  expect(await page.locator('#ioText').inputValue()).toContain('stroke-linecap:butt;stroke-linejoin:round');
   await page.locator('#expBaked').click();
-  expect(await page.locator('#ioText').inputValue()).toContain('stroke-linecap="round" stroke-linejoin="round"');
+  expect(await page.locator('#ioText').inputValue()).toContain('stroke-linecap="butt" stroke-linejoin="round"');
   await page.locator('#setRoundingEnabled').uncheck();
+  await page.locator('#setEndRoundingEnabled').uncheck();
   await expect(canvas).toHaveAttribute('stroke-linecap', 'butt');
   await expect(canvas).toHaveAttribute('stroke-linejoin', 'miter');
   expect(await previewStyle()).toEqual({ cap: 'butt', join: 'miter' });
@@ -107,7 +110,7 @@ test('right-click targets the item, changes group type/symmetry and makes an edi
   expect(await page.evaluate(() => window.__gw.S.glyph.symmetry.mirror)).toBeNull();
   const cutout = page.locator('[data-tree-key="0:1"]');
   await cutout.focus(); await page.keyboard.press('Shift+F10');
-  await page.getByRole('menuitem', { name: 'Use as cutter', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Use as cutter', exact: true }).click();
   expect(await page.evaluate(() => {
     const { S, core } = window.__gw, node = S.glyph.layers[0].node;
     return { type: node.op, cutter: node.children[1].name, hole: !core.evalNode(node).closed.contains([12, 12]), shape: node.children[1].shape };
@@ -166,6 +169,47 @@ test('library thumbnail menu changes icon type and exposes its root group symmet
   await page.getByRole('menuitemcheckbox', { name: 'Mirror Y', exact: true }).click();
   expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.symmetry.mirror)).toBe('y');
 });
+test('View grid density changes displayed lines independently of snapping and survives reload', async ({ page }) => {
+  await ready(page);
+  await page.locator('#showToggle').click();
+  await page.getByLabel('Grid spacing', { exact: true }).selectOption('2');
+  await expect(page.locator('#gGrid path')).toHaveCount(1);
+  const sparse = await page.locator('#gGrid path').getAttribute('d');
+  expect(sparse).toContain('M2 0V24'); expect(sparse).not.toContain('M1 0V24');
+  await page.getByLabel('Grid spacing', { exact: true }).selectOption('0.1');
+  const dense = await page.locator('#gGrid path').getAttribute('d');
+  expect(dense.length).toBeGreaterThan(sparse.length * 10);
+  await expect(page.locator('[data-snap="0.1"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('Escape');
+  await page.locator('[data-tree-key="0:0"] .name').click();
+  await page.keyboard.press('ArrowRight');
+  expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.children[0].x1)).toBe(5);
+  await page.locator('[data-snap="0.5"]').click();
+  expect(await page.locator('#gGrid path').getAttribute('d')).toBe(dense);
+  await page.reload(); await page.waitForFunction(() => window.__gw?.ready);
+  await page.locator('#showToggle').click();
+  await expect(page.getByLabel('Grid spacing', { exact: true })).toHaveValue('0.1');
+});
+test('Radius rounds joined strokes and the isolated view agrees with the canvas', async ({ page }) => {
+  await ready(page);
+  await page.locator('#ioText').fill(JSON.stringify({ name: 'joined-stroke', layers: [{ id: 'stroke', paint: 'stroke', node: { op: 'union', children: [
+    { shape: 'line', x1: 4, y1: 4, x2: 16, y2: 4 }, { shape: 'line', x1: 16, y1: 4, x2: 16, y2: 20 },
+  ] } }] }));
+  await page.locator('#importBtn').click();
+  await page.locator('#setRoundingEnabled').check();
+  await page.locator('#setEndRoundingEnabled').check();
+  await page.locator('#setRounding').fill('2'); await page.locator('#setRounding').press('Tab');
+  const rounded = await page.locator('#gLayers path').first().getAttribute('d');
+  expect(rounded).toContain('C');
+  await page.locator('[data-isolate="0:"]').click();
+  await expect(page.locator('#gIso > path')).toHaveAttribute('d', rounded);
+  await page.locator('#setRounding').fill('0.5'); await page.locator('#setRounding').press('Tab');
+  const smaller = await page.locator('#gLayers path').first().getAttribute('d');
+  expect(smaller).not.toBe(rounded);
+  await expect(page.locator('#gIso > path')).toHaveAttribute('d', smaller);
+  await page.locator('#setRoundingEnabled').uncheck();
+  expect(await page.locator('#gLayers path').first().getAttribute('d')).not.toContain('C');
+});
 test('desktop/mobile layout and dark theme remain readable', async ({ page }) => {
   await ready(page);
   await page.screenshot({ path: 'artifacts/workbench-desktop.png', fullPage: true });
@@ -175,4 +219,85 @@ test('desktop/mobile layout and dark theme remain readable', async ({ page }) =>
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: 'artifacts/workbench-mobile.png', fullPage: true });
+});
+
+test('source anchor selection and rounding tags change individual stroke tips with undo and persistence', async ({ page }) => {
+  await ready(page);
+  await page.locator('#ioText').fill(JSON.stringify({ name: 'tagged-tips', layers: [{ id: 'stroke', paint: 'stroke', node: { shape: 'pen', name: 'Stem', pts: [{ x: 12, y: 5 }, { x: 12, y: 20 }] } }] }));
+  await page.locator('#importBtn').click();
+  await page.locator('#setRoundingEnabled').check();
+  await page.locator('#setEndRoundingEnabled').check();
+  await page.locator('#setEndRounding').fill('0.1'); await page.locator('#setEndRounding').press('Tab');
+  const tips = page.locator('#gLayers [data-stroke-tip] path');
+  await expect(tips).toHaveCount(2);
+  const small = await tips.first().getAttribute('d');
+  await page.locator('#setEndRounding').fill('0.6'); await page.locator('#setEndRounding').press('Tab');
+  expect(await tips.first().getAttribute('d')).not.toBe(small);
+  await page.locator('[data-source-point="0::0"]').click();
+  await expect(page.locator('#gPoints [data-selected-source-point]')).toHaveCount(1);
+  expect(await page.evaluate(() => window.__gw.S.anchor)).toBe(0);
+  const roundedEnd = await tips.last().getAttribute('d');
+  await page.getByRole('checkbox', { name: 'Round Stem anchor 1', exact: true }).uncheck();
+  expect(await tips.first().getAttribute('d')).not.toBe(roundedEnd);
+  await expect(tips.last()).toHaveAttribute('d', roundedEnd);
+  await page.locator('#undoBtn').click();
+  await expect(page.getByRole('checkbox', { name: 'Round Stem anchor 1', exact: true })).toBeChecked();
+  await page.getByRole('checkbox', { name: 'Round Stem anchor 1', exact: true }).uncheck();
+  await page.waitForTimeout(600);
+  await page.reload(); await page.waitForFunction(() => window.__gw?.ready);
+  await expect(page.getByRole('checkbox', { name: 'Round Stem anchor 1', exact: true })).not.toBeChecked();
+});
+
+test('tip radius changes rendered pixels in runtime and baked SVG', async ({ page }) => {
+  await ready(page);
+  const pixels = await page.evaluate(async () => {
+    const glyph = { name: 'pixel-tip', setStyle: { rounding: 0.1, thickness: 2 }, layers: [{ id: 'stem', paint: 'stroke', node: { shape: 'line', x1: 12, y1: 5, x2: 12, y2: 20 } }] };
+    const sample = async (mode, radius) => {
+      glyph.setStyle.rounding = radius;
+      const svg = window.__gw.core.toSVG(glyph, { mode, size: 240 });
+      const image = new Image(); image.src = 'data:image/svg+xml,' + encodeURIComponent(svg); await image.decode();
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 240;
+      const context = canvas.getContext('2d'); context.drawImage(image, 0, 0);
+      return context.getImageData(128, 42, 1, 1).data[3];
+    };
+    return { runtimeSmall: await sample('runtime', 0.1), runtimeRound: await sample('runtime', 1), bakedSmall: await sample('baked', 0.1), bakedRound: await sample('baked', 1) };
+  });
+  expect(pixels.runtimeSmall).toBeGreaterThan(240); expect(pixels.bakedSmall).toBeGreaterThan(240);
+  expect(pixels.runtimeRound).toBeLessThan(15); expect(pixels.bakedRound).toBeLessThan(15);
+});
+
+test('corner and line-end radii are independent', async ({ page }) => {
+  await ready(page);
+  await page.locator('#ioText').fill(JSON.stringify({ name: 'independent-radii', layers: [{ id: 'stroke', paint: 'stroke', node: { shape: 'pen', pts: [{ x: 4, y: 4 }, { x: 16, y: 4 }, { x: 16, y: 20 }] } }] }));
+  await page.locator('#importBtn').click();
+  await page.locator('#setEndRoundingEnabled').check();
+  const path = page.locator('#gLayers > path').first();
+  const tip = page.locator('#gLayers [data-stroke-tip] path').first();
+  const sharp = await path.getAttribute('d'), originalTip = await tip.getAttribute('d');
+  expect(sharp).not.toContain('C');
+  await page.locator('#setRoundingEnabled').check();
+  await page.locator('#setRounding').fill('2'); await page.locator('#setRounding').press('Tab');
+  const rounded = await path.getAttribute('d'); expect(rounded).toContain('C');
+  await expect(tip).toHaveAttribute('d', originalTip);
+  await page.locator('#setEndRounding').fill('0.1'); await page.locator('#setEndRounding').press('Tab');
+  await expect(path).toHaveAttribute('d', rounded);
+  expect(await tip.getAttribute('d')).not.toBe(originalTip);
+  await page.locator('#setEndRoundingEnabled').uncheck();
+  await expect(page.locator('#gLayers [data-stroke-tip]')).toHaveCount(0);
+  await expect(path).toHaveAttribute('d', rounded);
+});
+
+test('Use as cutter toggles back to normal geometry from the context menu and inspector', async ({ page }) => {
+  await importTree(page);
+  await page.locator('[data-tree-key="0:1"]').click({ button: 'right' });
+  const toggle = page.getByRole('menuitemcheckbox', { name: 'Use as cutter', exact: true });
+  await expect(toggle).toHaveAttribute('aria-checked', 'false'); await toggle.click();
+  await page.locator('[data-tree-key="0:1"]').click({ button: 'right' });
+  await expect(toggle).toHaveAttribute('aria-checked', 'true'); await toggle.click();
+  expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.op)).toBe('union');
+  const inspector = page.locator('#insp').getByRole('button', { name: 'Use as cutter', exact: true });
+  await expect(inspector).toHaveAttribute('aria-pressed', 'false'); await inspector.click();
+  await expect(inspector).toHaveAttribute('aria-pressed', 'true'); await inspector.click();
+  await expect(inspector).toHaveAttribute('aria-pressed', 'false');
+  expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.children[1].shape)).toBe('circle');
 });

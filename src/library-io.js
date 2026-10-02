@@ -24,10 +24,12 @@ export function normalizeGlyph(input) {
     if (glyph.setStyle.thickness != null && (!Number.isFinite(glyph.setStyle.thickness) || glyph.setStyle.thickness < 0.1 || glyph.setStyle.thickness > 8)) throw new Error(`${glyph.name}: invalid set thickness`);
     if (glyph.setStyle.rounding != null && (!Number.isFinite(glyph.setStyle.rounding) || glyph.setStyle.rounding < 0 || glyph.setStyle.rounding > 6)) throw new Error(`${glyph.name}: invalid rounding`);
   }
+  if (glyph.setStyle?.endRounding != null && (!Number.isFinite(glyph.setStyle.endRounding) || glyph.setStyle.endRounding < 0 || glyph.setStyle.endRounding > 6)) throw new Error(`${glyph.name}: invalid line-end rounding`);
   let count = 0;
   const walk = (node, depth = 0) => {
     if (!node || typeof node !== 'object' || depth > 32 || ++count > 10000) throw new Error(`${glyph.name}: invalid or oversized form tree`);
     validateSymmetry(node.symmetry);
+    if (node.roundingAnchors != null && (!Array.isArray(node.roundingAnchors) || !node.roundingAnchors.every(index => Number.isInteger(index) && index >= 0))) throw new Error(`${glyph.name}: invalid rounding anchor tags`);
     if (node.cap != null && !['', 'round', 'butt', 'square'].includes(node.cap)) throw new Error(`${glyph.name}: invalid line cap`);
     if (node.deform != null) {
       if (!Array.isArray(node.deform)) throw new Error(`${glyph.name}: invalid deformers`);

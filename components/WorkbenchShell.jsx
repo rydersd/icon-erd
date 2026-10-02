@@ -32,7 +32,9 @@ export function WorkbenchShell() {
         <label><input id="setThicknessEnabled" type="checkbox" /> Override thickness</label>
         <label htmlFor="setThickness">Thickness <input id="setThickness" type="number" min="0.1" max="8" step="0.1" defaultValue="1.6" /></label>
         <label><input id="setRoundingEnabled" type="checkbox" /> Round corners</label>
-        <label htmlFor="setRounding">Radius <input id="setRounding" type="number" min="0" max="6" step="0.1" defaultValue="0.5" /></label>
+        <label htmlFor="setRounding">Corner radius <input id="setRounding" type="number" min="0" max="6" step="0.1" defaultValue="0.5" /></label>
+        <label><input id="setEndRoundingEnabled" type="checkbox" /> Round line ends</label>
+        <label htmlFor="setEndRounding">End radius <input id="setEndRounding" type="number" min="0" max="6" step="0.1" defaultValue="0.5" /></label>
         <span className="lbl">Applies to the whole library. Source shapes remain editable.</span>
       </div>
     </details>
@@ -104,6 +106,11 @@ export function WorkbenchShell() {
           <Button className="btn view-tile" data-show="forms" aria-label="Forms" title="Forms" data-icon-ui="forms">Forms</Button>
           <Button className="btn view-tile" data-show="original" id="origBtn" aria-label="Original" title="Original" data-icon-ui="duplicate">Original</Button>
           <Button className="btn view-tile" data-show="cutters" id="cuttersBtn" aria-label="Cutters" title="Cutters" data-icon-ui="cutter">Cutters</Button>
+          <label className="grid-density" htmlFor="gridDensity">Grid spacing
+            <select aria-label="Grid spacing" id="gridDensity" defaultValue="auto">
+              <option value="auto">Auto</option><option value="0.1">0.1 units</option><option value="0.3">0.3 units</option><option value="0.5">0.5 units</option><option value="1">1 unit</option><option value="2">2 units</option>
+            </select>
+          </label>
         </div>
         <div className="row"><div className="seg" role="group" aria-label="Zoom">
           <Button className="btn sm icon" id="zoomOut" aria-label="Zoom out" title="Zoom out" data-icon-ui="zoom-out"></Button><Button className="btn sm" id="zoomFit" data-icon-ui="fit">Fit</Button><Button className="btn sm icon" id="zoomIn" aria-label="Zoom in" title="Zoom in" data-icon-ui="zoom-in"></Button>
@@ -131,7 +138,7 @@ export function WorkbenchShell() {
     <section className="panel" aria-labelledby="geometryH">
       <h2 id="geometryH">Points &amp; overlaps</h2>
       <div className="pad"><p className="lbl" id="geometrySummary" role="status"></p><div id="overlapList"></div>
-        <details open><summary>Source anchors · canvas coordinates (24 × 24)</summary><div className="point-table-wrap"><table className="point-table"><thead><tr><th>Object</th><th>Point</th><th>X</th><th>Y</th></tr></thead><tbody id="pointRows"></tbody></table></div></details>
+        <details open><summary>Source anchors · canvas coordinates (24 × 24)</summary><div className="point-table-wrap"><table className="point-table"><thead><tr><th>Object</th><th>Point</th><th>X</th><th>Y</th><th>Round</th></tr></thead><tbody id="pointRows"></tbody></table></div></details>
       </div>
     </section>
     <section className="panel" aria-labelledby="pvH">

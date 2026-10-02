@@ -32,9 +32,9 @@ test('a cutter keeps every other sibling as its subject and retains the selected
   assert.deepEqual(useAsCutter(glyph, { l: 0, p: [1] }), { l: 0, p: [1] });
   assert.equal(root.op, 'subtract'); assert.equal(root.children[1], cutter);
   assert.deepEqual(root.children[0].children, others);
-  const snapshot = JSON.stringify(glyph);
   useAsCutter(glyph, { l: 0, p: [1] });
-  assert.equal(JSON.stringify(glyph), snapshot);
+  assert.equal(root.op, 'union'); assert.equal(root.children[1], cutter);
+  assert.deepEqual(root.children[0].children, others);
   assert.equal(useAsCutter(glyph, { l: 1, p: [] }), null);
 });
 test('unnamed imported layers and objects get readable persistent names; explicit names survive', () => {
@@ -46,4 +46,14 @@ test('unnamed imported layers and objects get readable persistent names; explici
   assert.equal(named.layers[0].node.children[1].name, 'Circle 2');
   assert.deepEqual(parseLibrary(JSON.stringify(libraryDocument([named]))), [named]);
   assert.deepEqual(ensureLayerNames(structuredClone(named)), named);
+});
+
+test('turning off one cutter preserves other cutters and clears clearance metadata', () => {
+  const subject = { shape: 'rect', x: 0, y: 0, w: 24, h: 24 }, a = { shape: 'circle', cx: 8, cy: 8, r: 2 }, b = { shape: 'line', x1: 4, y1: 4, x2: 20, y2: 20, edge: 'open' };
+  const glyph = { layers: [{ node: { op: 'subtract', children: [subject, a, b] } }] };
+  assert.deepEqual(useAsCutter(glyph, { l: 0, p: [2] }), { l: 0, p: [1] });
+  assert.equal(glyph.layers[0].node.op, 'union');
+  assert.equal(glyph.layers[0].node.children[0].op, 'subtract');
+  assert.deepEqual(glyph.layers[0].node.children[0].children, [subject, a]);
+  assert.equal(glyph.layers[0].node.children[1], b); assert.equal(b.edge, undefined);
 });

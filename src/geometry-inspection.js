@@ -26,7 +26,7 @@ export function inspectGeometry(forms) {
     let index = 0;
     const paths = [...(form.fm.closed ? (form.fm.closed.children || [form.fm.closed]) : []), ...form.fm.open];
     for (const path of paths) {
-      for (const segment of path.segments) points.push({ key, name, index: index++, x: segment.point.x, y: segment.point.y });
+      for (const segment of path.segments) points.push({ key, name, selection, index: index++, x: segment.point.x, y: segment.point.y });
       for (const curve of path.curves) curves.push({ curve, key: keyOf(curve), formKey: key, name, selection });
     }
   }

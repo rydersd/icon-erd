@@ -325,7 +325,7 @@ export function createGlyphCore(paper) {
       if (t1.isZero() || t2.isZero()) { corner.push(null); continue; }
       const phi = Math.abs(t1.getDirectedAngle(t2)) * Math.PI / 180;
       if (phi < 0.1 || phi > Math.PI - 0.05) { corner.push(null); continue; }
-      const ri = Array.isArray(r) ? r[i] : r;
+      const ri = typeof r === 'function' ? r(path.segments[i].point) : Array.isArray(r) ? r[i] : r;
       if (!(ri > 0)) { corner.push(null); continue; }
       const d = Math.min(ri * Math.tan(phi / 2), a.length * 0.45, b.length * 0.45);
       corner.push(d > 1e-3 ? { d, phi } : null);
@@ -511,7 +511,7 @@ export function createGlyphCore(paper) {
     if (!n || !n.shape) return null;
     if (n.shape === 'pen' && !(n.deform?.length) && !(n.pts || []).some(point => point.r > 0)) return JSON.parse(JSON.stringify(n));
     const keep = {};
-    for (const key of ['name', 'transform', 'symmetry', 'edge', 'cap', 'hidden', 'fillRule']) if (n[key] != null) keep[key] = JSON.parse(JSON.stringify(n[key]));
+    for (const key of ['name', 'transform', 'symmetry', 'edge', 'cap', 'hidden', 'fillRule', 'roundingAnchors']) if (n[key] != null) keep[key] = JSON.parse(JSON.stringify(n[key]));
     // Bake the visible local geometry once; deformers and parametric radii must not run again afterward.
     let items = shapeItems(n);
     for (const deformer of n.deform || []) if (DEFORMERS[deformer.type]) items = DEFORMERS[deformer.type](items, deformer);
@@ -537,6 +537,7 @@ export function createGlyphCore(paper) {
     const at = ci + 1;
     out.forEach((q, j) => { const src = j < at ? pts[j] : j > at ? pts[j - 1] : null; if (src && src.r) q.r = src.r; });
     const node = JSON.parse(JSON.stringify(n)); node.pts = out;
+    if (Array.isArray(node.roundingAnchors)) node.roundingAnchors = [...node.roundingAnchors.map(index => index >= at ? index + 1 : index), at];
     return { node, index: at, dist: loc.point.getDistance(P(x, y)) };
   }
   const round3 = v => Math.round(v * 1000) / 1000;
@@ -578,17 +579,42 @@ export function createGlyphCore(paper) {
     return list;
   }
 
+  // Anchor tags refer to source segment indices, before set rounding inserts new segments.
+  function roundingExcluded(node, ancestors = []) {
+    if (!node || node.hidden) return [];
+    if (!node.shape) return (node.children || []).flatMap(child => roundingExcluded(child, ancestors.concat(node)));
+    if (!Array.isArray(node.roundingAnchors)) return [];
+    const result = evalNode(node);
+    let points = [...(result.closed ? result.closed.children || [result.closed] : []), ...result.open].flatMap(path => path.segments.map(segment => segment.point.clone()));
+    points = points.filter((point, index) => !node.roundingAnchors.includes(index));
+    for (const ancestor of ancestors.slice().reverse()) {
+      points = points.flatMap(point => symMatrices(ancestor.symmetry).map(matrix => matrix.transform(point)));
+      const m = nodeMatrix(ancestor), matrix = new paper.Matrix(...m);
+      points = points.map(point => matrix.transform(point));
+    }
+    return points;
+  }
+  function excludedForGlyph(glyph, layerIndex) {
+    return (glyph.layers || []).flatMap((layer, index) => {
+      if (layerIndex != null && index !== layerIndex) return [];
+      const points = roundingExcluded(layer.node);
+      return layer.symmetry === false ? points : points.flatMap(point => symMatrices(glyph.symmetry).map(matrix => matrix.transform(point)));
+    });
+  }
+  const radiusAt = (radius, excluded) => point => excluded.some(other => other.isClose(point, 1e-4)) ? 0 : radius;
+
   function evalLayer(layer, glyph) {
     const base = evalNode(layer.node);
     const rounding = Math.max(0, num(glyph.setStyle?.rounding));
+    const excluded = roundingExcluded(layer.node);
     if (rounding > 0) {
-      if (base.closed) base.closed = fillet(base.closed, rounding);
-      base.open = base.open.map(path => filletCurves(path, rounding));
+      if (base.closed) base.closed = fillet(base.closed, radiusAt(rounding, excluded));
     }
     const useSym = layer.symmetry !== false;
     let closed = base.closed, open = base.open;
     if (useSym && glyph.symmetry && symmetryGroup(glyph.symmetry).length > 1) ({ closed, open } = applySym(base, glyph.symmetry));
     open = joinOpen(open);
+    if (rounding > 0) open = open.map(path => filletCurves(path, radiusAt(rounding, layer.symmetry === false ? excluded : excluded.flatMap(point => symMatrices(glyph.symmetry).map(matrix => matrix.transform(point))))));
     return { closed: isEmpty(closed) ? null : closed, open };
   }
 
@@ -651,16 +677,37 @@ export function createGlyphCore(paper) {
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   function strokeStyle(glyph, opts = {}, partCap = null) {
     const rounded = num(glyph.setStyle?.rounding) > 0;
+    const roundedEnds = num(glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding) > 0;
     return {
-      cap: rounded ? 'round' : partCap || opts.cap || 'round',
+      cap: roundedEnds ? 'butt' : partCap || opts.cap || 'round',
       join: rounded ? 'round' : opts.join || 'round',
-      runtimeCap: rounded ? 'round' : partCap || 'var(--icon-stroke-linecap,round)',
+      runtimeCap: roundedEnds ? 'butt' : partCap || 'var(--icon-stroke-linecap,round)',
       runtimeJoin: rounded ? 'round' : 'var(--icon-stroke-linejoin,round)',
     };
   }
+  // SVG round caps cannot express a corner radius. Draw the two tip corners explicitly,
+  // in stroke-width units, so runtime CSS width overrides still scale the caps.
+  function strokeTipsSVG(glyph, d, opts = {}) {
+    const radius = Math.max(0, num(glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding));
+    if (!radius || !d) return '';
+    const weight = opts.weight ?? glyph.setStyle?.thickness ?? glyph.weight ?? 1.2;
+    const excluded = excludedForGlyph(glyph, opts.layerIndex);
+    const makeTip = r => { const h = 0.5, k = 0.5522847498; return `M0 ${-h}L${fmt(h - r)} ${-h}C${fmt(h - r + k * r)} ${-h} ${h} ${fmt(-h + r - k * r)} ${h} ${fmt(-h + r)}L${h} ${fmt(h - r)}C${h} ${fmt(h - r + k * r)} ${fmt(h - r + k * r)} ${h} ${fmt(h - r)} ${h}L0 ${h}Z`; };
+    const compound = new paper.CompoundPath(d), tips = [];
+    for (const path of compound.children) {
+      if (path.closed || !path.curves.length) continue;
+      for (const [point, tangent] of [[path.firstSegment.point, path.getTangentAt(0)?.multiply(-1)], [path.lastSegment.point, path.getTangentAt(path.length)]]) {
+        if (!tangent || tangent.isZero()) continue;
+        const tip = makeTip(excluded.some(other => other.isClose(point, 1e-4)) ? 0 : Math.min(0.5, radius / weight));
+        const scale = opts.mode === 'baked' ? `transform="scale(${fmt(weight)})"` : `style="transform:scale(var(--icon-stroke-width,${weight}))"`;
+        tips.push(`<g data-stroke-tip="true" transform="translate(${fmt(point.x)} ${fmt(point.y)}) rotate(${fmt(tangent.angle)})"${opts.opacity != null && opts.opacity !== 1 ? ` opacity="${opts.opacity}"` : ''}><path d="${tip}" fill="${esc(opts.color || 'currentColor')}" ${scale}/></g>`);
+      }
+    }
+    return tips.join('');
+  }
   /**
    * opts.mode 'runtime' (default): stroke width / cap / join and role colours use CSS vars.
-   * Positive set rounding overrides caps and joins with round in every output mode.
+   * Positive set rounding draws explicit tips with the requested radius and rounds joins.
    * opts.mode 'baked': numbers inlined (for rasterising in tools that lack CSS — resvg).
    */
   function toSVG(glyph, opts = {}) {
@@ -669,7 +716,7 @@ export function createGlyphCore(paper) {
     const layers = opts.resolved || resolve(glyph);
     const colours = Object.assign({}, ROLE_DEFAULTS, opts.colors || {});
     const body = [];
-    for (const L of layers) {
+    for (const [layerIndex, L] of layers.entries()) {
       if (!L.visible || !L.d) continue;
       const col = L.color || (mode === 'baked' ? (opts.mono ? '#000' : colours[L.role] || '#000') : ROLE_VARS[L.role] || 'currentColor');
       for (const part of L.parts) {
@@ -687,6 +734,7 @@ export function createGlyphCore(paper) {
         if (L.opacity !== 1) a.push(`opacity="${L.opacity}"`);
         if (mode === 'runtime') a.push(`data-layer="${esc(L.id)}" data-role="${L.role}"`);
         body.push(`<path ${a.join(' ')}/>`);
+        if (stroke) body.push(strokeTipsSVG(glyph, part.d, { mode, weight, color: col, opacity: L.opacity, layerIndex }));
       }
     }
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${opts.size || glyph.exportSize || 24}" height="${opts.size || glyph.exportSize || 24}"${glyph.name ? ` data-icon="${esc(glyph.name)}"` : ''}>${body.join('')}</svg>`;
@@ -701,12 +749,17 @@ export function createGlyphCore(paper) {
   }
 
   /** Raw form geometry of one node (after its deformers / booleans, before symmetry) — for canvas guides and hit-testing. */
-  function form(node, ancestors) {
+  function form(node, ancestors, rounding = 0) {
     const r = evalNode(node);
     for (const a of (ancestors || []).slice().reverse()) { const m = nodeMatrix(a); if (m.join() !== '1,0,0,1,0,0') applyMatrix(r, new paper.Matrix(m[0], m[1], m[2], m[3], m[4], m[5])); }
+    if (rounding > 0) {
+      const policy = radiusAt(rounding, roundingExcluded(node, ancestors));
+      if (r.closed) r.closed = fillet(r.closed, policy);
+      r.open = joinOpen(r.open).map(path => filletCurves(path, policy));
+    }
     return { closed: r.closed, open: r.open, d: itemD(r.closed) + r.open.map(itemD).join('') };
   }
   function translateD(d, dx, dy) { const cp = new paper.CompoundPath(d); cp.translate(P(dx, dy)); return itemD(cp); }
 
-  return { resolve, toSVG, strokeStyle, form, translateD, nodeMatrix, rawBounds, hasTransform, hintD, symmetryGroup, symmetryMatrices, axisOf, toPen, insertPoint, evalNode, stats, ROLE_VARS, ROLE_DEFAULTS, itemD, shapeItems, version: 1 };
+  return { resolve, toSVG, strokeStyle, strokeTipsSVG, form, translateD, nodeMatrix, rawBounds, hasTransform, hintD, symmetryGroup, symmetryMatrices, axisOf, toPen, insertPoint, evalNode, stats, ROLE_VARS, ROLE_DEFAULTS, itemD, shapeItems, version: 1 };
 }

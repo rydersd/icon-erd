@@ -88,10 +88,51 @@ test('corner rounding rounds stroke caps and joins in runtime and baked exports 
   const document = { ...glyph({ shape: 'path', d: 'M4 16L12 4L20 16', cap: 'butt' }), setStyle: { rounding: 0.5 } };
   document.layers[0].paint = 'stroke';
   const before = JSON.stringify(document);
-  assert.match(core.toSVG(document), /stroke-linecap:round;stroke-linejoin:round/);
-  assert.match(core.toSVG(document, { mode: 'baked', cap: 'square', join: 'miter' }), /stroke-linecap="round" stroke-linejoin="round"/);
+  assert.match(core.toSVG(document), /stroke-linecap:butt;stroke-linejoin:round/);
+  assert.match(core.toSVG(document, { mode: 'baked', cap: 'square', join: 'miter' }), /stroke-linecap="butt" stroke-linejoin="round"/);
   assert.equal(JSON.stringify(document), before);
   document.setStyle.rounding = 0;
   assert.match(core.toSVG(document), /stroke-linecap:butt;stroke-linejoin:var\(--icon-stroke-linejoin,round\)/);
   assert.match(core.toSVG(document, { mode: 'baked', cap: 'square', join: 'miter' }), /stroke-linecap="butt" stroke-linejoin="miter"/);
+});
+
+test('rounding applies to corners formed by joined stroke objects and isolated stroke geometry', () => {
+  const node = { op: 'union', children: [
+    { shape: 'line', x1: 4, y1: 4, x2: 16, y2: 4 },
+    { shape: 'line', x1: 16, y1: 4, x2: 16, y2: 20 },
+  ] };
+  const document = { ...glyph(node), setStyle: { rounding: 2 } }; document.layers[0].paint = 'stroke';
+  const rounded = core.resolve(document)[0].d;
+  assert.match(rounded, /C/);
+  const path = new paper.Path(rounded);
+  assert.ok(path.getNearestPoint([16, 4]).getDistance([16, 4]) > 0.5);
+  assert.equal(core.form(node, [], 2).d, rounded);
+  document.setStyle.rounding = 0;
+  assert.doesNotMatch(core.resolve(document)[0].d, /C/);
+});
+
+test('numeric tip radius changes the silhouette and anchor tags retain square tips', () => {
+  const document = { ...glyph({ shape: 'line', x1: 12, y1: 5, x2: 12, y2: 20 }), setStyle: { rounding: 0.1, thickness: 2 } };
+  document.layers[0].paint = 'stroke';
+  const tipPaths = () => [...core.toSVG(document, { mode: 'baked' }).matchAll(/<g data-stroke-tip[^>]*><path d="([^"]+)"/g)].map(match => new paper.Path(match[1]));
+  const small = tipPaths();
+  assert.equal(small.length, 2);
+  assert.ok(small[0].contains([0.45, -0.45]));
+  document.setStyle.rounding = 1;
+  const large = tipPaths();
+  assert.equal(large[0].contains([0.45, -0.45]), false);
+  document.layers[0].node.roundingAnchors = [1];
+  const tagged = tipPaths();
+  assert.ok(tagged[0].contains([0.45, -0.45]));
+  assert.equal(tagged[1].contains([0.45, -0.45]), false);
+});
+test('anchor rounding tags survive transforms, symmetry and joined stroke corners', () => {
+  const node = { shape: 'pen', pts: [{ x: 4, y: 4 }, { x: 12, y: 4 }, { x: 12, y: 20 }], roundingAnchors: [0, 2], transform: { origin: [4, 4], rotate: 90 } };
+  const document = { ...glyph(node), setStyle: { rounding: 1 } }; document.layers[0].paint = 'stroke';
+  assert.doesNotMatch(core.resolve(document)[0].d, /C/);
+  node.roundingAnchors.push(1);
+  assert.match(core.resolve(document)[0].d, /C/);
+  node.roundingAnchors = [];
+  document.symmetry = { mirror: 'x', axis: 12 };
+  assert.doesNotMatch(core.resolve(document)[0].d, /C/);
 });

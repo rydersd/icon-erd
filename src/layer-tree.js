@@ -78,7 +78,17 @@ export function useAsCutter(glyph, selection) {
   const parent = nodeAt(glyph, { l: selection.l, p: selection.p.slice(0, -1) });
   const index = selection.p.at(-1), cutter = parent.children[index];
   if (!cutter || parent.children.length < 2) return null;
-  if (parent.op === 'subtract' && index > 0) return selection;
+  if (parent.op === 'subtract' && index > 0) {
+    delete cutter.edge;
+    if (parent.children.length === 2) parent.op = 'union';
+    else {
+      const remaining = parent.children.filter((_, i) => i !== index);
+      const subject = { ...parent, children: remaining };
+      parent.op = 'union'; parent.children = [subject, cutter]; delete parent.fillet;
+      return { l: selection.l, p: [...selection.p.slice(0, -1), 1] };
+    }
+    return selection;
+  }
   const others = parent.children.filter((_, i) => i !== index);
   parent.op = 'subtract';
   parent.children = [others.length === 1 ? others[0] : { op: 'union', name: 'Artwork', children: others }, cutter];

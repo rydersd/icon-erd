@@ -41,8 +41,10 @@ const S = {
   lib: LIBRARY.slice(), cur: 0, glyph: null,
   sel: [], // [{l, p:null|[...]}]
   snap: 0.1, view: { x: -1, y: -1, s: 26 },
+  gridStep: null,
   show: { grid: true, safe: true, artboard: true, guides: true, keylines: true, forms: false, original: false, cutters: false, points: true },
   iso: null, // isolated object {l, p:null|[...]}; everything else dims and stops taking clicks
+  sourceAnchor: null,
   anchor: null, // index of the selected anchor on the selected pen path
   tool: 'select', hmode: 'shape', lockAspect: true,
   rt: { weight: 1.2, cap: 'round', join: 'round', hint: false, rtl: false },
@@ -345,11 +347,13 @@ function renderGrid() {
   if (S.show.grid) {
     const ppu = pxPerUnit();
     const mk = (d, c, w) => el('path', Object.assign({ d, fill: 'none', stroke: c, 'stroke-width': w, 'shape-rendering': 'crispEdges' }, NS), g);
-    if (ppu * 0.1 >= 6) mk(gridPath(0.1, 0, 24, v => Math.abs(v / 0.3 - Math.round(v / 0.3)) < 1e-6), 'var(--grid-minor)', 1);
-    if (ppu * 0.3 >= 5) mk(gridPath(0.3), 'var(--grid-lattice)', 1);
-    if (ppu * 0.5 >= 6) mk(gridPath(0.5, 0, 24, v => Number.isInteger(v)), 'var(--grid-major)', 0.6);
-    mk(gridPath(1, 0, 24, v => v % 2 === 0), 'var(--grid-major)', 1);
-    mk(gridPath(2), 'var(--grid-unit2)', 1);
+    if (S.gridStep === null) {
+      if (ppu * 0.1 >= 6) mk(gridPath(0.1, 0, 24, v => Math.abs(v / 0.3 - Math.round(v / 0.3)) < 1e-6), 'var(--grid-minor)', 1);
+      if (ppu * 0.3 >= 5) mk(gridPath(0.3), 'var(--grid-lattice)', 1);
+      if (ppu * 0.5 >= 6) mk(gridPath(0.5, 0, 24, v => Number.isInteger(v)), 'var(--grid-major)', 0.6);
+      mk(gridPath(1, 0, 24, v => v % 2 === 0), 'var(--grid-major)', 1);
+      mk(gridPath(2), 'var(--grid-unit2)', 1);
+    } else mk(gridPath(S.gridStep), 'var(--grid-major)', 1);
   }
   const kl = Object.assign({ fill: 'none', stroke: 'var(--keyline)', 'stroke-width': 1 }, NS);
   if (S.show.keylines) {
@@ -483,13 +487,14 @@ function renderCanvas() {
       const style = core.strokeStyle(S.glyph, S.rt, part.cap);
       if (L.paint !== 'fill') Object.assign(a, { stroke: col, 'stroke-width': W, 'stroke-linecap': style.cap, 'stroke-linejoin': style.join });
       el('path', a, gL);
+      if (L.paint !== 'fill') gL.insertAdjacentHTML('beforeend', core.strokeTipsSVG(S.glyph, part.d, { mode: 'baked', weight: W, color: col, opacity: L.opacity * dim, layerIndex: li }));
     }
   });
   // isolated object: drawn on its own at full strength over the dimmed glyph
   const gI = $('gIso'); gI.innerHTML = '';
   if (S.iso && S.iso.p !== null) {
     const L = S.glyph.layers[S.iso.l], n = getNode(S.iso); let fm = null;
-    try { fm = core.form(n, ancestorsOf(S.iso)); } catch (e) {}
+    try { fm = core.form(n, ancestorsOf(S.iso), S.glyph.setStyle?.rounding || 0); } catch (e) {}
     if (fm) {
       const col = L.color || ROLE_CANVAS[L.role || 'primary'] || 'var(--text)', paint = L.paint || 'stroke';
       const items = [].concat(fm.closed ? [{ d: core.itemD(fm.closed) }] : [], fm.open.map(o => ({ d: core.itemD(o), cap: o.data && o.data.cap })));
@@ -498,6 +503,7 @@ function renderCanvas() {
         const style = core.strokeStyle(S.glyph, S.rt, it.cap);
         if (paint !== 'fill') Object.assign(a, { stroke: col, 'stroke-width': W, 'stroke-linecap': style.cap, 'stroke-linejoin': style.join });
         el('path', a, gI);
+        if (paint !== 'fill') gI.insertAdjacentHTML('beforeend', core.strokeTipsSVG(S.glyph, it.d, { mode: 'baked', weight: W, color: col, layerIndex: S.iso.l }));
       }
     }
   }
@@ -580,13 +586,43 @@ function renderGeometryInspection() {
   const rows = $('pointRows'); rows.replaceChildren();
   for (const point of points) {
     const row = rows.insertRow();
+    const active = S.sourceAnchor?.key === point.key && S.sourceAnchor.index === point.index && S.sel.some(s => s.l === point.selection.l && s.p?.join('.') === point.selection.p.join('.'));
+    row.dataset.sourcePoint = `${point.key}:${point.index}`;
+    row.classList.toggle('selected', active); row.setAttribute('aria-selected', String(active));
+    row.tabIndex = 0;
+    const selectPoint = () => {
+      S.sel = [point.selection]; S.sourceAnchor = { key: point.key, index: point.index }; S.anchor = null; S.hmode = 'shape';
+      const node = getNode(point.selection);
+      if (node?.shape === 'pen') {
+        const index = node.pts.findIndex(q => { const world = ap(fullMatrix(point.selection), q); return Math.hypot(world.x - point.x, world.y - point.y) < 1e-4; });
+        if (index >= 0) S.anchor = index;
+      }
+      renderTree(); renderInspector(); renderSelection();
+    };
+    row.onclick = selectPoint;
+    row.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectPoint(); } };
     for (const value of [`${point.name} [${point.key}]`, point.index + 1, r4(point.x), r4(point.y)]) row.insertCell().textContent = String(value);
+    const tag = document.createElement('input'); tag.type = 'checkbox';
+    const node = getNode(point.selection);
+    tag.checked = !Array.isArray(node.roundingAnchors) || node.roundingAnchors.includes(point.index);
+    tag.setAttribute('aria-label', `Round ${point.name} anchor ${point.index + 1}`);
+    tag.onclick = event => event.stopPropagation();
+    tag.onkeydown = event => event.stopPropagation();
+    tag.onchange = () => {
+      if (!Array.isArray(node.roundingAnchors)) node.roundingAnchors = report.points.filter(p => p.key === point.key).map(p => p.index);
+      node.roundingAnchors = tag.checked ? [...new Set([...node.roundingAnchors, point.index])] : node.roundingAnchors.filter(i => i !== point.index);
+      commit(); refresh(true);
+    };
+    row.insertCell().appendChild(tag);
   }
   const overlay = $('gPoints'); overlay.replaceChildren();
-  if (S.show.points) {
+  if (S.show.points || S.sourceAnchor) {
     const px = 1 / pxPerUnit();
     const unique = new Map(points.map(point => [`${r4(point.x)},${r4(point.y)}`, point]));
     for (const point of unique.values()) {
+      const active = S.sourceAnchor?.key === point.key && S.sourceAnchor.index === point.index && S.sel.some(s => s.l === point.selection.l && s.p?.join('.') === point.selection.p.join('.'));
+      if (!S.show.points && !active) continue;
+      if (active) el('circle', { cx: point.x, cy: point.y, r: 7 * px, fill: 'none', stroke: 'var(--sel)', 'stroke-width': 2 * px, 'data-selected-source-point': 'true' }, overlay);
       el('circle', { cx: point.x, cy: point.y, r: 2.5 * px, fill: 'var(--canvas-bg)', stroke: 'var(--accent)', 'stroke-width': px }, overlay);
       const label = el('text', { x: point.x + 5 * px, y: point.y - 5 * px, class: 'point-coordinate', 'font-size': 10 * px }, overlay);
       label.textContent = `${r4(point.x)}, ${r4(point.y)}`;
@@ -741,6 +777,7 @@ function insertAnchor(hit, ev) {
   const result = core.insertPoint(n, local.x, local.y);
   if (!result) { if (converted) { commit(); refresh(true); } return false; }
   n.pts = result.node.pts;
+  if (result.node.roundingAnchors) n.roundingAnchors = result.node.roundingAnchors;
   S.sel = [s]; S.anchor = result.index; insertHover = null;
   drag = { kind: 'anchor', s, i: result.index, Mi, from: { x: hit.x, y: hit.y }, moved: false };
   cv.setPointerCapture(ev.pointerId);
@@ -768,7 +805,9 @@ function deleteAnchor() {
   const s = primarySel(); const n = s && s.p !== null && getNode(s);
   if (!n || n.shape !== 'pen' || S.anchor == null || !n.pts[S.anchor]) return false;
   if (n.pts.length <= (n.closed ? 3 : 2)) { status('A path keeps at least ' + (n.closed ? 3 : 2) + ' anchors.', true); return true; }
-  n.pts.splice(S.anchor, 1); S.anchor = null; commit(); refresh(true); status('Anchor deleted.');
+  n.pts.splice(S.anchor, 1);
+  if (Array.isArray(n.roundingAnchors)) n.roundingAnchors = n.roundingAnchors.filter(index => index !== S.anchor).map(index => index > S.anchor ? index - 1 : index);
+  S.anchor = null; commit(); refresh(true); status('Anchor deleted.');
   return true;
 }
 function hitGuide(pos) {
@@ -1026,9 +1065,15 @@ listen(document, 'wheel', event => { if (popup && !popup.panel.contains(event.ta
 listen(document, 'keydown', event => {
   if (!popup) return;
   if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); closePopup(true); return; }
-  if (event.key === 'Tab') { closePopup(true); return; }
+  if (event.key === 'Tab') {
+    const controls = [...popup.panel.querySelectorAll('button:not(:disabled), select, input:not(:disabled)')];
+    const index = controls.indexOf(document.activeElement);
+    if (popup.panel.getAttribute('role') === 'dialog' && (event.shiftKey ? index > 0 : index < controls.length - 1)) return;
+    closePopup(true); return;
+  }
   if (!popup.panel.contains(event.target)) return;
-  const buttons = [...popup.panel.querySelectorAll('button:not(:disabled)')];
+  if (event.target.matches('select, input')) return;
+  const buttons = [...popup.panel.querySelectorAll('button:not(:disabled), select, input:not(:disabled)')];
   const index = buttons.indexOf(document.activeElement);
   const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
   if (step || event.key === 'Home' || event.key === 'End') {
@@ -1041,11 +1086,24 @@ $('showToggle').onclick = () => {
   const button = $('showToggle'), bounds = button.getBoundingClientRect();
   openPopup($('showPalette'), button, bounds.left, bounds.bottom + 6, () => button);
 };
+const gridSteps = ['auto', '0.1', '0.3', '0.5', '1', '2'];
+try {
+  const saved = localStorage.getItem('gw-grid-spacing');
+  if (gridSteps.includes(saved)) { $('gridDensity').value = saved; S.gridStep = saved === 'auto' ? null : +saved; }
+} catch {}
+$('gridDensity').onchange = () => {
+  const value = $('gridDensity').value;
+  if (!gridSteps.includes(value)) return;
+  S.gridStep = value === 'auto' ? null : +value;
+  try { localStorage.setItem('gw-grid-spacing', value); } catch {}
+  renderGrid();
+};
 function menuHeading(text) {
   const heading = document.createElement('div'); heading.className = 'item-menu-heading'; heading.textContent = text; itemMenu.appendChild(heading);
 }
 function menuAction(label, icon, action, checked = null, disabled = false) {
   const button = document.createElement('button'); button.type = 'button'; button.disabled = disabled;
+  button.setAttribute('aria-label', label);
   button.setAttribute('role', checked === null ? 'menuitem' : 'menuitemcheckbox');
   if (checked !== null) button.setAttribute('aria-checked', String(checked));
   button.innerHTML = uiIcon(icon); const text = document.createElement('span'); text.textContent = label; button.appendChild(text);
@@ -1055,10 +1113,12 @@ function menuAction(label, icon, action, checked = null, disabled = false) {
 const treeKey = selection => `${selection.l}:${selection.p === null ? 'layer' : selection.p.join('.')}`;
 const treeRow = selection => root.querySelector(`[data-tree-key="${treeKey(selection)}"]`);
 function cutterAction() {
-  const selection = useAsCutter(S.glyph, primarySel());
+  const current = primarySel();
+  const wasCutter = current?.p?.length && getParent(current)?.op === 'subtract' && current.p.at(-1) > 0;
+  const selection = useAsCutter(S.glyph, current);
   if (!selection) { status('A cutter needs another object in the same group to cut.', true); return; }
   S.sel = [selection]; S.iso = null; S.anchor = null; commit(); refresh(true);
-  status('Object is now an editable cutter.');
+  status(wasCutter ? 'Object is now normal geometry.' : 'Object is now an editable cutter.');
 }
 function groupMenu(selection, node) {
   menuHeading('Group type');
@@ -1099,7 +1159,7 @@ function openTreeMenu(selection, event) {
       layer.paint = paint; commit(); refresh(true);
     }, (layer.paint || 'stroke') === paint);
   }
-  if (node) menuAction('Use as cutter', 'cutter', cutterAction, null, !selection.p.length || getParent(selection).children.length < 2);
+  if (node) menuAction('Use as cutter', 'cutter', cutterAction, !!selection.p.length && getParent(selection).op === 'subtract' && selection.p.at(-1) > 0, !selection.p.length || getParent(selection).children.length < 2);
   const row = treeRow(selection), bounds = row.getBoundingClientRect();
   openPopup(itemMenu, row, event.type === 'contextmenu' ? event.clientX : bounds.left, event.type === 'contextmenu' ? event.clientY : bounds.bottom, () => treeRow(selection));
 }
@@ -1390,7 +1450,12 @@ function transformSection(g, n) {
   row.appendChild(fh); row.appendChild(fv); fl.appendChild(row); g.appendChild(fl);
 }
 function cutterSection(g, s, n) {
-  const par = getParent(s); if (!par || par.op !== 'subtract' || s.p[s.p.length - 1] === 0) return;
+  const par = getParent(s);
+  if (par && par.children.length > 1) {
+    const toggle = smallBtn('Use as cutter', cutterAction, 'Toggle cutter or normal geometry', 'cutter');
+    toggle.setAttribute('aria-pressed', String(par.op === 'subtract' && s.p.at(-1) > 0)); g.appendChild(toggle);
+  }
+  if (!par || par.op !== 'subtract' || s.p[s.p.length - 1] === 0) return;
   sub(g, 'Cutter');
   field(g, 'edge', n.edge === 'open' ? 'open (clearance)' : 'drawn', v => { if (v.startsWith('open')) n.edge = 'open'; else delete n.edge; }, { options: ['drawn', 'open (clearance)'] });
   const fi = field(g, 'group fillet r', par.fillet || 0, v => { if (v > 0) par.fillet = r4(v); else delete par.fillet; }, { step: 0.05, key: 'fillet' });
@@ -1547,7 +1612,7 @@ const SIZES = [12, 16, 20, 24, 32, 48];
 function previewSVG(size, extraClass) {
   const W = S.rt.weight;
   const parts = [];
-  for (const L of S.resolved) {
+  for (const [layerIndex, L] of S.resolved.entries()) {
     if (!L.visible || !L.d) continue;
     const col = L.color || core.ROLE_VARS[L.role] || 'currentColor';
     for (const part of L.parts) {
@@ -1556,6 +1621,7 @@ function previewSVG(size, extraClass) {
       const stroke = L.paint !== 'fill', fill = L.paint !== 'stroke';
       const style = core.strokeStyle(S.glyph, S.rt, part.cap);
       parts.push(`<path d="${d}" fill="${fill ? col : 'none'}"${stroke ? ` stroke="${col}" style="stroke-width:${S.rt.hint && size <= 20 ? w : 'var(--icon-stroke-width)'};stroke-linecap:${style.runtimeCap};stroke-linejoin:${style.runtimeJoin}"` : ''}${L.opacity !== 1 ? ` opacity="${L.opacity}"` : ''}/>`);
+      if (stroke) parts.push(core.strokeTipsSVG(S.glyph, d, { mode: S.rt.hint && size <= 20 ? 'baked' : 'runtime', weight: w, color: col, opacity: L.opacity, layerIndex }));
     }
   }
   return `<svg class="icon ${extraClass || ''}" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${parts.join('')}</svg>`;
@@ -1674,6 +1740,8 @@ function refresh(full) {
   $('hdrName').textContent = S.glyph.name;
   const style = S.glyph.setStyle || {};
   $('setThicknessEnabled').checked = style.thickness != null; $('setRoundingEnabled').checked = !!style.rounding;
+  $('setEndRoundingEnabled').checked = !!(style.endRounding ?? style.rounding);
+  if (document.activeElement !== $('setEndRounding')) $('setEndRounding').value = (style.endRounding ?? style.rounding) || 0.5;
   if (document.activeElement !== $('setThickness')) $('setThickness').value = style.thickness ?? 1.6;
   if (document.activeElement !== $('setRounding')) $('setRounding').value = style.rounding || 0.5;
   $('drawingMode').value = S.glyph.kind === 'app-icon' ? 'app-icon' : 'interface';
@@ -1695,6 +1763,9 @@ function symmetryTarget() {
   return node?.children ? node : null;
 }
 function syncToggles() {
+  const selection = primarySel();
+  const cutter = !!selection?.p?.length && getParent(selection)?.op === 'subtract' && selection.p.at(-1) > 0;
+  $('makeCutterBtn').setAttribute('aria-pressed', String(cutter));
   root.querySelectorAll('[data-snap]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.snap === S.snap)));
   const target = symmetryTarget();
   const sym = target?.symmetry || {};
@@ -1759,6 +1830,7 @@ function applySetSettings() {
   const style = {
     thickness: $('setThicknessEnabled').checked ? Math.max(0.1, Math.min(8, +$('setThickness').value || 1.6)) : null,
     rounding: $('setRoundingEnabled').checked ? Math.max(0, Math.min(6, +$('setRounding').value || 0)) : 0,
+    endRounding: $('setEndRoundingEnabled').checked ? Math.max(0, Math.min(6, +$('setEndRounding').value || 0)) : 0,
   };
   try { localStorage.setItem('gw-open-pending-set-style', JSON.stringify(style)); } catch {}
   S.glyph.setStyle = clone(style); commit();
@@ -1767,7 +1839,7 @@ function applySetSettings() {
   S.rt.weight = style.thickness ?? S.glyph.weight ?? 1.2;
   refresh(true); renderLibrary(); status(`Set settings applied to ${S.lib.length} icons.`);
 }
-for (const id of ['setThicknessEnabled', 'setRoundingEnabled', 'setThickness', 'setRounding']) $(id).onchange = applySetSettings;
+for (const id of ['setThicknessEnabled', 'setRoundingEnabled', 'setThickness', 'setRounding', 'setEndRoundingEnabled', 'setEndRounding']) $(id).onchange = applySetSettings;
 $('iconDescription').onchange = () => { S.glyph.description = $('iconDescription').value.trim(); commit(); applyLibFilter(); };
 $('iconAliases').onchange = () => { S.glyph.aliases = [...new Set($('iconAliases').value.split(',').map(term => term.trim()).filter(Boolean))]; commit(); applyLibFilter(); };
 const io = $('ioText');
