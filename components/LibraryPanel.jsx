@@ -22,6 +22,12 @@ export function LibraryPanel() {
       <div className="lib-meta"><span id="libCount" aria-live="polite"></span><span className="legend" aria-hidden="true"><span><i className="prov-dot" data-p="hand-built"></i>hand</span><span><i className="prov-dot" data-p="converted-stroke"></i>stroke</span><span><i className="prov-dot" data-p="imported-fill"></i>fill</span></span></div>
       <div className="row lib-organize"><Button className="btn sm" id="organizeLibraryBtn">Suggest groups</Button><Button className="btn sm" id="undoOrganizationBtn" disabled>Undo grouping</Button></div>
       <dialog id="organizeDialog" className="import-dialog" aria-labelledby="organizeHeading"><h2 id="organizeHeading">Suggested groups</h2><p>Based on icon names, not verified product usage. Only unassigned icons will change.</p><div id="organizeSummary"></div><div className="row"><Button className="btn" id="cancelOrganizeBtn">Cancel</Button><Button className="btn" id="applyOrganizeBtn">Apply groups</Button></div></dialog>
+      <div className="lib-selection" aria-label="Library selection">
+        <span id="librarySelectionCount" aria-live="polite">0 selected</span>
+        <Button className="btn sm" id="selectShownIconsBtn">Select shown</Button><Button className="btn sm" id="clearIconSelectionBtn" disabled>Clear</Button>
+        <Button className="btn sm" id="deleteIconsBtn" disabled data-icon-ui="delete">Delete selected</Button><Button className="btn sm" id="restoreIconsBtn" disabled>Restore deleted</Button>
+        <span className="lbl">⌘/Ctrl-click to toggle · Shift-click for a range</span>
+      </div>
       <div className="lib-list" id="lib" aria-label="Glyphs"></div>
       <div className="lib-io">
         <details className="export-options"><summary>Export ZIP</summary>

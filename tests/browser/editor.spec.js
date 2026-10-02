@@ -412,3 +412,38 @@ test('primary groups organize library and ZIP folders; tags search, collapsed gr
  await page.locator('#impFile').setInputFiles({name:'roundtrip.zip',mimeType:'application/zip',buffer:bytes});await expect(page.locator('#importSummary')).toContainText('4 matching existing names');await page.locator('#cancelImportBtn').click();await expect(page.locator('.lib-item')).toHaveCount(4);
  await page.locator('#undoOrganizationBtn').click();await expect(page.locator('.lib-group')).toHaveCount(2);await expect(page.locator('#iconTags')).toHaveValue('pagination, table');
 });
+
+test('library selection deletes ranges durably and restores edited icons with originals after reload',async({page})=>{
+ await ready(page);await page.locator('#iconDescription').fill('Keep my artwork notes');await page.locator('#iconDescription').press('Tab');
+ const tiles=page.locator('.lib-item');await tiles.nth(0).click();await tiles.nth(2).click({modifiers:['Shift']});await expect(page.locator('#librarySelectionCount')).toHaveText('3 selected');
+ await expect(page.locator('.lib-item[aria-pressed=true]')).toHaveCount(3);await page.keyboard.press('Delete');await expect(tiles).toHaveCount(1);await expect(page.locator('#restoreIconsBtn')).toHaveText('Restore deleted (3)');
+ await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(tiles).toHaveCount(1);await page.locator('#restoreIconsBtn').click();await expect(tiles).toHaveCount(4);
+ await tiles.filter({hasText:'arrow-right'}).click();await expect(page.locator('#iconDescription')).toHaveValue('Keep my artwork notes');await page.locator('#revertBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');
+ await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(tiles).toHaveCount(4);await expect(page.locator('#restoreIconsBtn')).toBeDisabled();
+});
+test('library toggle selection and shown selection respect search; canvas Delete still edits objects',async({page})=>{
+ await ready(page);const tiles=page.locator('.lib-item');await tiles.nth(0).click();await tiles.nth(2).click({modifiers:['Meta']});await expect(page.locator('#librarySelectionCount')).toHaveText('2 selected');await tiles.nth(0).locator('.library-pick').click();await expect(page.locator('#librarySelectionCount')).toHaveText('1 selected');
+ await page.locator('#clearIconSelectionBtn').click();await page.locator('#libSearch').fill('arrow-up');await page.locator('#selectShownIconsBtn').click();await expect(page.locator('#librarySelectionCount')).toHaveText('1 selected');await page.locator('#deleteIconsBtn').click();await page.locator('#libSearch').fill('');await expect(tiles).toHaveCount(3);
+ await tiles.first().click({button:'right'});await page.getByRole('menuitem',{name:'Delete icon',exact:true}).click();await expect(tiles).toHaveCount(2);
+ await page.locator('#restoreIconsBtn').click();await expect(tiles).toHaveCount(4);
+ await page.locator('[data-tree-key="0:0"] .name').click();await page.keyboard.press('Delete');await expect(tiles).toHaveCount(4);
+});
+test('empty library stays empty across reload; restoring deleted collisions keeps newer imports',async({page})=>{
+ await ready(page);const original=await page.evaluate(()=>structuredClone(window.__gw.S.lib[0]));await page.locator('#selectShownIconsBtn').click();await page.locator('#deleteIconsBtn').click();await expect(page.locator('.lib-item')).toHaveCount(0);
+ await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('.lib-item')).toHaveCount(0);await expect(page.locator('#restoreIconsBtn')).toBeEnabled();
+ original.description='Newer imported version';await page.locator('#ioText').fill(JSON.stringify(original));await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();await expect(page.locator('.lib-item')).toHaveCount(1);
+ await page.locator('#restoreIconsBtn').click();await expect(page.locator('.lib-item')).toHaveCount(5);expect(await page.evaluate(()=>window.__gw.S.lib.find(icon=>icon.name==='arrow-right').description)).toBe('Newer imported version');expect(await page.evaluate(()=>window.__gw.S.lib.find(icon=>icon.name==='arrow-right-2').description)).toBeUndefined();
+ await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('.lib-item')).toHaveCount(5);
+});
+
+test('group review arrow takes over drawing plane and highlights reconstruction failures without replacing originals',async({page})=>{
+ await ready(page);
+ const report=await page.evaluate(()=>({format:'glyph-workbench-reconstruction',version:1,entries:window.__gw.S.lib.slice(0,2).map((glyph,index)=>({name:glyph.name,sourceSignature:JSON.stringify(window.__gw.core.resolve(glyph).map(layer=>({id:layer.id,paint:layer.paint,d:layer.d}))),status:index?'needs-review':'candidate',reason:index?'Ambiguous filled arrow':'Test match',candidate:index?null:{...structuredClone(glyph),weight:1.1}}))}));
+ const weightBefore=await page.evaluate(()=>window.__gw.S.lib[0].weight);const before=await page.evaluate(()=>JSON.stringify(window.__gw.S.lib[0].layers));await page.locator('#impFile').setInputFiles({name:'review.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(report))});await expect(page.locator('#importReplace')).toBeHidden();await page.locator('#confirmImportBtn').click();await expect(page.locator('#status')).toContainText('Attached 2');
+ expect(await page.evaluate(()=>JSON.stringify(window.__gw.S.lib[0].layers))).toBe(before);await expect(page.locator('.needs-reconstruction-review')).toHaveCount(1);
+ await page.getByRole('button',{name:'Review Ungrouped',exact:true}).click();await expect(page.locator('.stage')).toBeHidden();await expect(page.locator('.group-review-card')).toHaveCount(4);await expect(page.locator('#groupReview')).toContainText('Ambiguous filled arrow');
+ await page.getByRole('checkbox',{name:'Needs reconstruction review',exact:true}).check();await expect(page.locator('.group-review-card:visible')).toHaveCount(1);await page.getByRole('checkbox',{name:'Needs reconstruction review',exact:true}).uncheck();
+ await page.getByRole('button',{name:'Use centerlines',exact:true}).click();await expect(page.locator('#groupReview')).toContainText('Centerlines applied');await page.getByRole('button',{name:'Edit arrow-right',exact:true}).click();await expect(page.locator('.stage')).toBeVisible();await expect(page.locator('#groupReview')).toBeHidden();
+ await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.weight)).toBe(weightBefore);
+ await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('.needs-reconstruction-review')).toHaveCount(1);
+});

@@ -83,6 +83,11 @@ const SHIPPED = new Map(LIBRARY.map(g => [g.name, g]));
 const EDITS = new Map(); // name -> { name, glyph, thumb, savedAt } as stored
 const DB = createStorage();
 const pendingSave = new Set();
+const deletedIcons = new Set();
+const librarySelection = new Set();
+let librarySelectionAnchor = null;
+let libraryTrash = [];
+let libraryDeleteBusy = false;
 let libraryResetBackup = null;
 let organizationBackup = null;
 const collapsedGroups = new Set();
@@ -111,7 +116,7 @@ async function flushSaves() {
   if (!DB.db) { setSaveState('nostore', DB.failed); return; }
   const names = [...pendingSave]; pendingSave.clear();
   setSaveState('saving');
-  const recs = names.map(n => { const g = S.lib[idx(n)]; return g && (!SHIPPED.has(n) || JSON.stringify(ORIG.get(n)) !== JSON.stringify(SHIPPED.get(n)) || isEdited(g)) ? { name: n, glyph: clone(g), original: ORIG.has(n) ? clone(ORIG.get(n)) : null, thumb: thumbFor(g), savedAt: Date.now() } : { name: n, del: true }; });
+  const recs = names.map(n => { const g = S.lib[idx(n)]; return g && (!SHIPPED.has(n) || JSON.stringify(ORIG.get(n)) !== JSON.stringify(SHIPPED.get(n)) || isEdited(g)) ? { name: n, glyph: clone(g), original: ORIG.has(n) ? clone(ORIG.get(n)) : null, thumb: thumbFor(g), savedAt: Date.now() } : deletedIcons.has(n) ? { name:n, deleted:true, savedAt:Date.now() } : { name: n, del: true }; });
   try {
     await DB.run('readwrite', st => { let last; for (const r of recs) last = r.del ? st.delete(r.name) : st.put(r); return last; });
     if (disposed) { DB.db?.close(); return; }
@@ -129,12 +134,14 @@ async function loadSaved() {
   try { recs = await DB.run('readonly', st => st.getAll()) || []; } catch (e) { setSaveState('error', e); return; }
   if (disposed) { DB.db?.close(); return; }
   for (const r of recs) {
+    if (r?.deleted) { deletedIcons.add(r.name); const at = idx(r.name); if(at >= 0)S.lib.splice(at,1); EDITS.set(r.name,r); continue; }
     if (!r || !r.glyph || !Array.isArray(r.glyph.layers)) continue;
     if (r.original) { try { ORIG.set(r.name, normalizeGlyph(r.original)); } catch {} }
     const i = idx(r.name); if (i >= 0) S.lib[i] = r.glyph; else S.lib.push(r.glyph);
     EDITS.set(r.name, r);
   }
 
+  try { libraryTrash = (await DB.run('readonly', store=>store.get('library-trash'), 'snapshots'))?.entries || []; syncLibrarySelection(); } catch {}
   try { organizationBackup = await DB.run('readonly', store=>store.get('library-organization'), 'snapshots'); $('undoOrganizationBtn').disabled = !organizationBackup; } catch {}
   try { libraryResetBackup = await DB.run('readonly', store => store.get('library-reset'), 'snapshots'); $('undoLibraryResetBtn').disabled = !libraryResetBackup; } catch {}
   if (!disposed) setSaveState('saved');
@@ -161,6 +168,7 @@ function storeCurrent() {
   if (prev && prev !== S.glyph.name) {
     if (ORIG.has(prev)) { ORIG.set(S.glyph.name, { ...clone(ORIG.get(prev)), name: S.glyph.name }); ORIG.delete(prev); }
     queueSave(prev); renderLibrary(); }
+  if (!prev) renderLibrary();
   queueSave(S.glyph.name);
 }
 function undo() { if (!S.undo.length) return; penDraft = null; S.redo.push(lastSnap); lastSnap = S.undo.pop(); S.glyph = JSON.parse(lastSnap); storeCurrent(); pruneSel(); renderAll(); updateHistoryBtns(); }
@@ -226,7 +234,8 @@ function status(msg, err) { const el = $('status'); el.textContent = msg || ''; 
 
 // ---------- load ----------
 function loadGlyph(i) {
-  S.cur = i; S.glyph = clone(S.lib[i]); S.sel = []; S.undo = []; S.redo = []; lastSnap = JSON.stringify(S.glyph); penDraft = null; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
+  closeGroupReview();
+  S.cur = i; S.glyph = clone(S.lib[i] || TEMPLATES.blank()); S.sel = []; S.undo = []; S.redo = []; lastSnap = JSON.stringify(S.glyph); penDraft = null; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
   ensureLayerNames(S.glyph); lastSnap = JSON.stringify(S.glyph);
   S.rt.weight = S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
   renderAll(); markCurrent(); updateHistoryBtns(); updateGlyphTags(); status('');
@@ -1317,6 +1326,7 @@ function wireLibraryMenu(button, name) {
   const open = event => {
     event.preventDefault(); event.stopPropagation();
     const index = idx(name); if (index < 0) return;
+    if(!librarySelection.has(name)){librarySelection.clear();librarySelection.add(name);librarySelectionAnchor=name;}syncLibrarySelection();
     if (S.cur !== index) loadGlyph(index);
     itemMenu.replaceChildren(); menuHeading(name); menuHeading('Icon type');
     for (const [kind, label] of [['interface', 'Interface icon'], ['app-icon', 'App icon']]) menuAction(label, kind === 'app-icon' ? 'rect' : 'layers', () => {
@@ -1327,6 +1337,7 @@ function wireLibraryMenu(button, name) {
       renderTree(); renderInspector(); renderSelection();
       groupMenu(selection, S.glyph.layers[0].node);
     }
+    menuAction(`Delete ${librarySelection.size === 1 ? 'icon' : librarySelection.size+' selected icons'}`, 'delete', deleteLibraryIcons);
     const bounds = button.getBoundingClientRect();
     openPopup(itemMenu, button, event.type === 'contextmenu' ? event.clientX : bounds.left, event.type === 'contextmenu' ? event.clientY : bounds.bottom, () => LIBEL.get(name));
   };
@@ -1865,8 +1876,127 @@ function applyLibFilter() {
   if (!shown) { if (!empty) { empty = document.createElement('div'); empty.className = 'lib-empty'; $('lib').appendChild(empty); } empty.textContent = q ? `No icon metadata matches “${q}”.` : 'Nothing here yet.'; }
   else if (empty) empty.remove();
 }
+function syncLibrarySelection() {
+  for (const name of librarySelection) if (idx(name) < 0) librarySelection.delete(name);
+  for (const [name, button] of LIBEL) {
+    const selected = librarySelection.has(name);
+    button.classList.toggle('library-selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+    button.querySelector('.library-pick')?.setAttribute('aria-checked',String(selected));
+    button.querySelector('.library-pick')?.setAttribute('aria-label', `${selected ? 'Deselect' : 'Select'} ${name}`);
+  }
+  $('librarySelectionCount').textContent = `${librarySelection.size} selected`;
+  $('deleteIconsBtn').disabled = !librarySelection.size || libraryDeleteBusy;
+  $('clearIconSelectionBtn').disabled = !librarySelection.size;
+  $('restoreIconsBtn').disabled = !libraryTrash.length || libraryDeleteBusy;
+  $('restoreIconsBtn').textContent = libraryTrash.length ? `Restore deleted (${libraryTrash.length})` : 'Restore deleted';
+}
+function shownLibraryIcons() {
+  return [...$('lib').querySelectorAll('.lib-item')].filter(button=>!button.hidden && button.closest('.lib-group').open).map(button=>button.dataset.name);
+}
+function selectLibraryIcon(name, event, toggle = false) {
+  if (event.shiftKey && librarySelectionAnchor) {
+    const shown = shownLibraryIcons(), start = shown.indexOf(librarySelectionAnchor), end = shown.indexOf(name);
+    if (start >= 0 && end >= 0) { if (!(event.metaKey || event.ctrlKey)) librarySelection.clear(); for(const value of shown.slice(Math.min(start,end),Math.max(start,end)+1))librarySelection.add(value); }
+    else librarySelection.add(name);
+  } else if (toggle || event.metaKey || event.ctrlKey) {
+    if(librarySelection.has(name))librarySelection.delete(name);else librarySelection.add(name);
+    librarySelectionAnchor = name;
+  } else {
+    librarySelection.clear();librarySelection.add(name);librarySelectionAnchor = name;
+    const at = idx(name);if(at >= 0)loadGlyph(at);
+  }
+  syncLibrarySelection();
+}
+async function deleteLibraryIcons() {
+  if(libraryDeleteBusy || !librarySelection.size)return;
+  if(!DB.db){status('Deletion needs browser storage so removed icons can be restored.',true);return;}
+  libraryDeleteBusy=true;syncLibrarySelection();
+  try {
+    if(penDraft)finishPen();await flushSaves();
+    if(pendingSave.size)throw new Error('Save your current edits before deleting icons.');
+    const names=new Set(librarySelection), current=S.glyph.name;
+    const entries=S.lib.filter(glyph=>names.has(glyph.name)).map(glyph=>({glyph:clone(glyph),original:ORIG.has(glyph.name)?clone(ORIG.get(glyph.name)):null}));
+    const trash=[...libraryTrash,...entries];
+    await DB.run('readwrite',(store,tx)=>{
+      tx.objectStore('snapshots').put({id:'library-trash',entries:trash});
+      for(const {glyph} of entries)store.put({name:glyph.name,deleted:true,savedAt:Date.now()});
+    },'edits',['snapshots']);
+    for(const {glyph} of entries){deletedIcons.add(glyph.name);EDITS.set(glyph.name,{name:glyph.name,deleted:true});pendingSave.delete(glyph.name);}
+    closeGroupReview();libraryTrash=trash;S.lib=S.lib.filter(glyph=>!names.has(glyph.name));librarySelection.clear();librarySelectionAnchor=null;
+    renderLibrary();if(names.has(current))loadGlyph(Math.min(S.cur,Math.max(0,S.lib.length-1)));else S.cur=idx(current);
+    setSaveState('saved');status(`Deleted ${entries.length} icon${entries.length===1?'':'s'}. Restore deleted brings them back, even after reload.`);
+  } catch(error){status(`Delete: ${error.message}`,true);}
+  finally{libraryDeleteBusy=false;syncLibrarySelection();}
+}
+async function restoreDeletedIcons() {
+  if(libraryDeleteBusy || !libraryTrash.length || !DB.db)return;
+  libraryDeleteBusy=true;syncLibrarySelection();
+  try {
+    await flushSaves();if(pendingSave.size)throw new Error('Save your current edits before restoring icons.');
+    const result=mergeLibrary(S.lib,libraryTrash.map(entry=>entry.glyph),'add');
+    const records=result.names.map((name,index)=>({name,glyph:result.library.find(glyph=>glyph.name===name),original:libraryTrash[index].original?{...clone(libraryTrash[index].original),name}:null,savedAt:Date.now()}));
+    await DB.run('readwrite',(store,tx)=>{tx.objectStore('snapshots').put({id:'library-trash',entries:[]});for(const record of records)store.put(record);},'edits',['snapshots']);
+    S.lib=result.library;libraryTrash=[];librarySelection.clear();
+    for(const record of records){deletedIcons.delete(record.name);EDITS.set(record.name,record);if(record.original)ORIG.set(record.name,record.original);librarySelection.add(record.name);}
+    renderLibrary();loadGlyph(idx(result.names[0]));setSaveState('saved');status(`Restored ${records.length} icons${result.renamed?' (renamed to preserve newer icons with matching names)':''}.`);
+  }catch(error){status(`Restore: ${error.message}`,true);}
+  finally{libraryDeleteBusy=false;syncLibrarySelection();}
+}
+$('selectShownIconsBtn').onclick=()=>{for(const name of shownLibraryIcons())librarySelection.add(name);syncLibrarySelection();};
+$('clearIconSelectionBtn').onclick=()=>{librarySelection.clear();librarySelectionAnchor=null;syncLibrarySelection();};
+$('deleteIconsBtn').onclick=deleteLibraryIcons;
+$('restoreIconsBtn').onclick=restoreDeletedIcons;
+let reviewingGroup = null;
+const groupReview = document.createElement('section');groupReview.id='groupReview';groupReview.className='group-review';groupReview.hidden=true;groupReview.setAttribute('aria-label','Group drawing review');
+root.querySelector('.canvas-wrap').appendChild(groupReview);
+function closeGroupReview() { groupReview.hidden=true;root.querySelector('.stage').hidden=false;reviewingGroup=null; }
+function openGroupReview(group) {
+  reviewingGroup=group;root.querySelector('.stage').hidden=true;groupReview.hidden=false;groupReview.replaceChildren();
+  const glyphs=S.lib.filter(glyph=>iconGroup(glyph)===group), header=document.createElement('div');header.className='group-review-header';
+  const heading=document.createElement('h2');heading.textContent=`${group} · ${glyphs.length} icons`;header.appendChild(heading);
+  const back=smallBtn('Back to drawing',closeGroupReview,'Return to the drawing plane','undo');header.appendChild(back);
+  const flagged=document.createElement('label'), only=document.createElement('input');only.type='checkbox';flagged.append(only,document.createTextNode('Needs reconstruction review'));header.appendChild(flagged);groupReview.appendChild(header);
+  const grid=document.createElement('div');grid.className='group-review-grid';groupReview.appendChild(grid);
+  for(const glyph of glyphs){
+    const card=document.createElement('article');card.className='group-review-card';card.dataset.needsReview=String(glyph.reconstruction?.status==='needs-review');
+    const title=document.createElement('h3');title.textContent=glyph.name;card.appendChild(title);
+    const state=document.createElement('p');state.className='reconstruction-status';state.dataset.status=glyph.reconstruction?.status || 'not-run';state.textContent=glyph.reconstruction?.status==='existing'?'Existing editable centerlines':glyph.reconstruction?.status==='candidate'?'Centerline candidate':glyph.reconstruction?.status==='applied'?'Centerlines applied':glyph.reconstruction?.status==='needs-review'?'⚠ Needs review':'Reconstruction not run';state.title=glyph.reconstruction?.reason || '';card.appendChild(state);
+    const drawings=document.createElement('div');drawings.className='review-drawings';
+    const source=document.createElement('button');source.type='button';source.className='review-drawing';source.setAttribute('aria-label',`Edit ${glyph.name}`);source.innerHTML=core.toSVG(glyph,{mode:'baked',mono:true,size:160});source.onclick=()=>{closeGroupReview();const at=idx(glyph.name);if(S.cur!==at)loadGlyph(at);else refresh(true);};drawings.appendChild(source);
+    if(glyph.reconstruction?.candidate){
+      const candidate=document.createElement('div');candidate.className='review-drawing candidate-drawing';candidate.innerHTML=core.toSVG(glyph.reconstruction.candidate,{mode:'baked',mono:true,size:160});candidate.setAttribute('aria-label',`${glyph.name} centerline approximation`);drawings.appendChild(candidate);
+      const apply=smallBtn('Use centerlines',()=>{
+        const at=idx(glyph.name);if(at<0)return;loadGlyph(at);
+        const candidate=glyph.reconstruction.candidate;
+        S.glyph.layers=clone(candidate.layers);S.glyph.weight=candidate.weight;S.glyph.provenance='converted-stroke';
+        S.glyph.setStyle={...S.glyph.setStyle,thickness:candidate.weight,rounding:0,endRounding:0};
+        S.glyph.reconstruction={...S.glyph.reconstruction,status:'applied'};commit();refresh(true);openGroupReview(group);
+      },'Apply this approximate centerline reconstruction; icon Undo restores the outline','pen');
+      if(glyph.reconstruction.status==='needs-review')apply.title='Approximation has a mismatch; inspect before applying. Icon Undo restores the outline.';
+      card.appendChild(apply);
+    }
+    card.appendChild(drawings);const caption=document.createElement('p');caption.textContent=glyph.reconstruction?.candidate?'Current drawing / centerline approximation':'Click the drawing to edit';card.appendChild(caption);
+    if(glyph.reconstruction?.reason){const reason=document.createElement('p');reason.className='review-reason';reason.textContent=glyph.reconstruction.reason;card.appendChild(reason);}
+    grid.appendChild(card);
+  }
+  only.onchange=()=>{for(const card of grid.children)card.hidden=only.checked&&card.dataset.needsReview!=='true';};
+}
+async function attachReconstructionReport(report) {
+  const current=S.glyph.name;let attached=0, changed=0;
+  const entries=new Map(report.entries.map(entry=>[entry.name,entry]));
+  S.lib=S.lib.map(glyph=>{
+    const entry=entries.get(glyph.name);if(!entry)return glyph;
+    const signature=JSON.stringify(core.resolve(glyph).map(layer=>({id:layer.id,paint:layer.paint,d:layer.d})));
+    attached++;
+    if(signature!==entry.sourceSignature){changed++;return {...glyph,reconstruction:{status:'needs-review',reason:'Drawing has changed since the reconstruction source; candidate was not attached.'}};}
+    return {...glyph,reconstruction:clone(entry)};
+  });
+  for(const glyph of S.lib)if(entries.has(glyph.name))queueSave(glyph.name);
+  await flushSaves();renderLibrary();loadGlyph(Math.max(0,idx(current)));status(`Attached ${attached} reconstruction results${changed?`; ${changed} changed drawings flagged`:''}. Original drawings retained; review a group to compare candidates.`);
+}
 function tileTitle(g) {
-  return [g.name, PROV_LABEL[g.provenance] || 'new', isEdited(g) ? 'edited (saved in this browser)' : ''].filter(Boolean).join(' · ');
+  return [g.name, PROV_LABEL[g.provenance] || 'new', isEdited(g) ? 'edited (saved in this browser)' : '', g.reconstruction?.status==='needs-review' ? 'Needs centerline review: '+g.reconstruction.reason : ''].filter(Boolean).join(' · ');
 }
 function renderLibrary() {
   const box = $('lib'); box.innerHTML = ''; LIBEL.clear();
@@ -1877,7 +2007,7 @@ function renderLibrary() {
   const frag = document.createDocumentFragment(), groups = new Map();
   for(const name of [...new Set(S.lib.map(iconGroup))].sort((a,b)=>a==='Ungrouped'?1:b==='Ungrouped'?-1:a.localeCompare(b))){
     const section=document.createElement('details');section.className='lib-group';section.dataset.group=name;section.open=!collapsedGroups.has(name);
-    const summary=document.createElement('summary'), title=document.createElement('span'), count=document.createElement('span');title.textContent=name;count.className='lib-group-count';summary.append(title,count);section.appendChild(summary);
+    const summary=document.createElement('summary'), title=document.createElement('span'), count=document.createElement('span');title.textContent=name;count.className='lib-group-count';summary.append(title,count);const review=document.createElement('button');review.className='btn sm icon group-review-arrow';review.type='button';review.textContent='→';review.setAttribute('aria-label',`Review ${name}`);review.title='Review this group on the drawing plane';review.onclick=event=>{event.preventDefault();event.stopPropagation();openGroupReview(name);};summary.appendChild(review);section.appendChild(summary);
     const grid=document.createElement('div');grid.className='lib-group-grid';section.appendChild(grid);groups.set(name,grid);frag.appendChild(section);
     summary.onclick=()=>{if($('libSearch').value.trim())return; if(section.open)collapsedGroups.add(name);else collapsedGroups.delete(name);try{localStorage.setItem('gw-collapsed-groups',JSON.stringify([...collapsedGroups]));}catch{}};
   }
@@ -1885,16 +2015,17 @@ function renderLibrary() {
     if (LIBEL.has(g.name)) continue;
     const b = document.createElement('button'); b.className = 'lib-item'; b.type = 'button'; b.dataset.name = g.name;
     b.setAttribute('aria-current', String(S.glyph ? g.name === S.glyph.name : false));
-    b.innerHTML = `<i class="prov-dot" data-p="${g.provenance || ''}"></i><span class="edited" hidden>●</span><span class="thumb"></span><span class="lbl-name"></span>`;
+    b.innerHTML = `<i class="prov-dot" data-p="${g.provenance || ''}"></i><span class="edited" hidden>●</span><span class="thumb"></span><span class="lbl-name"></span><span class="library-pick" role="checkbox" aria-checked="false" tabindex="-1"></span>`;
     b.querySelector('.lbl-name').textContent = g.name.replace(/^ui-/, '');
+    if(g.reconstruction?.status==='needs-review')b.classList.add('needs-reconstruction-review');
     b.title = tileTitle(g); b.querySelector('.edited').hidden = !isEdited(g);
-    b.onclick = () => { const i = idx(g.name); if (i >= 0) loadGlyph(i); };
+    b.onclick = event => selectLibraryIcon(g.name,event,event.target.closest('.library-pick') != null);
     wireLibraryMenu(b, g.name);
     LIBEL.set(g.name, b); groups.get(iconGroup(g)).appendChild(b);
     if (thumbObserver) thumbObserver.observe(b); else paintThumb(b);
   }
   box.appendChild(frag);
-  applyLibFilter();
+  applyLibFilter();syncLibrarySelection();
 }
 function updateLibItem(name) {
   const b = LIBEL.get(name); if (!b) return;
@@ -2085,6 +2216,14 @@ async function exportLibrary(scope) {
 let pendingImport = null;
 function requestLibraryImport(text, fileName) {
   try {
+    const data=JSON.parse(text);
+    if(data?.format==='glyph-workbench-reconstruction'){
+      if(data.version!==1 || !Array.isArray(data.entries) || data.entries.length>10000)throw new Error('Invalid reconstruction report');
+      const names=new Set();
+      for(const entry of data.entries){if(typeof entry.name!=='string' || names.has(entry.name) || !['candidate','needs-review','existing'].includes(entry.status) || typeof entry.sourceSignature!=='string')throw new Error('Invalid or duplicate reconstruction entry');names.add(entry.name);if(entry.candidate){entry.candidate=normalizeGlyph(entry.candidate);if(core.resolve(entry.candidate).some(layer=>layer.error))throw new Error('Invalid reconstruction geometry');}}
+      pendingImport={report:data};$('importSummary').textContent=`${fileName}: ${data.entries.length} reconstruction results. Attach review flags and candidates; current drawings stay intact.`;$('importReplace').closest('label').hidden=true;$('confirmImportBtn').textContent='Attach review results';$('importDialog').showModal();return;
+    }
+    $('importReplace').closest('label').hidden=false;
     const archive = parseLibraryArchive(text);
     for (const glyph of [...archive.glyphs, ...archive.originals.values()]) {
       const errors = core.resolve(glyph).filter(layer => layer.error);
@@ -2104,10 +2243,10 @@ $('cancelImportBtn').onclick = () => $('importDialog').close();
 listen($('importDialog'), 'close', () => { pendingImport = null; });
 $('confirmImportBtn').onclick = async () => {
   if (!pendingImport) return;
-  const { text, fileName } = pendingImport, mode = $('importReplace').checked ? 'overwrite' : 'add';
+  const { text, fileName, report } = pendingImport, mode = $('importReplace').checked ? 'overwrite' : 'add';
   pendingImport = null;
   $('importDialog').close();
-  await importLibraryText(text, fileName, mode);
+  if(report)await attachReconstructionReport(report);else await importLibraryText(text, fileName, mode);
 };
 async function importLibraryText(text, fileName, mode = 'add') {
   let result, archive;
@@ -2148,6 +2287,11 @@ listen(document, 'keydown', e => {
   if (!root.contains(document.activeElement)) return;
   const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
   const mod = e.metaKey || e.ctrlKey;
+  if(t?.closest?.('#lib')) {
+    if(e.key === 'Delete' || e.key === 'Backspace'){e.preventDefault();deleteLibraryIcons();return;}
+    if(mod && e.key.toLowerCase()==='a'){e.preventDefault();$('selectShownIconsBtn').click();return;}
+    if(e.key === 'Escape'){e.preventDefault();$('clearIconSelectionBtn').click();return;}
+  }
   if (penDraft && (e.key === 'Enter' || e.key === 'Escape')) { e.preventDefault(); finishPen(); setTool('select'); return; }
   const key = shortcutFromEvent(e), action = Object.keys(shortcuts).find(action => shortcuts[action] === key);
   if (action) {
@@ -2177,10 +2321,10 @@ const ready = (async () => {
   if (disposed) return;
   try {
     const journal = localStorage.getItem('gw-open-pending-glyph');
-    if (journal) { const glyph = normalizeGlyph(JSON.parse(journal)); const at = idx(glyph.name); if (at >= 0) S.lib[at] = glyph; else S.lib.push(glyph); queueSave(glyph.name); }
+    if (journal) { const glyph = normalizeGlyph(JSON.parse(journal)); if(deletedIcons.has(glyph.name))throw new Error('Deleted icon journal'); const at = idx(glyph.name); if (at >= 0) S.lib[at] = glyph; else S.lib.push(glyph); queueSave(glyph.name); }
   } catch {}
   try { const journal = localStorage.getItem('gw-open-pending-set-style'); if (journal) { const style = JSON.parse(journal); S.lib = S.lib.map(glyph => ({ ...glyph, setStyle: clone(style) })); for (const glyph of S.lib) queueSave(glyph.name); } } catch {}
-  if (!S.lib.length) S.lib.push(TEMPLATES.blank());
+  // A fully deleted library stays empty; editing the blank canvas creates a new icon.
   S.lib.forEach(ensureLayerNames);
   renderLibrary();
   let last = null; try { last = localStorage.getItem('gw-current'); } catch (e) {}
