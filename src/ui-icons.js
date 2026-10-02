@@ -23,6 +23,7 @@ const ICONS = {
   grid: faBorderAll, safe: faDrawPolygon, keylines: faBullseye, points: faBraille, forms: faShapes,
 };
 export function uiSVG(name) {
+  if (name === 'direct') return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 2L19 14L12 15L9 22L5 2Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
   const definition = ICONS[name.replace(/^ui-/, '')] || faCircle;
   const [width, height, , , paths] = definition.icon;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" aria-hidden="true" focusable="false" fill="currentColor">${(Array.isArray(paths) ? paths : [paths]).map(d => `<path d="${d}"/>`).join('')}</svg>`;

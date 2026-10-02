@@ -1,13 +1,15 @@
 import { createGlyphCore } from './glyph-core.js';
 import { LIBRARY } from './starter-library.js';
 import { uiSVG } from './ui-icons.js';
-import { parseLibrary, mergeLibrary, libraryDocument, normalizeGlyph } from './library-io.js';
+import { parseLibraryArchive, mergeLibrary, libraryDocument, normalizeGlyph } from './library-io.js';
 import { createStorage } from './storage.js';
 
 import paper from 'paper/dist/paper-core.js';
 import { downloadBlob, svgToPNG } from './downloads.js';
 import { TEMPLATES, DEFAULT_SHAPES, PRIMARY_TOOLS, MORE_TOOLS } from './templates.js';
 import { ID, mul, ap, apv, inv } from './affine.js';
+import { anchorMarker } from './anchor-marker.js';
+import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, setShortcut, shortcutFromEvent } from './shortcuts.js';
 import { inspectGeometry } from './geometry-inspection.js';
 import { ensureLayerNames, canMoveTreeItem, moveTreeItem, useAsCutter } from './layer-tree.js';
 export function mountEditor(root) {
@@ -45,6 +47,7 @@ const S = {
   show: { grid: true, safe: true, artboard: true, guides: true, keylines: true, forms: false, original: false, cutters: false, points: true },
   iso: null, // isolated object {l, p:null|[...]}; everything else dims and stops taking clicks
   sourceAnchor: null,
+  selectedAnchors: [],
   anchor: null, // index of the selected anchor on the selected pen path
   tool: 'select', hmode: 'shape', lockAspect: true,
   rt: { weight: 1.2, cap: 'round', join: 'round', hint: false, rtl: false },
@@ -72,15 +75,17 @@ function parentMatrix(s) { let M = ID; for (const a of ancestorsOf(s)) M = mul(M
 function fullMatrix(s) { return mul(parentMatrix(s), core.nodeMatrix(getNode(s))); }
 
 // ---------- saving: every committed glyph is autosaved to IndexedDB (only glyphs that differ from the library) ----------
-const ORIG = new Map(LIBRARY.map(g => [g.name, g])); // the library as shipped in this page; never mutated
+const ORIG = new Map(LIBRARY.map(g => [g.name, clone(g)])); // Shipped and imported baselines; edits never mutate them.
+const SHIPPED = new Map(LIBRARY.map(g => [g.name, g]));
 const EDITS = new Map(); // name -> { name, glyph, thumb, savedAt } as stored
 const DB = createStorage();
 const pendingSave = new Set();
+let libraryResetBackup = null;
 let saveTimer = null;
 function isEdited(g) { const o = ORIG.get(g.name); return !o || JSON.stringify(o) !== JSON.stringify(g); }
 function setSaveState(state, detail) {
   const el = $('saveState'); el.dataset.state = state;
-  const n = EDITS.size, edited = n ? ` · ${n} edited` : '';
+  const n = S.lib.filter(isEdited).length, edited = n ? ` · ${n} edited` : '';
   el.textContent = state === 'saved' ? 'Saved' + edited : state === 'saving' ? 'Saving…' : state === 'unsaved' ? 'Unsaved changes'
     : state === 'nostore' ? 'Not saving: browser storage unavailable — use Export' : 'Save failed — use Export';
   el.title = state === 'saved' ? 'Every edit is kept in this browser (IndexedDB) and survives a reload. Export to move them elsewhere.' : (detail ? String(detail.message || detail) : '');
@@ -90,7 +95,8 @@ function thumbFor(g) {
 }
 function queueSave(name) {
   if (!name) return;
-  pendingSave.add(name); setSaveState('unsaved');
+  const alreadyPending = pendingSave.size > 0;
+  pendingSave.add(name); if (!alreadyPending) setSaveState('unsaved');
   clearTimeout(saveTimer); saveTimer = setTimeout(flushSaves, 300);
 }
 async function flushSaves() {
@@ -99,11 +105,12 @@ async function flushSaves() {
   if (!DB.db) { setSaveState('nostore', DB.failed); return; }
   const names = [...pendingSave]; pendingSave.clear();
   setSaveState('saving');
-  const recs = names.map(n => { const g = S.lib[idx(n)]; return g && isEdited(g) ? { name: n, glyph: clone(g), thumb: thumbFor(g), savedAt: Date.now() } : { name: n, del: true }; });
+  const recs = names.map(n => { const g = S.lib[idx(n)]; return g && (!SHIPPED.has(n) || JSON.stringify(ORIG.get(n)) !== JSON.stringify(SHIPPED.get(n)) || isEdited(g)) ? { name: n, glyph: clone(g), original: ORIG.has(n) ? clone(ORIG.get(n)) : null, thumb: thumbFor(g), savedAt: Date.now() } : { name: n, del: true }; });
   try {
     await DB.run('readwrite', st => { let last; for (const r of recs) last = r.del ? st.delete(r.name) : st.put(r); return last; });
     if (disposed) { DB.db?.close(); return; }
   for (const r of recs) { if (r.del) EDITS.delete(r.name); else EDITS.set(r.name, r); }
+    if (!pendingSave.size) { try { localStorage.removeItem('gw-open-pending-glyph'); localStorage.removeItem('gw-open-pending-set-style'); } catch {} }
     setSaveState(pendingSave.size ? 'unsaved' : 'saved');
   } catch (e) { names.forEach(n => pendingSave.add(n)); setSaveState('error', e); }
   names.forEach(updateLibItem); updateGlyphTags();
@@ -117,10 +124,12 @@ async function loadSaved() {
   if (disposed) { DB.db?.close(); return; }
   for (const r of recs) {
     if (!r || !r.glyph || !Array.isArray(r.glyph.layers)) continue;
+    if (r.original) { try { ORIG.set(r.name, normalizeGlyph(r.original)); } catch {} }
     const i = idx(r.name); if (i >= 0) S.lib[i] = r.glyph; else S.lib.push(r.glyph);
     EDITS.set(r.name, r);
   }
 
+  try { libraryResetBackup = await DB.run('readonly', store => store.get('library-reset'), 'snapshots'); $('undoLibraryResetBtn').disabled = !libraryResetBackup; } catch {}
   if (!disposed) setSaveState('saved');
 }
 listen(window, 'pagehide', () => { if (pendingSave.size) flushSaves(); });
@@ -142,7 +151,9 @@ function storeCurrent() {
   S.lib[S.cur] = clone(S.glyph);
   // A synchronous single-glyph journal protects the last edit if reload beats the IDB debounce.
   try { localStorage.setItem('gw-open-pending-glyph', JSON.stringify(S.glyph)); } catch {}
-  if (prev && prev !== S.glyph.name) { queueSave(prev); renderLibrary(); }
+  if (prev && prev !== S.glyph.name) {
+    if (ORIG.has(prev)) { ORIG.set(S.glyph.name, { ...clone(ORIG.get(prev)), name: S.glyph.name }); ORIG.delete(prev); }
+    queueSave(prev); renderLibrary(); }
   queueSave(S.glyph.name);
 }
 function undo() { if (!S.undo.length) return; penDraft = null; S.redo.push(lastSnap); lastSnap = S.undo.pop(); S.glyph = JSON.parse(lastSnap); storeCurrent(); pruneSel(); renderAll(); updateHistoryBtns(); }
@@ -150,20 +161,43 @@ function redo() { if (!S.redo.length) return; penDraft = null; S.undo.push(lastS
 function revert() {
   const o = ORIG.get(S.glyph.name);
   if (!o || !isEdited(S.glyph)) return;
-  penDraft = null; S.glyph = clone(o); S.sel = []; S.iso = null; S.anchor = null;
-  commit(); renderAll(); status('Reverted to the library original. Undo brings your edit back.');
+  penDraft = null; S.glyph = clone(o); S.sel = []; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
+  commit(); renderAll(); status('Reset to the imported original. Undo brings your edit back.');
 }
+async function resetLibrary() {
+  if (penDraft) finishPen();
+  if (!DB.db) { status('Reset needs browser storage so your edits can be restored.', true); return; }
+  const current = S.glyph.name;
+  const snapshot = { id: 'library-reset', glyphs: clone(S.lib), originals: [...ORIG.values()].map(clone), current };
+  try { await DB.run('readwrite', store => store.put(snapshot), 'snapshots'); }
+  catch (error) { status(`Could not save reset backup: ${error.message}`, true); return; }
+  libraryResetBackup = snapshot;
+  S.lib = S.lib.map(glyph => clone(ORIG.get(glyph.name) || glyph));
+  for (const glyph of S.lib) queueSave(glyph.name);
+  await flushSaves(); renderLibrary(); loadGlyph(Math.max(0, idx(current))); $('undoLibraryResetBtn').disabled = false;
+  status('Library restored to imported originals. Undo library reset restores your edits.');
+}
+async function undoLibraryReset() {
+  if (!libraryResetBackup) return;
+  const snapshot = libraryResetBackup;
+  S.lib = mergeLibrary(S.lib, snapshot.glyphs, 'overwrite').library;
+  for (const original of snapshot.originals) ORIG.set(original.name, clone(original));
+  for (const glyph of S.lib) queueSave(glyph.name);
+  await flushSaves(); renderLibrary(); loadGlyph(Math.max(0, idx(snapshot.current))); status('Edits restored from the library reset backup.');
+}
+$('resetLibraryBtn').onclick = resetLibrary;
+$('undoLibraryResetBtn').onclick = undoLibraryReset;
 function updateHistoryBtns() { $('undoBtn').disabled = !S.undo.length; $('redoBtn').disabled = !S.redo.length; }
 function pruneSel() {
   S.sel = S.sel.filter(s => { try { return s.l < S.glyph.layers.length && (s.p === null || getNode(s)); } catch (e) { return false; } });
   if (S.iso && !(S.iso.l < S.glyph.layers.length && (S.iso.p === null || getNode(S.iso)))) S.iso = null;
-  S.anchor = null;
+  S.anchor = null; S.selectedAnchors = [];
 }
 function status(msg, err) { const el = $('status'); el.textContent = msg || ''; el.className = 'status' + (err ? ' err' : ''); }
 
 // ---------- load ----------
 function loadGlyph(i) {
-  S.cur = i; S.glyph = clone(S.lib[i]); S.sel = []; S.undo = []; S.redo = []; lastSnap = JSON.stringify(S.glyph); penDraft = null; S.iso = null; S.anchor = null;
+  S.cur = i; S.glyph = clone(S.lib[i]); S.sel = []; S.undo = []; S.redo = []; lastSnap = JSON.stringify(S.glyph); penDraft = null; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
   ensureLayerNames(S.glyph); lastSnap = JSON.stringify(S.glyph);
   S.rt.weight = S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
   renderAll(); markCurrent(); updateHistoryBtns(); updateGlyphTags(); status('');
@@ -586,21 +620,22 @@ function renderGeometryInspection() {
   const rows = $('pointRows'); rows.replaceChildren();
   for (const point of points) {
     const row = rows.insertRow();
-    const active = S.sourceAnchor?.key === point.key && S.sourceAnchor.index === point.index && S.sel.some(s => s.l === point.selection.l && s.p?.join('.') === point.selection.p.join('.'));
+    const active = anchorSelected(point.selection, point.index) || S.sourceAnchor?.key === point.key && S.sourceAnchor.index === point.index && S.sel.some(s => s.l === point.selection.l && s.p?.join('.') === point.selection.p.join('.'));
     row.dataset.sourcePoint = `${point.key}:${point.index}`;
     row.classList.toggle('selected', active); row.setAttribute('aria-selected', String(active));
     row.tabIndex = 0;
-    const selectPoint = () => {
+    const selectPoint = (event = {}) => {
+      if (!event.shiftKey) S.selectedAnchors = [];
       S.sel = [point.selection]; S.sourceAnchor = { key: point.key, index: point.index }; S.anchor = null; S.hmode = 'shape';
       const node = getNode(point.selection);
       if (node?.shape === 'pen') {
         const index = node.pts.findIndex(q => { const world = ap(fullMatrix(point.selection), q); return Math.hypot(world.x - point.x, world.y - point.y) < 1e-4; });
-        if (index >= 0) S.anchor = index;
+        if (index >= 0) { selectAnchor(point.selection, index, event.shiftKey); S.tool = 'direct'; syncToggles(); }
       }
       renderTree(); renderInspector(); renderSelection();
     };
     row.onclick = selectPoint;
-    row.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectPoint(); } };
+    row.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectPoint(event); } };
     for (const value of [`${point.name} [${point.key}]`, point.index + 1, r4(point.x), r4(point.y)]) row.insertCell().textContent = String(value);
     const tag = document.createElement('input'); tag.type = 'checkbox';
     const node = getNode(point.selection);
@@ -620,10 +655,10 @@ function renderGeometryInspection() {
     const px = 1 / pxPerUnit();
     const unique = new Map(points.map(point => [`${r4(point.x)},${r4(point.y)}`, point]));
     for (const point of unique.values()) {
-      const active = S.sourceAnchor?.key === point.key && S.sourceAnchor.index === point.index && S.sel.some(s => s.l === point.selection.l && s.p?.join('.') === point.selection.p.join('.'));
+      const active = anchorSelected(point.selection, point.index) || S.sourceAnchor?.key === point.key && S.sourceAnchor.index === point.index && S.sel.some(s => s.l === point.selection.l && s.p?.join('.') === point.selection.p.join('.'));
       if (!S.show.points && !active) continue;
       if (active) el('circle', { cx: point.x, cy: point.y, r: 7 * px, fill: 'none', stroke: 'var(--sel)', 'stroke-width': 2 * px, 'data-selected-source-point': 'true' }, overlay);
-      el('circle', { cx: point.x, cy: point.y, r: 2.5 * px, fill: 'var(--canvas-bg)', stroke: 'var(--accent)', 'stroke-width': px }, overlay);
+      pointMarker(point, 2.5*px, anchorMarker(getNode(point.selection), point.index, S.glyph.setStyle), active, overlay);
       const label = el('text', { x: point.x + 5 * px, y: point.y - 5 * px, class: 'point-coordinate', 'font-size': 10 * px }, overlay);
       label.textContent = `${r4(point.x)}, ${r4(point.y)}`;
     }
@@ -636,6 +671,25 @@ function renderGeometryInspection() {
     button.onclick = () => { S.sel = [overlap.a.selection, overlap.b.selection]; renderTree(); renderInspector(); renderSelection(); };
     list.appendChild(button);
   }
+}
+function anchorSelected(selection, index) { return S.selectedAnchors.some(anchor => same(anchor.selection, selection) && anchor.index === index); }
+function selectAnchor(selection, index, extend = false) {
+  if (!extend) S.selectedAnchors = [];
+  const existing = S.selectedAnchors.findIndex(anchor => same(anchor.selection, selection) && anchor.index === index);
+  if (extend && existing >= 0) S.selectedAnchors.splice(existing, 1);
+  else if (existing < 0) S.selectedAnchors.push({ selection: clone(selection), index });
+  S.sel = S.selectedAnchors.length ? S.selectedAnchors.map(anchor => anchor.selection).filter((selection, i, all) => all.findIndex(other => same(other, selection)) === i) : [selection];
+  S.anchor = S.selectedAnchors.find(anchor => same(anchor.selection, primarySel()))?.index ?? null;
+}
+function pointMarker(point, size, kind, selected, parent, attrs = {}) {
+  const common = { fill: selected ? 'var(--sel)' : 'var(--canvas-bg)', stroke: 'var(--sel)', 'stroke-width': 1.5 / pxPerUnit(), 'data-point-kind': kind, 'data-selected': String(selected), ...attrs };
+  if (kind === 'circle') return el('circle', { ...common, cx: point.x, cy: point.y, r: size }, parent);
+  if (kind === 'diamond') return el('path', { ...common, d: `M${point.x} ${point.y-size*1.3}L${point.x+size*1.3} ${point.y}L${point.x} ${point.y+size*1.3}L${point.x-size*1.3} ${point.y}Z` }, parent);
+  return el('rect', { ...common, x: point.x-size, y: point.y-size, width: size*2, height: size*2 }, parent);
+}
+function startAnchorDrag(position, pointerId) {
+  drag = { kind: 'anchors', from: position, starts: S.selectedAnchors.map(anchor => ({ ...clone(anchor), point: clone(getNode(anchor.selection).pts[anchor.index]), Mi: inv(fullMatrix(anchor.selection)) })), moved: false };
+  cv.setPointerCapture(pointerId);
 }
 function renderSelection() {
   renderCutters(); // cutter visibility follows the selection
@@ -652,22 +706,22 @@ function renderSelection() {
   const ps = primarySel(); const n = ps && ps.p !== null && getNode(ps);
   const sz = 4.5 * px;
   const square = h => el('rect', Object.assign({ x: h.x - sz, y: h.y - sz, width: sz * 2, height: sz * 2, fill: 'var(--canvas-bg)', stroke: 'var(--sel)', 'stroke-width': 1.5 }, NS), gS);
-  if (n && S.sel.length === 1 && (S.tool === 'select' || (S.tool === 'pen' && !penDraft))) {
-    if (S.hmode === 'shape' && n.shape) {
-      const M = fullMatrix(ps), Mi = inv(M);
-      const raw = handlesFor(n, px / Math.max(1e-3, Math.sqrt(Math.abs(M[0] * M[3] - M[1] * M[2]))));
-      for (const h of raw) {
-        const d = ap(M, h);
-        const H = Object.assign({}, h, { x: d.x, y: d.y, M, Mi });
-        activeHandles.push(H);
-        if (h.kind === 'ctrl') { const a = ap(M, { x: h.anchor[0], y: h.anchor[1] }); el('path', Object.assign({ d: `M${a.x} ${a.y}L${d.x} ${d.y}`, stroke: 'var(--sel)', 'stroke-width': 1 }, NS), gS); }
-      }
-      for (const H of activeHandles) {
-        if (H.kind === 'pt') { const r = square(H); if (H.ai != null) { r.setAttribute('data-anchor', H.ai); if (H.ai === S.anchor) r.setAttribute('fill', 'var(--sel)'); } }
-        else if (H.kind === 'radius' || H.kind === 'ctrl') el('circle', Object.assign({ cx: H.x, cy: H.y, r: sz * .85, fill: H.kind === 'ctrl' ? 'var(--canvas-bg)' : 'var(--sel)', stroke: 'var(--sel)', 'stroke-width': 1.2 }, NS), gS);
-        else el('path', Object.assign({ d: `M${H.x} ${H.y - sz * 1.2}L${H.x + sz * 1.2} ${H.y}L${H.x} ${H.y + sz * 1.2}L${H.x - sz * 1.2} ${H.y}Z`, fill: 'var(--sel)', 'fill-opacity': getTaper(n) ? 1 : .35, stroke: 'var(--sel)', 'stroke-width': 1 }, NS), gS);
-      }
+  const shapeSelections = S.tool === 'direct' ? S.sel : S.sel.length === 1 && (S.tool === 'select' || (S.tool === 'pen' && !penDraft)) && S.hmode === 'shape' ? [ps] : [];
+  for (const selection of shapeSelections) {
+    if (selection.p === null) continue;
+    const node = getNode(selection); if (!node?.shape || S.tool === 'direct' && node.shape !== 'pen') continue;
+    const M = fullMatrix(selection), Mi = inv(M);
+    const raw = handlesFor(node, px / Math.max(1e-3, Math.sqrt(Math.abs(M[0]*M[3]-M[1]*M[2]))));
+    for (const h of raw) {
+      const d = ap(M, h), H = { ...h, x: d.x, y: d.y, M, Mi, s: selection };
+      activeHandles.push(H);
+      if (h.kind === 'ctrl') { const a = ap(M, { x: h.anchor[0], y: h.anchor[1] }); el('path', Object.assign({ d: `M${a.x} ${a.y}L${d.x} ${d.y}`, stroke: 'var(--sel)', 'stroke-width': 1 }, NS), gS); }
+      if (H.kind === 'pt') pointMarker(H, sz, H.ai != null ? anchorMarker(node, H.ai, S.glyph.setStyle) : 'square', H.ai != null && (anchorSelected(selection, H.ai) || (!S.selectedAnchors.length && same(selection, ps) && H.ai === S.anchor)), gS, { 'data-anchor': H.ai ?? '', 'data-anchor-object': treeKey(selection) });
+      else if (H.kind === 'radius' || H.kind === 'ctrl') el('circle', Object.assign({ cx: H.x, cy: H.y, r: sz*.85, fill: H.kind === 'ctrl' ? 'var(--canvas-bg)' : 'var(--sel)', stroke: 'var(--sel)', 'stroke-width': 1.2 }, NS), gS);
+      else el('path', Object.assign({ d: `M${H.x} ${H.y-sz*1.2}L${H.x+sz*1.2} ${H.y}L${H.x} ${H.y+sz*1.2}L${H.x-sz*1.2} ${H.y}Z`, fill: 'var(--sel)', stroke: 'var(--sel)', 'stroke-width': 1 }, NS), gS);
     }
+  }
+  if (n && S.sel.length === 1 && S.tool !== 'direct') {
     if (S.hmode === 'transform') {
       const b = core.rawBounds(n);
       if (b) {
@@ -801,7 +855,20 @@ function toggleSmooth(s, i) {
   }
   S.anchor = i; commit(); refresh(true);
 }
+function deleteSelectedAnchors() {
+  if (S.tool !== 'direct' || S.selectedAnchors.length < 2) return false;
+  const groups = new Map();
+  for (const anchor of S.selectedAnchors) { const key = treeKey(anchor.selection); if (!groups.has(key)) groups.set(key, { selection: anchor.selection, indices: [] }); groups.get(key).indices.push(anchor.index); }
+  for (const { selection, indices } of groups.values()) { const node = getNode(selection); if (node.pts.length-indices.length < (node.closed ? 3 : 2)) { status('Keep at least three points on a closed path or two on an open path.', true); return true; } }
+  for (const { selection, indices } of groups.values()) {
+    const node = getNode(selection), removed = new Set(indices);
+    node.pts = node.pts.filter((point,index) => !removed.has(index));
+    if (Array.isArray(node.roundingAnchors)) node.roundingAnchors = node.roundingAnchors.filter(index => !removed.has(index)).map(index => index-indices.filter(other=>other<index).length);
+  }
+  S.selectedAnchors=[]; S.anchor=null; commit(); refresh(true); status('Selected anchors deleted.'); return true;
+}
 function deleteAnchor() {
+  if (deleteSelectedAnchors()) return true;
   const s = primarySel(); const n = s && s.p !== null && getNode(s);
   if (!n || n.shape !== 'pen' || S.anchor == null || !n.pts[S.anchor]) return false;
   if (n.pts.length <= (n.closed ? 3 : 2)) { status('A path keeps at least ' + (n.closed ? 3 : 2) + ' anchors.', true); return true; }
@@ -825,7 +892,7 @@ listen(cv, 'pointerdown', ev => {
   const pos = toUnits(ev); const px = 1 / pxPerUnit();
   cv.focus({ preventScroll: true });
   const now = performance.now();
-  if (ev.button === 0 && !ev.altKey && lastDown && now - lastDown.t < 400 && Math.hypot(ev.clientX - lastDown.x, ev.clientY - lastDown.y) < 5) { lastDown = null; drag = null; onDoubleClick(ev); return; }
+  if (S.tool === 'select' && ev.button === 0 && !ev.altKey && lastDown && now - lastDown.t < 400 && Math.hypot(ev.clientX - lastDown.x, ev.clientY - lastDown.y) < 5) { lastDown = null; drag = null; onDoubleClick(ev); return; }
   lastDown = { t: now, x: ev.clientX, y: ev.clientY };
   const hit = activeHandles.find(h => Math.hypot(h.x - pos.x, h.y - pos.y) <= 8 * px);
   const axh = !hit && axisHandles.find(h => Math.hypot(h.x - pos.x, h.y - pos.y) <= 8 * px);
@@ -840,7 +907,13 @@ listen(cv, 'pointerdown', ev => {
   }
   if (hit && S.tool === 'pen' && ev.altKey && hit.ai != null) { S.anchor = hit.ai; deleteAnchor(); return; }
   if (hit) {
-    const s = primarySel(); const n = getNode(s);
+    const s = hit.s || primarySel(); const n = getNode(s);
+    if (S.tool === 'direct' && hit.ai != null && hit.kind === 'pt') {
+      if (ev.shiftKey || !anchorSelected(s, hit.ai)) selectAnchor(s, hit.ai, ev.shiftKey);
+      renderTree(); renderInspector(); renderSelection();
+      if (anchorSelected(s, hit.ai)) startAnchorDrag(pos, ev.pointerId);
+      return;
+    }
     if (hit.ai != null && S.anchor !== hit.ai) { S.anchor = hit.ai; renderInspector(); renderSelection(); }
     if (hit.kind === 'tscale' || hit.kind === 'trotate' || hit.kind === 'torigin') ensureT(n);
     drag = { kind: hit.kind.startsWith('t') ? hit.kind : 'handle', h: hit, s, start: clone(n), from: pos, Mp: parentMatrix(s), moved: false };
@@ -849,9 +922,39 @@ listen(cv, 'pointerdown', ev => {
   const gi = hitGuide(pos);
   if (gi >= 0) { drag = { kind: 'guide', i: gi, moved: false }; cv.setPointerCapture(ev.pointerId); return; }
   const f = hitForm(pos);
-  if (!f) { if (!ev.shiftKey) { S.sel = []; S.anchor = null; renderTree(); renderSelection(); renderInspector(); } return; }
+  if (!f) { if (!ev.shiftKey) { S.sel = []; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null; renderTree(); renderSelection(); renderInspector(); } return; }
   S.anchor = null;
-  let target = { l: f.l, p: f.p };
+  if (S.tool === 'direct') {
+    let target = { l: f.l, p: f.p }, node = getNode(target);
+    if (node.shape !== 'pen') {
+      const converted = core.toPen(node);
+      if (!converted) return;
+      if (target.p.length) getParent(target).children[target.p.at(-1)] = converted; else layerOf(target).node = converted;
+      node = converted; commit(); refresh(true);
+      if (node.children) {
+        const candidates = leafList().filter(leaf => leaf.l === target.l && prefixOf(target.p, leaf.p));
+        let best = null;
+        for (const candidate of candidates) {
+          const fm = core.form(candidate.n, candidate.anc), paths = [...(fm.closed ? fm.closed.children || [fm.closed] : []), ...fm.open];
+          const distance = Math.min(...paths.map(path => path.getNearestPoint([pos.x, pos.y])?.getDistance([pos.x, pos.y]) ?? Infinity));
+          if (!best || distance < best.distance) best = { candidate, distance };
+        }
+        if (!best) return; target = { l: best.candidate.l, p: best.candidate.p }; node = getNode(target);
+      }
+    }
+    if (!ev.shiftKey) S.selectedAnchors = [];
+    S.sel = [target]; S.hmode = 'shape';
+    const index = node.pts.findIndex(q => { const world = ap(fullMatrix(target), q); return Math.hypot(world.x - pos.x, world.y - pos.y) <= 8 * px; });
+    if (index >= 0) selectAnchor(target, index, ev.shiftKey); else S.anchor = null;
+    renderTree(); renderInspector(); renderSelection();
+    if (index >= 0) {
+      const handle = activeHandles.find(handle => handle.ai === index && handle.kind === 'pt');
+      if (handle && anchorSelected(target, index)) startAnchorDrag(pos, ev.pointerId);
+    }
+    return;
+  }
+  S.selectedAnchors = [];
+  let target = isoTargetFor(f) || { l: f.l, p: f.p };
   const grp = S.sel.find(s => s.p !== null && s.l === f.l && f.p.length > s.p.length && JSON.stringify(f.p.slice(0, s.p.length)) === JSON.stringify(s.p));
   if (grp && !ev.shiftKey && !ev.metaKey) target = grp;
   // a cutter inside the selected group is picked directly, so it can be dragged and resized on its own
@@ -868,6 +971,15 @@ listen(cv, 'pointermove', ev => {
     if (S.tool === 'pen' && penDraft) { penHover = snapPt(pos); renderSelection(); }
     else if (S.tool === 'pen') { const o = hitOutline(pos); const had = !!insertHover; insertHover = o ? { x: o.x, y: o.y } : null; cv.classList.toggle('insert', !!o); if (o || had) renderSelection(); }
     return;
+  }
+  if (drag.kind === 'anchors') {
+    const dx = snapV(pos.x-drag.from.x), dy = snapV(pos.y-drag.from.y);
+    if (!dx && !dy && !drag.moved) return;
+    for (const anchor of drag.starts) {
+      const point = getNode(anchor.selection)?.pts?.[anchor.index]; if (!point) continue;
+      const delta = apv(anchor.Mi, { x: dx, y: dy }); point.x = r4(anchor.point.x+delta.x); point.y = r4(anchor.point.y+delta.y);
+    }
+    drag.moved = true; refresh(false); return;
   }
   if (drag.kind === 'axis-move' || drag.kind === 'axis-rot') {
     const q = ap(drag.Mi, pos), a = drag.start;
@@ -1280,7 +1392,7 @@ function isoBtnHTML(s) { const on = !!(S.iso && same(S.iso, s)); return `<button
 function wireIso(row, s) { const b = row.querySelector('.iso'); if (b) b.onclick = e => { e.stopPropagation(); if (S.iso && same(S.iso, s)) isoExit(); else isoEnter(s); }; }
 function selectRow(s, e) {
   if (S.iso && !(s.p === null ? (S.iso.l === s.l && S.iso.p === null) : inIso(s.l, s.p))) S.iso = null; // picking outside the isolated object leaves isolation
-  S.anchor = null;
+  S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
   if (e && (e.shiftKey || e.metaKey || e.ctrlKey)) { if (isSel(s)) S.sel = S.sel.filter(x => !same(x, s)); else S.sel.push(s); }
   else S.sel = [s];
   renderTree(); renderInspector(); renderSelection();
@@ -1379,14 +1491,50 @@ function del() {
   S.sel = []; commit(); refresh(true);
 }
 function nudge(dx, dy) {
+  const selected = primarySel(), node = selected?.p !== null && selected && getNode(selected);
+  if (S.tool === 'direct' && S.selectedAnchors.length) {
+    for (const anchor of S.selectedAnchors) { const point = getNode(anchor.selection)?.pts?.[anchor.index]; if (!point) continue; const delta = apv(inv(fullMatrix(anchor.selection)), { x: dx, y: dy }); point.x = r4(point.x+delta.x); point.y = r4(point.y+delta.y); }
+    commit(); refresh(true); return true;
+  }
   const nodes = S.sel.filter(s => s.p !== null); if (!nodes.length) return false;
   nodes.forEach(s => translateSel(s, dx, dy)); commit(); refresh(true); return true;
 }
 function setTool(t) {
   if (S.tool === 'pen' && t !== 'pen') finishPen();
-  S.tool = t; cv.classList.toggle('pen', t === 'pen'); syncToggles(); renderSelection();
+  S.tool = t; if (t === 'direct') S.hmode = 'shape'; else if (t === 'select') { S.anchor = null; S.selectedAnchors = []; S.hmode = 'transform'; }
+  cv.classList.toggle('direct', t === 'direct'); cv.classList.toggle('pen', t === 'pen'); syncToggles(); renderSelection();
   if (t === 'pen') status('Pen: click to place anchors, drag for curves, click the first anchor to close, Enter or Esc to finish.');
 }
+
+// Keyboard preferences are editor chrome, kept outside exported artwork.
+let shortcuts = { ...DEFAULT_SHORTCUTS };
+try {
+  const stored = JSON.parse(localStorage.getItem('gw-shortcuts') || '{}');
+  const candidate = { ...DEFAULT_SHORTCUTS, ...stored };
+  for (const [action, key] of Object.entries(candidate)) setShortcut(candidate, action, key);
+  shortcuts = candidate;
+} catch {}
+function renderShortcuts() {
+  const list = $('shortcutFields'); list.replaceChildren();
+  for (const [action, item] of Object.entries(SHORTCUT_ACTIONS)) {
+    const label = document.createElement('label'); label.textContent = item.label;
+    const input = document.createElement('input'); input.type = 'text'; input.value = shortcuts[action]; input.setAttribute('aria-label', `${item.label} shortcut`);
+    const apply = value => { try { shortcuts = setShortcut(shortcuts, action, value); localStorage.setItem('gw-shortcuts', JSON.stringify(shortcuts)); renderShortcuts(); status('Shortcut saved.'); } catch (error) { input.value = shortcuts[action]; status(error.message, true); } };
+    input.onchange = () => apply(input.value);
+    input.onkeydown = event => {
+      event.stopPropagation();
+      if (event.key === 'Tab') return;
+      event.preventDefault();
+      if (event.key === 'Escape') { input.blur(); return; }
+      if (['Meta', 'Control', 'Shift', 'Alt'].includes(event.key)) return;
+      apply(shortcutFromEvent(event));
+    };
+    label.appendChild(input); list.appendChild(label);
+  }
+  root.querySelectorAll('[data-tool]').forEach(button => { const action = button.dataset.tool; button.title = `${SHORTCUT_ACTIONS[action].label} (${shortcuts[action]})`; button.setAttribute('aria-keyshortcuts', shortcuts[action].replace('Mod', 'Meta')); });
+}
+$('resetShortcuts').onclick = () => { shortcuts = { ...DEFAULT_SHORTCUTS }; try { localStorage.removeItem('gw-shortcuts'); } catch {} renderShortcuts(); status('Default shortcuts restored.'); };
+renderShortcuts();
 
 // ---------- inspector ----------
 function field(parent, label, value, onInput, opts = {}) {
@@ -1665,7 +1813,7 @@ function libMatches(g, q, f) {
   if (q && ![g.name, g.description || '', ...(g.aliases || [])].join(' ').toLowerCase().includes(q)) return false;
   switch (f) {
     case 'all': return true;
-    case 'edited': return EDITS.has(g.name) || pendingSave.has(g.name);
+    case 'edited': return isEdited(g);
     default: return g.provenance === f;
   }
 }
@@ -1684,7 +1832,7 @@ function applyLibFilter() {
   else if (empty) empty.remove();
 }
 function tileTitle(g) {
-  return [g.name, PROV_LABEL[g.provenance] || 'new', EDITS.has(g.name) ? 'edited (saved in this browser)' : ''].filter(Boolean).join(' · ');
+  return [g.name, PROV_LABEL[g.provenance] || 'new', isEdited(g) ? 'edited (saved in this browser)' : ''].filter(Boolean).join(' · ');
 }
 function renderLibrary() {
   const box = $('lib'); box.innerHTML = ''; LIBEL.clear();
@@ -1699,7 +1847,7 @@ function renderLibrary() {
     b.setAttribute('aria-current', String(S.glyph ? g.name === S.glyph.name : false));
     b.innerHTML = `<i class="prov-dot" data-p="${g.provenance || ''}"></i><span class="edited" hidden>●</span><span class="thumb"></span><span class="lbl-name"></span>`;
     b.querySelector('.lbl-name').textContent = g.name.replace(/^ui-/, '');
-    b.title = tileTitle(g); b.querySelector('.edited').hidden = !EDITS.has(g.name);
+    b.title = tileTitle(g); b.querySelector('.edited').hidden = !isEdited(g);
     b.onclick = () => { const i = idx(g.name); if (i >= 0) loadGlyph(i); };
     wireLibraryMenu(b, g.name);
     LIBEL.set(g.name, b); frag.appendChild(b);
@@ -1711,7 +1859,7 @@ function renderLibrary() {
 function updateLibItem(name) {
   const b = LIBEL.get(name); if (!b) return;
   const g = S.lib[idx(name)]; if (!g) return;
-  b.querySelector('.edited').hidden = !(EDITS.has(name) || pendingSave.has(name)); b.title = tileTitle(g);
+  b.querySelector('.edited').hidden = !isEdited(g); b.title = tileTitle(g);
   if (b.dataset.painted) paintThumb(b);
 }
 function markCurrent() {
@@ -1795,7 +1943,26 @@ $('ungroupBtn').onclick = ungroup; $('upBtn').onclick = () => move(-1); $('downB
 $('dupBtn').onclick = duplicate; $('delBtn').onclick = del; $('addLayerBtn').onclick = () => addLayer(true);
 $('undoBtn').onclick = undo; $('redoBtn').onclick = redo;
 $('isoExit').onclick = () => isoExit();
-root.querySelectorAll('[data-snap]').forEach(b => b.onclick = () => { S.snap = +b.dataset.snap; syncToggles(); renderInspector(); });
+const snapButtons = [...root.querySelectorAll('[data-snap]')];
+try {
+  const saved = JSON.parse(localStorage.getItem('gw-snap-preferences') || 'null');
+  if (saved && Array.isArray(saved.slots) && saved.slots.length === snapButtons.length && saved.slots.every(value => Number.isFinite(value) && value >= 0 && value <= 24) && Number.isFinite(saved.active)) {
+    saved.slots.forEach((value, index) => { snapButtons[index].dataset.snap = value; snapButtons[index].textContent = value ? String(value) : 'off'; }); S.snap = saved.active;
+  }
+} catch {}
+const saveSnap = () => { try { localStorage.setItem('gw-snap-preferences', JSON.stringify({ slots: snapButtons.map(button => +button.dataset.snap), active: S.snap })); } catch {} };
+snapButtons.forEach(button => button.onclick = event => {
+  if (!event.altKey) { S.snap = +button.dataset.snap; saveSnap(); syncToggles(); renderInspector(); return; }
+  itemMenu.replaceChildren(); menuHeading('Define snap spacing');
+  const label = document.createElement('label'); label.textContent = 'Snap spacing (units)';
+  const input = document.createElement('input'); input.type = 'number'; input.min = '0'; input.max = '24'; input.step = 'any'; input.value = button.dataset.snap; input.setAttribute('aria-label', 'Custom snap spacing'); label.appendChild(input); itemMenu.appendChild(label);
+  menuAction('Save snap spacing', 'anchor', () => {
+    const value = +input.value;
+    if (!Number.isFinite(value) || value < 0 || value > 24) { status('Snap spacing must be between 0 and 24 units.', true); return; }
+    button.dataset.snap = value; button.textContent = value ? String(value) : 'off'; S.snap = value; saveSnap(); syncToggles(); renderInspector(); status('Snap preference saved.');
+  });
+  const bounds = button.getBoundingClientRect(); openPopup(itemMenu, button, bounds.left, bounds.bottom, () => button); input.focus(); input.select();
+});
 root.querySelectorAll('[data-mirror]').forEach(b => b.onclick = () => {
   const target = symmetryTarget(); if (!target) { status('Select a group in the Layers tree first.', true); return; }
   const sym = target.symmetry = target.symmetry || { mirror: null, rotate: 1 };
@@ -1823,7 +1990,7 @@ $('exportSize').onchange = () => { S.glyph.exportSize = Math.max(16, Math.min(40
 $('newBtn').onclick = () => {
   const g = TEMPLATES[$('tplSel').value](); let name = $('tplSel').value === 'blank' ? 'untitled' : g.name + '-copy'; let k = 1;
   while (idx(name) >= 0) name = name.replace(/-\d+$/, '') + '-' + (++k);
-  g.name = name; g.provenance = 'hand-built'; S.lib.push(g); renderLibrary(); loadGlyph(S.lib.length - 1); queueSave(name); status(`New glyph from ${$('tplSel').value} template.`);
+  g.name = name; g.provenance = 'hand-built'; ensureLayerNames(g); ORIG.set(name, clone(g)); S.lib.push(g); renderLibrary(); loadGlyph(S.lib.length - 1); queueSave(name); status(`New glyph from ${$('tplSel').value} template.`);
 };
 function applySetSettings() {
   if (penDraft) finishPen();
@@ -1843,7 +2010,7 @@ for (const id of ['setThicknessEnabled', 'setRoundingEnabled', 'setThickness', '
 $('iconDescription').onchange = () => { S.glyph.description = $('iconDescription').value.trim(); commit(); applyLibFilter(); };
 $('iconAliases').onchange = () => { S.glyph.aliases = [...new Set($('iconAliases').value.split(',').map(term => term.trim()).filter(Boolean))]; commit(); applyLibFilter(); };
 const io = $('ioText');
-$('expJson').onclick = () => { if (penDraft) finishPen(); io.value = JSON.stringify(S.glyph, null, 2); status('JSON source in the box — Copy, or edit and Import.'); };
+$('expJson').onclick = () => { if (penDraft) finishPen(); io.value = JSON.stringify(libraryDocument([S.glyph], 'one', ORIG), null, 2); status('Editable JSON and reset original in the box — Copy, or edit and Import.'); };
 $('expSvg').onclick = () => { io.value = core.toSVG(S.glyph); status('Runtime SVG: weight, caps, joins and role colours come from CSS vars.'); };
 $('expBaked').onclick = () => { io.value = core.toSVG(S.glyph, { mode: 'baked', weight: S.rt.weight, cap: S.rt.cap, join: S.rt.join }); status('Baked SVG at the current runtime settings.'); };
 $('copyBtn').onclick = async () => {
@@ -1868,15 +2035,16 @@ function exportLibrary(scope) {
   const glyphs = scope === 'one' ? [S.glyph] : scope === 'edited' ? S.lib.filter(isEdited) : S.lib;
   if (!glyphs.length) { status('No glyphs to export.', true); return; }
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
-  downloadJSON(`glyph-library-${scope}-${stamp}.json`, libraryDocument(glyphs, scope));
+  downloadJSON(`glyph-library-${scope}-${stamp}.json`, libraryDocument(glyphs, scope, ORIG));
   status(`Exported ${glyphs.length} glyph${glyphs.length === 1 ? '' : 's'}.`);
 }
 async function importLibraryText(text, fileName, mode = $('importMode').value) {
-  let result;
+  let result, archive;
   try {
-    const glyphs = parseLibrary(text);
+    archive = parseLibraryArchive(text);
+    const { glyphs } = archive;
     // Evaluate before touching the current library: bad geometry cannot leave a partial import.
-    for (const glyph of glyphs) {
+    for (const glyph of [...glyphs, ...archive.originals.values()]) {
       const errors = core.resolve(glyph).filter(layer => layer.error);
       if (errors.length) throw new Error(`${glyph.name}: ${errors[0].error}`);
     }
@@ -1886,6 +2054,7 @@ async function importLibraryText(text, fileName, mode = $('importMode').value) {
   if (penDraft) finishPen();
   const current = S.glyph.name;
   S.lib = result.library;
+  result.names.forEach((name, index) => { const source = archive.glyphs[index]; ORIG.set(name, { ...clone(archive.originals.get(source.name) || source), name }); });
   for (const name of result.names) queueSave(name);
   await flushSaves();
   renderLibrary();
@@ -1908,16 +2077,19 @@ listen(document, 'keydown', e => {
   if (!root.contains(document.activeElement)) return;
   const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
   const mod = e.metaKey || e.ctrlKey;
-  if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
-  if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
-  if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicate(); return; }
-  if (mod && e.key.toLowerCase() === 'g') { e.preventDefault(); group('union'); return; }
   if (penDraft && (e.key === 'Enter' || e.key === 'Escape')) { e.preventDefault(); finishPen(); setTool('select'); return; }
-  if (!mod && e.key.toLowerCase() === 'p') { setTool('pen'); return; }
-  if (!mod && e.key.toLowerCase() === 'v') { setTool('select'); return; }
-  if (!mod && e.key.toLowerCase() === 't') { S.hmode = S.hmode === 'transform' ? 'shape' : 'transform'; syncToggles(); renderSelection(); return; }
-  if (e.key === 'Delete' || e.key === 'Backspace') { if (S.sel.length) { e.preventDefault(); if (!deleteAnchor()) del(); } return; }
-  if (e.key === 'Escape') { if (isoExit()) return; S.sel = []; S.anchor = null; refresh(true); return; }
+  const key = shortcutFromEvent(e), action = Object.keys(shortcuts).find(action => shortcuts[action] === key);
+  if (action) {
+    e.preventDefault();
+    if (['select', 'direct', 'pen'].includes(action)) setTool(action);
+    else if (action === 'undo') undo(); else if (action === 'redo') redo();
+    else if (action === 'duplicate') duplicate(); else if (action === 'group') group('union'); else if (action === 'ungroup') ungroup();
+    else if (action === 'delete') { if (!deleteAnchor()) del(); }
+    else if (action === 'selectAll') { S.sel = S.glyph.layers.filter(layer => layer.visible !== false).map(layer => ({ l: S.glyph.layers.indexOf(layer), p: [] })); S.anchor = null; refresh(true); }
+    else if (action === 'handles') { S.hmode = S.hmode === 'transform' ? 'shape' : 'transform'; syncToggles(); renderSelection(); }
+    return;
+  }
+  if (e.key === 'Escape') { if (isoExit()) return; S.sel = []; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null; refresh(true); return; }
   const step = (S.snap || 0.1) * (e.shiftKey ? 10 : 1);
   const dirs = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
   if (dirs[e.key] && t && t.getAttribute && t.getAttribute('role') === 'treeitem' && !S.sel.some(s => s.p !== null)) return;

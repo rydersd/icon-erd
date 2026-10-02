@@ -5,8 +5,9 @@ export function createStorage(indexedDB = globalThis.indexedDB) {
     open() {
       return new Promise(resolve => {
         try {
-          const request = indexedDB.open('glyph-workbench-open', 1);
+          const request = indexedDB.open('glyph-workbench-open', 2);
           request.onupgradeneeded = () => {
+            if (!request.result.objectStoreNames.contains('snapshots')) request.result.createObjectStore('snapshots', { keyPath: 'id' });
             if (!request.result.objectStoreNames.contains('edits')) request.result.createObjectStore('edits', { keyPath: 'name' });
           };
           request.onsuccess = () => resolve(request.result);
@@ -15,11 +16,11 @@ export function createStorage(indexedDB = globalThis.indexedDB) {
         } catch (error) { storage.failed = error; resolve(null); }
       });
     },
-    run(mode, fn) {
+    run(mode, fn, storeName = 'edits') {
       return new Promise((resolve, reject) => {
         try {
-          const tx = storage.db.transaction('edits', mode);
-          const request = fn(tx.objectStore('edits'));
+          const tx = storage.db.transaction(storeName, mode);
+          const request = fn(tx.objectStore(storeName));
           tx.oncomplete = () => resolve(request && 'result' in request ? request.result : undefined);
           tx.onerror = () => reject(tx.error);
           tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));

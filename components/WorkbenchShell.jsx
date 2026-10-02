@@ -14,7 +14,7 @@ export function WorkbenchShell() {
   <label className="lbl" htmlFor="exportSize">Export px</label><input id="exportSize" type="number" min="16" max="4096" step="1" defaultValue="24" />
   <span className="lbl" id="modeHint"></span>
   <span className="save-state" id="saveState" role="status" aria-live="polite" data-state="saved">Saved</span>
-  <Button className="btn sm" id="revertBtn" title="Put this glyph back to its library original (undo brings your edit back)" data-icon-ui="undo">Revert</Button>
+  <Button className="btn sm" id="revertBtn" title="Put this glyph back to its library original (undo brings your edit back)" data-icon-ui="undo">Reset icon</Button>
   <div className="seg" role="group" aria-label="History">
     <Button className="btn sm icon" id="undoBtn" title="Undo (⌘Z)" aria-label="Undo" data-icon-ui="undo"></Button>
     <Button className="btn sm icon" id="redoBtn" title="Redo (⇧⌘Z)" aria-label="Redo" data-icon-ui="redo"></Button>
@@ -38,6 +38,7 @@ export function WorkbenchShell() {
         <span className="lbl">Applies to the whole library. Source shapes remain editable.</span>
       </div>
     </details>
+    <details className="panel shortcut-settings"><summary>Keyboard shortcuts</summary><div className="pad"><p className="lbl">Click a field and press a key combination. Mod means Cmd on Mac or Ctrl on Windows.</p><div id="shortcutFields"></div><Button className="btn sm" id="resetShortcuts">Restore defaults</Button></div></details>
     <section className="panel" aria-labelledby="palH">
       <h2 id="palH">Shapes</h2>
       <div className="palette" id="palette"></div>
@@ -65,7 +66,7 @@ export function WorkbenchShell() {
     <section className="panel" aria-label="Canvas">
       <div className="canvas-tools">
         <div className="row"><span className="lbl">Tool</span>
-          <div className="seg" role="group" aria-label="Tool"><Button className="btn sm" data-tool="select" title="Select (V)" data-icon-ui="select">Select</Button><Button className="btn sm" data-tool="pen" title="Pen (P): click an outline to add a point; Alt-click an anchor to remove it; click empty space to draw" data-icon-ui="pen">Pen</Button></div>
+          <div className="seg" role="group" aria-label="Tool"><Button className="btn sm" data-tool="select" title="Select (V)" data-icon-ui="select">Select</Button><Button className="btn sm" data-tool="direct" title="Direct selection (A)" data-icon-ui="direct">Direct</Button><Button className="btn sm" data-tool="pen" title="Pen (P): click an outline to add a point; Alt-click an anchor to remove it; click empty space to draw" data-icon-ui="pen">Pen</Button></div>
           <span className="lbl">Handles</span>
           <div className="seg" role="group" aria-label="Handle mode"><Button className="btn sm" data-hmode="shape" title="Edit the form's own parameters" data-icon-ui="path">Shape</Button><Button className="btn sm" data-hmode="transform" title="Rotate / scale about the anchor point (T)" data-icon-ui="transform">Transform</Button></div></div>
         <div className="row"><span className="lbl">Boolean</span>

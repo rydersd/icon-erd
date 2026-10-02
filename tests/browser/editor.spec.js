@@ -301,3 +301,66 @@ test('Use as cutter toggles back to normal geometry from the context menu and in
   await expect(inspector).toHaveAttribute('aria-pressed', 'false');
   expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.children[1].shape)).toBe('circle');
 });
+
+const screenPoint = (page, x, y) => page.evaluate(({x,y}) => { const svg=document.querySelector('#canvas'),point=svg.createSVGPoint();point.x=x;point.y=y;const screen=point.matrixTransform(svg.getScreenCTM());return {x:screen.x,y:screen.y}; },{x,y});
+test('Direct selection selects and moves multiple anchors independently from object selection', async ({page}) => {
+  await ready(page);
+  await page.locator('#ioText').fill(JSON.stringify({name:'direct-fixture',layers:[{id:'lines',paint:'stroke',node:{op:'union',children:[{shape:'pen',name:'Bent line',pts:[{x:4,y:4},{x:12,y:4},{x:12,y:12},{x:20,y:12}]}]}}]}));await page.locator('#importBtn').click();await expect(page.locator('#hdrName')).toHaveText('direct-fixture');
+  await page.locator('#canvas').focus();await page.keyboard.press('v');
+  const start=await screenPoint(page,4,4);await page.mouse.click(start.x,start.y);
+  expect(await page.evaluate(()=>window.__gw.S.sel[0].p)).toEqual([]);
+  await page.keyboard.press('a');await page.mouse.click(start.x,start.y);
+  await expect(page.locator('#gSel [data-anchor="0"]')).toHaveAttribute('data-selected','true');
+  const second=await screenPoint(page,12,12);await page.keyboard.down('Shift');await page.mouse.click(second.x,second.y);await page.keyboard.up('Shift');
+  await expect(page.locator('#gSel [data-anchor][data-selected="true"]')).toHaveCount(2);
+  await page.keyboard.press('ArrowRight');
+  expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children[0].pts.map(point=>point.x))).toEqual([4.1,12,12.1,20]);
+  const from=await screenPoint(page,4.1,4),to=await screenPoint(page,5.1,5);await page.mouse.move(from.x,from.y);await page.mouse.down();await page.mouse.move(to.x,to.y,{steps:5});await page.mouse.up();
+  expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children[0].pts.slice(0,3).map(point=>[point.x,point.y]))).toEqual([[5.1,5],[12,4],[13.1,13]]);
+  await page.keyboard.press('Delete');expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children[0].pts.length)).toBe(2);
+  await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children[0].pts.length)).toBe(4);
+  await page.keyboard.press('v');await expect(page.locator('[data-tool="select"]')).toHaveAttribute('aria-pressed','true');
+  await page.keyboard.press('p');await expect(page.locator('[data-tool="pen"]')).toHaveAttribute('aria-pressed','true');
+});
+test('rounded, square and disconnected anchors have circle, square and diamond markers', async ({page}) => {
+  await ready(page);await page.locator('#ioText').fill(JSON.stringify({name:'marker-fixture',setStyle:{rounding:1,endRounding:0},layers:[{id:'stroke',paint:'stroke',node:{shape:'pen',name:'Markers',pts:[{x:4,y:4},{x:12,y:4},{x:12,y:12,in:[0,-1],out:[1,0]},{x:20,y:12}]}}]}));await page.locator('#importBtn').click();
+  await page.locator('[data-source-point="0::0"]').click();
+  await expect(page.locator('#gSel [data-anchor="0"]')).toHaveAttribute('data-point-kind','square');
+  await expect(page.locator('#gSel [data-anchor="1"]')).toHaveAttribute('data-point-kind','circle');
+  await expect(page.locator('#gSel [data-anchor="2"]')).toHaveAttribute('data-point-kind','diamond');
+  await page.getByRole('checkbox',{name:'Round Markers anchor 2',exact:true}).uncheck();
+  await expect(page.locator('#gSel [data-anchor="1"]')).toHaveAttribute('data-point-kind','square');
+});
+test('Alt-click defines persistent snap slots and shortcuts can be remapped without conflicts',async({page})=>{
+  await ready(page);await page.locator('[data-snap="0.3"]').click({modifiers:['Alt']});
+  await page.getByRole('spinbutton',{name:'Custom snap spacing'}).fill('0.2');await page.getByRole('menuitem',{name:'Save snap spacing',exact:true}).click();
+  await expect(page.locator('[data-snap="0.2"]')).toHaveAttribute('aria-pressed','true');
+  await page.locator('.shortcut-settings summary').click();
+  await page.getByRole('textbox',{name:'Selection shortcut',exact:true}).press('a');await expect(page.locator('#status')).toContainText('already assigned');
+  await page.getByRole('textbox',{name:'Selection shortcut',exact:true}).press('x');
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('[data-snap="0.2"]')).toHaveAttribute('aria-pressed','true');
+  await page.locator('#canvas').focus();await page.keyboard.press('a');await expect(page.locator('[data-tool="direct"]')).toHaveAttribute('aria-pressed','true');await page.keyboard.press('x');await expect(page.locator('[data-tool="select"]')).toHaveAttribute('aria-pressed','true');
+});
+test('import originals reset after reload and exported archives retain baselines; library reset is recoverable',async({page})=>{
+  await ready(page);const original={name:'reset-fixture',layers:[{id:'art',name:'Artwork',paint:'fill',node:{shape:'rect',name:'Body',x:4,y:4,w:16,h:16}}]};
+  await page.locator('#impFile').setInputFiles({name:'original.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(original))});
+  await expect(page.locator('#revertBtn')).toBeDisabled();
+  await page.locator('#iconDescription').fill('Edited description');await page.locator('#iconDescription').press('Tab');
+  await page.waitForTimeout(400);await page.reload();await page.waitForFunction(()=>window.__gw?.ready);
+  await expect(page.locator('#revertBtn')).toBeEnabled();
+  const pending=page.waitForEvent('download');await page.locator('#expOne').click();const archive=JSON.parse(await readFile(await(await pending).path(),'utf8'));
+  expect(archive.originals[0].description).toBeUndefined();expect(archive.glyphs[0].description).toBe('Edited description');
+  await page.locator('#revertBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');await page.locator('#undoBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('Edited description');
+  await page.locator('#resetLibraryBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await page.locator('#undoLibraryResetBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('Edited description');
+  await page.locator('#importMode').selectOption('add');await page.locator('#impFile').setInputFiles({name:'archive.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(archive))});
+  await expect(page.locator('#hdrName')).toHaveText('reset-fixture-2');await page.locator('#revertBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');
+});
+
+test('Direct selection extends across paths without moving unselected anchors',async({page})=>{
+  await ready(page);await page.locator('#ioText').fill(JSON.stringify({name:'multiple-path-points',layers:[{id:'lines',paint:'stroke',node:{op:'union',children:[{shape:'pen',name:'Upper line',pts:[{x:4,y:4},{x:20,y:4}]},{shape:'pen',name:'Lower line',pts:[{x:4,y:20},{x:20,y:20}]}]}}]}));await page.locator('#importBtn').click();
+  await expect(page.locator('#hdrName')).toHaveText('multiple-path-points');await page.locator('[data-source-point="0:0:0"]').click();
+  const point=await screenPoint(page,4,20);await page.keyboard.down('Shift');await page.mouse.click(point.x,point.y);await page.keyboard.up('Shift');
+  await expect(page.locator('#gSel [data-anchor][data-selected="true"]')).toHaveCount(2);await page.keyboard.press('ArrowRight');
+  expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children.map(node=>node.pts.map(point=>point.x)))).toEqual([[4.1,20],[4.1,20]]);
+});

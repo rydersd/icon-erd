@@ -27,6 +27,7 @@ export function LibraryPanel() {
         <Button className="btn sm" id="expAll" title="Download the whole library, edits included, as one JSON file" data-icon-ui="export">Export all</Button>
         <Button className="btn sm" id="impFileBtn" title="Load a library JSON file (or a single glyph JSON)" data-icon-ui="import">Import file</Button>
         <label className="lbl" htmlFor="importMode">Import collisions</label><select id="importMode"><option value="add">Add (keep both)</option><option value="overwrite">Overwrite matching names</option></select>
+        <div className="row"><Button className="btn sm" id="resetLibraryBtn" title="Restore imported originals; undo restores your edits">Reset library</Button><Button className="btn sm" id="undoLibraryResetBtn" disabled>Undo library reset</Button></div>
         <input type="file" id="impFile" accept="application/json,.json" hidden />
       </div>
       </Collapsible.Panel>

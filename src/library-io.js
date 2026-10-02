@@ -98,6 +98,22 @@ export function parseLibrary(text) {
   });
 }
 
+// Archives can carry original imports alongside edited glyphs, so reset works after transfer.
+export function parseLibraryArchive(text) {
+  const glyphs = parseLibrary(text), data = JSON.parse(text);
+  const originals = new Map();
+  if (data?.originals != null) {
+    if (!Array.isArray(data.originals)) throw new Error('Originals must be an icon array');
+    const allowed = new Set(glyphs.map(glyph => glyph.name));
+    for (const original of data.originals) {
+      const glyph = normalizeGlyph(original);
+      if (!allowed.has(glyph.name) || originals.has(glyph.name)) throw new Error(`Invalid original in archive: ${glyph.name}`);
+      originals.set(glyph.name, glyph);
+    }
+  }
+  return { glyphs, originals };
+}
+
 export function mergeLibrary(existing, incoming, mode = 'add') {
   if (!['add', 'overwrite'].includes(mode)) throw new Error('Choose add or overwrite');
   const library = existing.slice(), slots = new Map(library.map((glyph, index) => [glyph.name, index]));
@@ -122,6 +138,7 @@ export function mergeLibrary(existing, incoming, mode = 'add') {
   return { library, names, added, replaced, renamed };
 }
 
-export function libraryDocument(glyphs, scope = 'all') {
-  return { format: 'glyph-workbench-library', version: 1, scope, exportedAt: new Date().toISOString(), count: glyphs.length, glyphs: glyphs.map(clone) };
+export function libraryDocument(glyphs, scope = 'all', originals) {
+  const baselines = originals ? glyphs.map(glyph => originals.get(glyph.name)).filter(Boolean).map(clone) : null;
+  return { ...(baselines ? { originals: baselines } : {}), format: 'glyph-workbench-library', version: 1, scope, exportedAt: new Date().toISOString(), count: glyphs.length, glyphs: glyphs.map(clone) };
 }
