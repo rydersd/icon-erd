@@ -85,6 +85,87 @@ test('corner rounding controls stroke joins and caps across canvas, previews and
   await expect(canvas).toHaveAttribute('stroke-linejoin', 'miter');
   expect(await previewStyle()).toEqual({ cap: 'butt', join: 'miter' });
 });
+const importTree = async page => {
+  await ready(page);
+  await page.locator('#ioText').fill(JSON.stringify({ name: 'tree-check', layers: [{ id: 'art', name: 'Artwork', paint: 'fill', node: { op: 'union', name: 'Root', children: [
+    { shape: 'rect', name: 'Subject', x: 2, y: 2, w: 20, h: 20 },
+    { shape: 'circle', name: 'Cutout', cx: 12, cy: 12, r: 4 },
+    { op: 'union', name: 'Details', children: [{ shape: 'circle', name: 'Dot', cx: 5, cy: 5, r: 1 }] },
+  ] } }] }));
+  await page.locator('#importBtn').click();
+};
+test('right-click targets the item, changes group type/symmetry and makes an editable cutter with undo', async ({ page }) => {
+  await importTree(page);
+  const group = page.locator('[data-tree-key="0:2"]');
+  await group.click({ button: 'right' });
+  await page.screenshot({ path: 'artifacts/layer-context-menu.png' });
+  await page.getByRole('menuitemcheckbox', { name: 'Exclude', exact: true }).click();
+  expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.children[2].op)).toBe('exclude');
+  await group.click({ button: 'right' });
+  await page.getByRole('menuitemcheckbox', { name: 'Turn symmetry on' }).click();
+  expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.children[2].symmetry.mirror)).toBe('x');
+  expect(await page.evaluate(() => window.__gw.S.glyph.symmetry.mirror)).toBeNull();
+  const cutout = page.locator('[data-tree-key="0:1"]');
+  await cutout.focus(); await page.keyboard.press('Shift+F10');
+  await page.getByRole('menuitem', { name: 'Use as cutter', exact: true }).click();
+  expect(await page.evaluate(() => {
+    const { S, core } = window.__gw, node = S.glyph.layers[0].node;
+    return { type: node.op, cutter: node.children[1].name, hole: !core.evalNode(node).closed.contains([12, 12]), shape: node.children[1].shape };
+  })).toEqual({ type: 'subtract', cutter: 'Cutout', hole: true, shape: 'circle' });
+  await page.locator('#undoBtn').click();
+  expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.op)).toBe('union');
+  await cutout.click(); await page.locator('#makeCutterBtn').click();
+  expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.op)).toBe('subtract');
+});
+test('physical tree dragging reorders objects, nests them, rejects cycles, supports undo and persists', async ({ page }) => {
+  await importTree(page);
+  const row = path => page.locator(`[data-tree-key="0:${path}"]`);
+  await row('0').locator('.name').dragTo(row('1'), { targetPosition: { x: 100, y: 25 } });
+  expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.children.map(node => node.name))).toEqual(['Cutout', 'Subject', 'Details']);
+  await page.locator('#undoBtn').click();
+  await row('0').locator('.name').dragTo(row('2'));
+  expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.children[1].children.map(node => node.name))).toEqual(['Dot', 'Subject']);
+  const before = await page.evaluate(() => JSON.stringify(window.__gw.S.glyph));
+  await row('1').locator('.name').dragTo(row('1.0'));
+  expect(await page.evaluate(() => JSON.stringify(window.__gw.S.glyph))).toBe(before);
+  await page.evaluate(() => window.__gw.flushSaves());
+  await page.reload(); await page.waitForFunction(() => window.__gw?.ready);
+  expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.children[1].children.map(node => node.name))).toEqual(['Dot', 'Subject']);
+});
+test('Show icon palette and zoom sit below the canvas, support toggling, Escape and mobile bounds', async ({ page }) => {
+  await ready(page);
+  expect(await page.evaluate(() => {
+    const named = node => !!node.name && (node.children || []).every(named);
+    return window.__gw.S.lib.every(glyph => glyph.layers.every(layer => !!layer.name && named(layer.node)));
+  })).toBe(true);
+  const canvas = await page.locator('#canvas').boundingBox(), controls = await page.locator('.view-controls').boundingBox();
+  expect(controls.y).toBeGreaterThanOrEqual(canvas.y + canvas.height);
+  await expect(page.locator('#showPalette')).toBeHidden();
+  await page.locator('#showToggle').click();
+  await expect(page.locator('#showPalette')).toBeVisible();
+  await expect(page.locator('#showPalette [data-show] svg')).toHaveCount(9);
+  await page.locator('#showPalette [data-show="points"]').click();
+  await expect(page.locator('[data-show="points"]')).toHaveAttribute('aria-pressed', 'false');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#showPalette')).toBeHidden();
+  await expect(page.locator('#showToggle')).toBeFocused();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('#showToggle').click();
+  const palette = await page.locator('#showPalette').boundingBox();
+  expect(palette.x).toBeGreaterThanOrEqual(0); expect(palette.x + palette.width).toBeLessThanOrEqual(390);
+  await expect(page.locator('#showPalette')).toBeVisible();
+  await page.screenshot({ path: 'artifacts/view-palette-mobile.png' });
+});
+test('library thumbnail menu changes icon type and exposes its root group symmetry', async ({ page }) => {
+  await ready(page);
+  await page.locator('.lib-item[data-name="arrow-down"]').click({ button: 'right' });
+  await page.getByRole('menuitemcheckbox', { name: 'App icon', exact: true }).click();
+  await expect(page.locator('#drawingMode')).toHaveValue('app-icon');
+  expect(await page.evaluate(() => window.__gw.S.glyph.name)).toBe('arrow-down');
+  await page.locator('.lib-item[data-name="arrow-down"]').click({ button: 'right' });
+  await page.getByRole('menuitemcheckbox', { name: 'Mirror Y', exact: true }).click();
+  expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.symmetry.mirror)).toBe('y');
+});
 test('desktop/mobile layout and dark theme remain readable', async ({ page }) => {
   await ready(page);
   await page.screenshot({ path: 'artifacts/workbench-desktop.png', fullPage: true });

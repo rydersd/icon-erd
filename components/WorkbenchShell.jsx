@@ -49,6 +49,7 @@ export function WorkbenchShell() {
         <Button className="btn sm" data-group="intersect" data-icon-ui="intersect">Intersect</Button>
         <Button className="btn sm" data-group="exclude" data-icon-ui="exclude">Exclude</Button>
         <Button className="btn sm" id="ungroupBtn" data-icon-ui="ungroup">Ungroup</Button>
+        <Button className="btn sm" id="makeCutterBtn" data-icon-ui="cutter">Use as cutter</Button>
         <Button className="btn sm icon" id="upBtn" title="Move up" aria-label="Move up" data-icon-ui="up"></Button>
         <Button className="btn sm icon" id="downBtn" title="Move down" aria-label="Move down" data-icon-ui="down"></Button>
         <Button className="btn sm" id="dupBtn" title="Duplicate (⌘D)" data-icon-ui="duplicate">Duplicate</Button>
@@ -79,13 +80,7 @@ export function WorkbenchShell() {
           <div className="seg" role="group" aria-label="Radial symmetry">
             <Button className="btn sm" data-rot="1">1</Button><Button className="btn sm" data-rot="2">2</Button><Button className="btn sm" data-rot="4">4</Button><Button className="btn sm" data-rot="6">6</Button><Button className="btn sm" data-rot="8">8</Button><Button className="btn sm" data-rot="12">12</Button>
           </div></div>
-        <div className="row"><span className="lbl">Show</span>
-          <div className="seg" role="group" aria-label="Guides">
-            <Button className="btn sm" data-show="grid">Grid</Button><Button className="btn sm" data-show="safe" title="Live area: 2.4 trim, 19.2 square">Safe</Button><Button className="btn sm" data-show="artboard" title="24×24 bounds">Artboard</Button><Button className="btn sm" data-show="guides" title="Drag from a ruler to add a guide; drag a guide back onto a ruler to delete it" data-icon-ui="guides">Guides</Button><Button className="btn sm" data-show="keylines">Keylines</Button><Button className="btn sm" data-show="points" title="Show every source point and its canvas coordinates">Points</Button><Button className="btn sm" data-show="forms" title="Show every form's dashed outline (off: only the selected or isolated object's)">Forms</Button><Button className="btn sm" data-show="original" id="origBtn">Original</Button><Button className="btn sm" data-show="cutters" id="cuttersBtn" title="Show every boolean cutter dashed (off: only the selected or isolated object's cutters)" data-icon-ui="cutter">Cutters</Button>
-          </div></div>
-        <div className="row"><div className="seg" role="group" aria-label="Zoom">
-          <Button className="btn sm icon" id="zoomOut" aria-label="Zoom out" title="Zoom out" data-icon-ui="zoom-out"></Button><Button className="btn sm" id="zoomFit" data-icon-ui="fit">Fit</Button><Button className="btn sm icon" id="zoomIn" aria-label="Zoom in" title="Zoom in" data-icon-ui="zoom-in"></Button>
-        </div><span className="lbl mono" id="zoomLbl"></span></div>
+
       </div>
       <div className="iso-bar" id="isoBar" role="status" hidden><span className="lbl">Isolated</span><span className="crumbs" id="isoCrumbs"></span><Button className="btn sm" id="isoExit" title="Exit isolation (Esc)">Exit</Button></div>
       <div className="canvas-wrap"><div className="stage">
@@ -97,6 +92,23 @@ export function WorkbenchShell() {
           <g id="gGrid"></g><g id="gKey"></g><g id="gOrig"></g><g id="gLayers"></g><g id="gIso"></g><g id="gForms"></g><g id="gGhost" pointerEvents="none"></g><g id="gCut"></g><g id="gSym"></g><g id="gGuides"></g><g id="gPoints" pointerEvents="none"></g><g id="gSel"></g>
         </svg>
       </div></div>
+      <div className="canvas-tools view-controls" aria-label="View controls">
+        <Button className="btn icon" id="showToggle" aria-label="Show view controls" title="Show" aria-haspopup="dialog" aria-controls="showPalette" aria-expanded="false" data-icon-ui="eye"></Button>
+        <div className="floating-panel show-palette" id="showPalette" role="dialog" aria-label="Show overlays" hidden>
+          <Button className="btn view-tile" data-show="grid" aria-label="Grid" title="Grid" data-icon-ui="grid">Grid</Button>
+          <Button className="btn view-tile" data-show="safe" aria-label="Safe area" title="Safe area" data-icon-ui="safe">Safe area</Button>
+          <Button className="btn view-tile" data-show="artboard" aria-label="Artboard" title="Artboard" data-icon-ui="rect">Artboard</Button>
+          <Button className="btn view-tile" data-show="guides" aria-label="Guides" title="Guides" data-icon-ui="guides">Guides</Button>
+          <Button className="btn view-tile" data-show="keylines" aria-label="Keylines" title="Keylines" data-icon-ui="keylines">Keylines</Button>
+          <Button className="btn view-tile" data-show="points" aria-label="Points" title="Points" data-icon-ui="points">Points</Button>
+          <Button className="btn view-tile" data-show="forms" aria-label="Forms" title="Forms" data-icon-ui="forms">Forms</Button>
+          <Button className="btn view-tile" data-show="original" id="origBtn" aria-label="Original" title="Original" data-icon-ui="duplicate">Original</Button>
+          <Button className="btn view-tile" data-show="cutters" id="cuttersBtn" aria-label="Cutters" title="Cutters" data-icon-ui="cutter">Cutters</Button>
+        </div>
+        <div className="row"><div className="seg" role="group" aria-label="Zoom">
+          <Button className="btn sm icon" id="zoomOut" aria-label="Zoom out" title="Zoom out" data-icon-ui="zoom-out"></Button><Button className="btn sm" id="zoomFit" data-icon-ui="fit">Fit</Button><Button className="btn sm icon" id="zoomIn" aria-label="Zoom in" title="Zoom in" data-icon-ui="zoom-in"></Button>
+        </div><span className="lbl mono" id="zoomLbl"></span></div>
+      </div>
       <div className="status" id="status" role="status" aria-live="polite"></div>
       <div className="hint-line">Double-click an object to isolate it (Esc exits) · Pen on an outline adds an anchor (primitives convert to vectors); Alt-click an anchor removes it; double-click an anchor for corner / smooth, ⌫ deletes it · drag the mirror axis by its square, turn it by its circle (snaps 0 / 45 / 90°) · Drag a form to move · Select a subtract group to see its cutters (dashed orange); click a cutter to drag it or pull its radius handle · Shape handles resize, round corners (inner dot), taper (◆) · Transform handles: corners scale, ○ rotates, ⊕ is the anchor point · Pen: click / drag anchors, click the first to close, Enter ends · drag from a ruler for a guide, back onto it to delete · arrows nudge (⇧ ×10) · ⌘Z ⇧⌘Z ⌘D ⌫ · ⌘-scroll zooms</div>
     </section>

@@ -1,4 +1,5 @@
 // Versioned JSON interchange; no dependency on the DOM, storage, or a particular icon vendor.
+import { ensureLayerNames } from './layer-tree.js';
 const SHAPES = new Set(['rect', 'circle', 'triangle', 'pen', 'ellipse', 'line', 'polyline', 'polygon', 'arc', 'path']);
 const OPS = new Set(['union', 'subtract', 'intersect', 'exclude', 'compound']);
 const PROVENANCE = new Set(['hand-built', 'converted-stroke', 'imported-fill', 'imported-stroke']);
@@ -71,7 +72,6 @@ export function normalizeGlyph(input) {
     if (layer.color != null && !/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(layer.color)) throw new Error(`${glyph.name}: color must be a hex color`);
     if (layer.opacity != null && (!Number.isFinite(layer.opacity) || layer.opacity < 0 || layer.opacity > 1)) throw new Error(`${glyph.name}: invalid opacity`);
     layer.id ||= `layer-${index + 1}`;
-    layer.name ||= layer.id;
     walk(layer.node);
   }
   glyph.grid ??= 0.1;
@@ -79,7 +79,7 @@ export function normalizeGlyph(input) {
   if (!Number.isFinite(glyph.grid) || glyph.grid < 0 || !Number.isFinite(glyph.weight) || glyph.weight <= 0) throw new Error(`${glyph.name}: invalid grid or weight`);
   glyph.symmetry ??= { mirror: null, rotate: 1 };
   if (!PROVENANCE.has(glyph.provenance)) glyph.provenance = 'hand-built';
-  return glyph;
+  return ensureLayerNames(glyph);
 }
 
 export function parseLibrary(text) {

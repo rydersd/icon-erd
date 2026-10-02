@@ -3,9 +3,9 @@ const arrow = (name, rotation) => ({
   name, grid: 0.1, weight: 1.6, provenance: 'hand-built',
   symmetry: { mirror: null, rotate: 1 },
   layers: [{ id: 'arrow', name: 'Arrow', role: 'primary', paint: 'stroke', node: {
-    op: 'union', transform: { origin: [12, 12], rotate: rotation }, children: [
-      { shape: 'line', x1: 5, y1: 12, x2: 19, y2: 12 },
-      { shape: 'polyline', pts: [[13, 6], [19, 12], [13, 18]], closed: false },
+    op: 'union', name: 'Arrow', transform: { origin: [12, 12], rotate: rotation }, children: [
+      { shape: 'line', name: 'Shaft', x1: 5, y1: 12, x2: 19, y2: 12 },
+      { shape: 'polyline', name: 'Arrowhead', pts: [[13, 6], [19, 12], [13, 18]], closed: false },
     ],
   } }],
 });

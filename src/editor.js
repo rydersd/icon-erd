@@ -9,6 +9,7 @@ import { downloadBlob, svgToPNG } from './downloads.js';
 import { TEMPLATES, DEFAULT_SHAPES, PRIMARY_TOOLS, MORE_TOOLS } from './templates.js';
 import { ID, mul, ap, apv, inv } from './affine.js';
 import { inspectGeometry } from './geometry-inspection.js';
+import { ensureLayerNames, canMoveTreeItem, moveTreeItem, useAsCutter } from './layer-tree.js';
 export function mountEditor(root) {
 const project = new paper.Project();
 const abort = new AbortController();
@@ -126,6 +127,7 @@ listen(document, 'visibilitychange', () => { if (document.visibilityState === 'h
 // ---------- history ----------
 let lastSnap = null;
 function commit() {
+  ensureLayerNames(S.glyph);
   const snap = JSON.stringify(S.glyph);
   if (snap === lastSnap) return;
   if (lastSnap) { S.undo.push(lastSnap); if (S.undo.length > 300) S.undo.shift(); }
@@ -160,6 +162,7 @@ function status(msg, err) { const el = $('status'); el.textContent = msg || ''; 
 // ---------- load ----------
 function loadGlyph(i) {
   S.cur = i; S.glyph = clone(S.lib[i]); S.sel = []; S.undo = []; S.redo = []; lastSnap = JSON.stringify(S.glyph); penDraft = null; S.iso = null; S.anchor = null;
+  ensureLayerNames(S.glyph); lastSnap = JSON.stringify(S.glyph);
   S.rt.weight = S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
   renderAll(); markCurrent(); updateHistoryBtns(); updateGlyphTags(); status('');
   try { localStorage.setItem('gw-current', S.glyph.name); } catch (e) {}
@@ -996,6 +999,177 @@ for (const [id, axis] of [['rulerTop', 'y'], ['rulerLeft', 'x']]) {
   listen(r, 'pointerup', endDrag);
 }
 
+// ---------- floating view palette and item menus ----------
+let popup = null;
+const itemMenu = document.createElement('div');
+itemMenu.id = 'itemMenu'; itemMenu.className = 'floating-panel item-menu';
+itemMenu.setAttribute('role', 'menu'); itemMenu.hidden = true; root.appendChild(itemMenu);
+function closePopup(restoreFocus = false) {
+  if (!popup) return;
+  const current = popup; popup = null; current.panel.hidden = true;
+  current.trigger?.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) current.focus?.()?.focus();
+}
+function openPopup(panel, trigger, x, y, focus) {
+  closePopup(); panel.hidden = false; trigger?.setAttribute('aria-expanded', 'true');
+  const bounds = panel.getBoundingClientRect();
+  panel.style.left = Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8)) + 'px';
+  panel.style.top = Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8)) + 'px';
+  popup = { panel, trigger, focus };
+  panel.querySelector('button:not(:disabled)')?.focus();
+}
+listen(document, 'pointerdown', event => {
+  if (popup && !popup.panel.contains(event.target) && !popup.trigger?.contains(event.target)) closePopup();
+}, { capture: true });
+listen(window, 'resize', () => closePopup());
+listen(document, 'wheel', event => { if (popup && !popup.panel.contains(event.target)) closePopup(); }, { passive: true });
+listen(document, 'keydown', event => {
+  if (!popup) return;
+  if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); closePopup(true); return; }
+  if (event.key === 'Tab') { closePopup(true); return; }
+  if (!popup.panel.contains(event.target)) return;
+  const buttons = [...popup.panel.querySelectorAll('button:not(:disabled)')];
+  const index = buttons.indexOf(document.activeElement);
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
+  if (step || event.key === 'Home' || event.key === 'End') {
+    event.preventDefault(); event.stopImmediatePropagation();
+    buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + step + buttons.length) % buttons.length]?.focus();
+  } else if (!(event.metaKey || event.ctrlKey)) event.stopImmediatePropagation();
+}, { capture: true });
+$('showToggle').onclick = () => {
+  if (popup?.panel === $('showPalette')) { closePopup(true); return; }
+  const button = $('showToggle'), bounds = button.getBoundingClientRect();
+  openPopup($('showPalette'), button, bounds.left, bounds.bottom + 6, () => button);
+};
+function menuHeading(text) {
+  const heading = document.createElement('div'); heading.className = 'item-menu-heading'; heading.textContent = text; itemMenu.appendChild(heading);
+}
+function menuAction(label, icon, action, checked = null, disabled = false) {
+  const button = document.createElement('button'); button.type = 'button'; button.disabled = disabled;
+  button.setAttribute('role', checked === null ? 'menuitem' : 'menuitemcheckbox');
+  if (checked !== null) button.setAttribute('aria-checked', String(checked));
+  button.innerHTML = uiIcon(icon); const text = document.createElement('span'); text.textContent = label; button.appendChild(text);
+  button.onclick = () => { const focus = popup?.focus; closePopup(); action(); focus?.()?.focus(); };
+  itemMenu.appendChild(button);
+}
+const treeKey = selection => `${selection.l}:${selection.p === null ? 'layer' : selection.p.join('.')}`;
+const treeRow = selection => root.querySelector(`[data-tree-key="${treeKey(selection)}"]`);
+function cutterAction() {
+  const selection = useAsCutter(S.glyph, primarySel());
+  if (!selection) { status('A cutter needs another object in the same group to cut.', true); return; }
+  S.sel = [selection]; S.iso = null; S.anchor = null; commit(); refresh(true);
+  status('Object is now an editable cutter.');
+}
+function groupMenu(selection, node) {
+  menuHeading('Group type');
+  for (const type of ['union', 'subtract', 'intersect', 'exclude', 'compound']) {
+    menuAction(type.charAt(0).toUpperCase() + type.slice(1), type === 'compound' ? 'path' : type, () => {
+      node.op = type; commit(); refresh(true);
+    }, (node.op || 'union') === type);
+  }
+  menuHeading('Group symmetry');
+  menuAction(symOn(node.symmetry) ? 'Turn symmetry off' : 'Turn symmetry on', 'flip-h', () => {
+    node.symmetry = symOn(node.symmetry) ? { ...node.symmetry, mirror: null, rotate: 1 } : { ...node.symmetry, mirror: 'x', rotate: 1 };
+    $('symScope').value = 'group'; S.sel = [selection]; commit(); refresh(true);
+  }, symOn(node.symmetry));
+  for (const axis of ['x', 'y', 'xy']) menuAction(`Mirror ${axis.toUpperCase()}`, axis === 'y' ? 'flip-v' : 'flip-h', () => {
+    node.symmetry = { ...node.symmetry, mirror: axis, rotate: node.symmetry?.rotate || 1 };
+    $('symScope').value = 'group'; S.sel = [selection]; commit(); refresh(true);
+  }, node.symmetry?.mirror === axis);
+  menuAction('Six radial copies', 'rotate', () => {
+    node.symmetry = { ...node.symmetry, mirror: null, rotate: 6 };
+    $('symScope').value = 'group'; S.sel = [selection]; commit(); refresh(true);
+  }, node.symmetry?.rotate === 6 && !node.symmetry?.mirror);
+}
+function openTreeMenu(selection, event) {
+  event.preventDefault(); selectRow(selection);
+  itemMenu.replaceChildren();
+  const layer = layerOf(selection), node = selection.p === null ? null : getNode(selection);
+  menuHeading(node ? nodeLabel(node) : layer.name);
+  if (node?.children) groupMenu(selection, node);
+  else if (node) menuAction('Convert to editable path', 'pen', () => {
+    const converted = core.toPen(node); converted.name = node.name;
+    if (selection.p.length) getParent(selection).children[selection.p.at(-1)] = converted;
+    else layer.node = converted;
+    commit(); refresh(true);
+  });
+  else {
+    menuHeading('Layer paint');
+    for (const paint of ['stroke', 'fill', 'both']) menuAction(paint.charAt(0).toUpperCase() + paint.slice(1), 'layers', () => {
+      layer.paint = paint; commit(); refresh(true);
+    }, (layer.paint || 'stroke') === paint);
+  }
+  if (node) menuAction('Use as cutter', 'cutter', cutterAction, null, !selection.p.length || getParent(selection).children.length < 2);
+  const row = treeRow(selection), bounds = row.getBoundingClientRect();
+  openPopup(itemMenu, row, event.type === 'contextmenu' ? event.clientX : bounds.left, event.type === 'contextmenu' ? event.clientY : bounds.bottom, () => treeRow(selection));
+}
+function wireTreeMenu(row, selection) {
+  row.setAttribute('aria-haspopup', 'menu'); row.dataset.treeKey = treeKey(selection);
+  row.oncontextmenu = event => openTreeMenu(selection, event);
+  const keydown = row.onkeydown;
+  row.onkeydown = event => {
+    if (event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) { event.stopPropagation(); openTreeMenu(selection, event); }
+    else keydown?.(event);
+  };
+}
+function wireLibraryMenu(button, name) {
+  const open = event => {
+    event.preventDefault(); event.stopPropagation();
+    const index = idx(name); if (index < 0) return;
+    if (S.cur !== index) loadGlyph(index);
+    itemMenu.replaceChildren(); menuHeading(name); menuHeading('Icon type');
+    for (const [kind, label] of [['interface', 'Interface icon'], ['app-icon', 'App icon']]) menuAction(label, kind === 'app-icon' ? 'rect' : 'layers', () => {
+      S.glyph.kind = kind; S.glyph.exportSize = kind === 'app-icon' ? 1024 : 24; commit(); refresh(true);
+    }, (S.glyph.kind || 'interface') === kind);
+    if (S.glyph.layers.length === 1 && S.glyph.layers[0].node.children) {
+      const selection = { l: 0, p: [] }; S.sel = [selection];
+      renderTree(); renderInspector(); renderSelection();
+      groupMenu(selection, S.glyph.layers[0].node);
+    }
+    const bounds = button.getBoundingClientRect();
+    openPopup(itemMenu, button, event.type === 'contextmenu' ? event.clientX : bounds.left, event.type === 'contextmenu' ? event.clientY : bounds.bottom, () => LIBEL.get(name));
+  };
+  button.setAttribute('aria-haspopup', 'menu'); button.oncontextmenu = open;
+  button.onkeydown = event => { if (event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) open(event); };
+}
+let treeDrag = null;
+function clearTreeDrop() { root.querySelectorAll('[data-drop]').forEach(row => delete row.dataset.drop); }
+function wireTreeDrag(row, selection) {
+  row.draggable = true;
+  row.ondragstart = event => {
+    if (event.target.closest('button, input')) { event.preventDefault(); return; }
+    closePopup(); treeDrag = { selection, glyph: S.glyph };
+    event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-glyph-workbench-object', treeKey(selection));
+    S.sel = [selection]; S.anchor = null;
+    root.querySelectorAll('[data-tree-key]').forEach(item => item.setAttribute('aria-selected', String(item === row)));
+    renderInspector(); renderSelection();
+  };
+  const destination = event => {
+    if (!treeDrag || treeDrag.glyph !== S.glyph) return null;
+    const bounds = row.getBoundingClientRect(), fraction = (event.clientY - bounds.top) / bounds.height;
+    const group = selection.p === null || !!getNode(selection)?.children;
+    const position = treeDrag.selection.p === null ? (fraction < 0.5 ? 'before' : 'after')
+      : selection.p === null ? 'inside' : group && fraction >= 0.25 && fraction <= 0.75 ? 'inside' : fraction < 0.5 ? 'before' : 'after';
+    return canMoveTreeItem(S.glyph, treeDrag.selection, selection, position) ? position : null;
+  };
+  row.ondragover = event => {
+    clearTreeDrop(); const position = destination(event);
+    if (!position) return;
+    event.preventDefault(); event.dataTransfer.dropEffect = 'move'; row.dataset.drop = position;
+  };
+  row.ondragleave = () => { delete row.dataset.drop; };
+  row.ondrop = event => {
+    const position = destination(event); clearTreeDrop();
+    if (!position) return;
+    event.preventDefault();
+    const moved = moveTreeItem(S.glyph, treeDrag.selection, selection, position); treeDrag = null;
+    if (!moved) return;
+    S.sel = [moved]; S.iso = null; S.anchor = null; commit(); refresh(true);
+    status('Object moved. Destination group effects apply to its contents.');
+  };
+  row.ondragend = () => { treeDrag = null; clearTreeDrop(); };
+}
+
 // ---------- tree ----------
 const kindIcon = n => uiIcon(n.shape ? (n.shape === 'polygon' && n.star ? 'star' : n.shape) : n.op === 'compound' ? 'exclude' : (n.op || 'union'));
 function nodeLabel(n) { if (n.shape) return (n.name || (n.shape === 'polygon' && n.star ? 'star' : n.shape)); return n.name || n.op || 'union'; }
@@ -1020,6 +1194,7 @@ function renderTree() {
     row.querySelector('.eye').onclick = e => { e.stopPropagation(); L.visible = L.visible === false; commit(); refresh(true); };
     row.onclick = e => selectRow(sL, e); row.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectRow(sL, e); } };
     row.ondblclick = () => renameInline(row.querySelector('.name'), L.name || L.id, v => { L.name = v; commit(); refresh(true); });
+    wireTreeMenu(row, sL); wireTreeDrag(row, sL);
     t.appendChild(row);
     const walk = (n, p, depth, isCutter) => {
       if (!n) return;
@@ -1034,6 +1209,7 @@ function renderTree() {
       r.querySelector('.eye').onclick = e => { e.stopPropagation(); if (n.hidden) delete n.hidden; else n.hidden = true; commit(); refresh(true); };
       r.onclick = e => selectRow(s, e); r.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectRow(s, e); } };
       r.ondblclick = () => renameInline(r.querySelector('.name'), nodeLabel(n), v => { n.name = v; commit(); refresh(true); });
+      wireTreeMenu(r, s); wireTreeDrag(r, s);
       t.appendChild(r);
       if (n.children) n.children.forEach((c, i) => walk(c, p.concat(i), depth + 1, n.op === 'subtract' && i > 0));
     };
@@ -1459,6 +1635,7 @@ function renderLibrary() {
     b.querySelector('.lbl-name').textContent = g.name.replace(/^ui-/, '');
     b.title = tileTitle(g); b.querySelector('.edited').hidden = !EDITS.has(g.name);
     b.onclick = () => { const i = idx(g.name); if (i >= 0) loadGlyph(i); };
+    wireLibraryMenu(b, g.name);
     LIBEL.set(g.name, b); frag.appendChild(b);
     if (thumbObserver) thumbObserver.observe(b); else paintThumb(b);
   }
@@ -1650,6 +1827,7 @@ $('expAll').onclick = () => exportLibrary('all');
 $('impFileBtn').onclick = () => $('impFile').click();
 $('impFile').onchange = async () => { const f = $('impFile').files[0]; if (!f) return; await importLibraryText(await f.text(), f.name); $('impFile').value = ''; };
 $('revertBtn').onclick = revert;
+$('makeCutterBtn').onclick = cutterAction;
 $('libSearch').oninput = applyLibFilter;
 $('libFilter').onchange = () => { applyLibFilter(); try { localStorage.setItem('gw-lib-filter', $('libFilter').value); } catch (e) {} };
 try { const f = localStorage.getItem('gw-lib-filter'); if (f && [...$('libFilter').options].some(o => o.value === f)) $('libFilter').value = f; } catch (e) {}
@@ -1688,6 +1866,7 @@ const ready = (async () => {
   } catch {}
   try { const journal = localStorage.getItem('gw-open-pending-set-style'); if (journal) { const style = JSON.parse(journal); S.lib = S.lib.map(glyph => ({ ...glyph, setStyle: clone(style) })); for (const glyph of S.lib) queueSave(glyph.name); } } catch {}
   if (!S.lib.length) S.lib.push(TEMPLATES.blank());
+  S.lib.forEach(ensureLayerNames);
   renderLibrary();
   let last = null; try { last = localStorage.getItem('gw-current'); } catch (e) {}
   const at = last ? idx(last) : -1;

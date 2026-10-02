@@ -20,6 +20,10 @@ Open `http://localhost:3000`. Production output is `out/`, suitable for Cloudfla
 ## Editing and exchange
 
 - **Library** collapses and remembers its state. Search matches names, descriptions, and comma-separated search terms in **Icon metadata**.
+- **Right-click** a library thumbnail to change its icon type; single-group icons also expose group type and symmetry. Right-click a Layers row to change group type, enable symmetry, change layer paint, convert a shape to an editable path, or use an object as a cutter. Shift+F10 opens the same menu from the keyboard.
+- **Layers** supports dragging objects before/after siblings, into groups, and between layers; drag layer headers to reorder layers. Insertion lines indicate before/after; a highlighted group accepts a nested object. Destination transforms, symmetry and boolean effects apply to moved objects. Names are retained; unnamed layers and objects receive readable fallbacks. Double-click a name to rename it.
+- **Use as cutter** subtracts the selected object from its siblings, combining multiple remaining siblings into one artwork subject. The cutter stays editable and the change supports undo.
+- **View controls** sit below the canvas. The eye button opens a Show palette of icon tiles for overlays; zoom sits alongside it. Escape or clicking outside closes the palette.
 - **Import file** or **Import pasted JSON** accepts one glyph, an array, or a versioned library document. **Add** keeps both colliding names with a numeric suffix; **Overwrite** replaces matching names and adds new names. Invalid batches are rejected before library mutation.
 - **Export icon**, **Export edited**, and **Export all** download editable JSON. The export panel also provides runtime or baked SVG, downloadable baked SVG, and PNG at the chosen export size.
 - **Pen** inserts a point on a source outline, converting primitives to editable vectors. Alt-click an anchor to remove it; Delete removes the selected anchor. Paths retain at least two anchors (three when closed). Undo/redo preserves edits.

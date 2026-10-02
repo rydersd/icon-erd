@@ -6,6 +6,7 @@ import {
   faArrowUp, faArrowDown, faRotateLeft, faRotateRight, faRotate, faArrowsUpDownLeftRight,
   faMagnifyingGlassPlus, faMagnifyingGlassMinus, faExpand, faUpload, faDownload,
   faMoon, faSliders, faCrosshairs, faArrowsLeftRight, faArrowsUpDown, faMagnifyingGlass,
+  faBorderAll, faBullseye, faBraille, faShapes,
 } from '@fortawesome/free-solid-svg-icons';
 const ICONS = {
   select: faArrowPointer, pen: faPenNib, circle: faCircle, ellipse: faCircle,
@@ -19,6 +20,7 @@ const ICONS = {
   'zoom-in': faMagnifyingGlassPlus, 'zoom-out': faMagnifyingGlassMinus, fit: faExpand,
   import: faUpload, export: faDownload, theme: faMoon, deform: faSliders,
   'flip-h': faArrowsLeftRight, 'flip-v': faArrowsUpDown, 'search-outline': faMagnifyingGlass,
+  grid: faBorderAll, safe: faDrawPolygon, keylines: faBullseye, points: faBraille, forms: faShapes,
 };
 export function uiSVG(name) {
   const definition = ICONS[name.replace(/^ui-/, '')] || faCircle;
