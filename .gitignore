@@ -1,0 +1,13 @@
+node_modules/
+dist/
+playwright-report/
+test-results/
+artifacts/
+.DS_Store
+# Extracted third-party artwork is a local handoff, not part of the MIT application.
+imports/
+.next/
+out/
+.wrangler/
+.env*
+.dev.vars*

@@ -1,0 +1,1709 @@
+import { createGlyphCore } from './glyph-core.js';
+import { LIBRARY } from './starter-library.js';
+import { uiSVG } from './ui-icons.js';
+import { parseLibrary, mergeLibrary, libraryDocument, normalizeGlyph } from './library-io.js';
+import { createStorage } from './storage.js';
+
+import paper from 'paper/dist/paper-core.js';
+import { downloadBlob, svgToPNG } from './downloads.js';
+import { TEMPLATES, DEFAULT_SHAPES, PRIMARY_TOOLS, MORE_TOOLS } from './templates.js';
+import { ID, mul, ap, apv, inv } from './affine.js';
+import { inspectGeometry } from './geometry-inspection.js';
+export function mountEditor(root) {
+const project = new paper.Project();
+const abort = new AbortController();
+let disposed = false;
+const listen = (target, event, handler, options = {}) => target.addEventListener(event, handler, { ...options, signal: abort.signal });
+const core = createGlyphCore(paper);
+const $ = id => root.querySelector(`#${id}`);
+const SVGNS = 'http://www.w3.org/2000/svg';
+const clone = o => JSON.parse(JSON.stringify(o));
+const r4 = v => Math.round(v * 10000) / 10000;
+
+// ---------- independent editor chrome (not part of the user's icon library) ----------
+const uiName = name => name;
+function uiIcon(name) { const full = uiName(name); return `<span class="ui-icon" data-ui="${full}" aria-hidden="true">${uiSVG(full)}</span>`; }
+/** repaint chrome icons — all, or only those drawn from one glyph (live while that glyph is being edited) */
+function paintUI(full) { root.querySelectorAll(full ? `.ui-icon[data-ui="${full}"]` : '.ui-icon[data-ui]').forEach(e => { e.innerHTML = uiSVG(e.dataset.ui); }); }
+function decorate() {
+  root.querySelectorAll('[data-icon-ui]').forEach(b => {
+    if (b.querySelector(':scope > .ui-icon')) return;
+    const label = b.textContent.trim(); b.textContent = '';
+    b.insertAdjacentHTML('beforeend', uiIcon(b.dataset.iconUi));
+    if (label) { const sp = document.createElement('span'); sp.textContent = label; b.appendChild(sp); }
+  });
+}
+
+// ---------- state ----------
+const S = {
+  // S.lib slots are replaced, never mutated in place, so the library originals in LIBRARY stay pristine (Revert)
+  lib: LIBRARY.slice(), cur: 0, glyph: null,
+  sel: [], // [{l, p:null|[...]}]
+  snap: 0.1, view: { x: -1, y: -1, s: 26 },
+  show: { grid: true, safe: true, artboard: true, guides: true, keylines: true, forms: false, original: false, cutters: false, points: true },
+  iso: null, // isolated object {l, p:null|[...]}; everything else dims and stops taking clicks
+  anchor: null, // index of the selected anchor on the selected pen path
+  tool: 'select', hmode: 'shape', lockAspect: true,
+  rt: { weight: 1.2, cap: 'round', join: 'round', hint: false, rtl: false },
+  undo: [], redo: [], resolved: [],
+};
+let penDraft = null; // { s } while the pen is placing anchors
+function idx(name) { return S.lib.findIndex(g => g.name === name); }
+
+// ---------- node addressing ----------
+const layerOf = s => S.glyph.layers[s.l];
+function getNode(s) { if (!s || s.p === null) return null; let n = layerOf(s).node; for (const i of s.p) { if (!n || !n.children) return null; n = n.children[i]; } return n; }
+function getParent(s) { if (!s || s.p === null || !s.p.length) return null; return getNode({ l: s.l, p: s.p.slice(0, -1) }); }
+function ancestorsOf(s) { const out = []; for (let k = 0; k < s.p.length; k++) out.push(getNode({ l: s.l, p: s.p.slice(0, k) })); return out; }
+const same = (a, b) => a.l === b.l && JSON.stringify(a.p) === JSON.stringify(b.p);
+const isSel = s => S.sel.some(x => same(x, s));
+const primarySel = () => S.sel[S.sel.length - 1] || null;
+const prefixOf = (a, b) => a.length <= b.length && a.every((v, i) => v === b[i]);
+/** is node (l, p) inside the isolated object (or is nothing isolated) */
+const inIso = (l, p) => !S.iso || (l === S.iso.l && (S.iso.p === null || prefixOf(S.iso.p, p || [])));
+/** is node (l, p) the selection or inside it */
+const selCovers = (l, p) => S.sel.some(s => s.l === l && (s.p === null || prefixOf(s.p, p)));
+
+// ---------- 2D affine helpers ([a,b,c,d,tx,ty]: x' = a x + c y + tx, y' = b x + d y + ty) ----------
+function parentMatrix(s) { let M = ID; for (const a of ancestorsOf(s)) M = mul(M, core.nodeMatrix(a)); return M; }
+function fullMatrix(s) { return mul(parentMatrix(s), core.nodeMatrix(getNode(s))); }
+
+// ---------- saving: every committed glyph is autosaved to IndexedDB (only glyphs that differ from the library) ----------
+const ORIG = new Map(LIBRARY.map(g => [g.name, g])); // the library as shipped in this page; never mutated
+const EDITS = new Map(); // name -> { name, glyph, thumb, savedAt } as stored
+const DB = createStorage();
+const pendingSave = new Set();
+let saveTimer = null;
+function isEdited(g) { const o = ORIG.get(g.name); return !o || JSON.stringify(o) !== JSON.stringify(g); }
+function setSaveState(state, detail) {
+  const el = $('saveState'); el.dataset.state = state;
+  const n = EDITS.size, edited = n ? ` · ${n} edited` : '';
+  el.textContent = state === 'saved' ? 'Saved' + edited : state === 'saving' ? 'Saving…' : state === 'unsaved' ? 'Unsaved changes'
+    : state === 'nostore' ? 'Not saving: browser storage unavailable — use Export' : 'Save failed — use Export';
+  el.title = state === 'saved' ? 'Every edit is kept in this browser (IndexedDB) and survives a reload. Export to move them elsewhere.' : (detail ? String(detail.message || detail) : '');
+}
+function thumbFor(g) {
+  try { return core.toSVG(g, g === S.glyph && S.resolved.length ? { size: 24, resolved: S.resolved } : { size: 24 }); } catch (e) { return ''; }
+}
+function queueSave(name) {
+  if (!name) return;
+  pendingSave.add(name); setSaveState('unsaved');
+  clearTimeout(saveTimer); saveTimer = setTimeout(flushSaves, 300);
+}
+async function flushSaves() {
+  clearTimeout(saveTimer);
+  if (!pendingSave.size) return;
+  if (!DB.db) { setSaveState('nostore', DB.failed); return; }
+  const names = [...pendingSave]; pendingSave.clear();
+  setSaveState('saving');
+  const recs = names.map(n => { const g = S.lib[idx(n)]; return g && isEdited(g) ? { name: n, glyph: clone(g), thumb: thumbFor(g), savedAt: Date.now() } : { name: n, del: true }; });
+  try {
+    await DB.run('readwrite', st => { let last; for (const r of recs) last = r.del ? st.delete(r.name) : st.put(r); return last; });
+    if (disposed) { DB.db?.close(); return; }
+  for (const r of recs) { if (r.del) EDITS.delete(r.name); else EDITS.set(r.name, r); }
+    setSaveState(pendingSave.size ? 'unsaved' : 'saved');
+  } catch (e) { names.forEach(n => pendingSave.add(n)); setSaveState('error', e); }
+  names.forEach(updateLibItem); updateGlyphTags();
+}
+async function loadSaved() {
+  DB.db = await Promise.race([DB.open(), new Promise(r => setTimeout(() => r(null), 3000))]);
+  if (!DB.db) { setSaveState('nostore', DB.failed); return; }
+  if (disposed) { DB.db?.close(); return; }
+  let recs = [];
+  try { recs = await DB.run('readonly', st => st.getAll()) || []; } catch (e) { setSaveState('error', e); return; }
+  if (disposed) { DB.db?.close(); return; }
+  for (const r of recs) {
+    if (!r || !r.glyph || !Array.isArray(r.glyph.layers)) continue;
+    const i = idx(r.name); if (i >= 0) S.lib[i] = r.glyph; else S.lib.push(r.glyph);
+    EDITS.set(r.name, r);
+  }
+
+  if (!disposed) setSaveState('saved');
+}
+listen(window, 'pagehide', () => { if (pendingSave.size) flushSaves(); });
+listen(document, 'visibilitychange', () => { if (document.visibilityState === 'hidden' && pendingSave.size) flushSaves(); });
+
+// ---------- history ----------
+let lastSnap = null;
+function commit() {
+  const snap = JSON.stringify(S.glyph);
+  if (snap === lastSnap) return;
+  if (lastSnap) { S.undo.push(lastSnap); if (S.undo.length > 300) S.undo.shift(); }
+  S.redo = []; lastSnap = snap; storeCurrent();
+  updateHistoryBtns();
+}
+/** write the working glyph back into its library slot and autosave it (a rename also clears the old name's record) */
+function storeCurrent() {
+  const prev = S.lib[S.cur] && S.lib[S.cur].name;
+  S.lib[S.cur] = clone(S.glyph);
+  // A synchronous single-glyph journal protects the last edit if reload beats the IDB debounce.
+  try { localStorage.setItem('gw-open-pending-glyph', JSON.stringify(S.glyph)); } catch {}
+  if (prev && prev !== S.glyph.name) { queueSave(prev); renderLibrary(); }
+  queueSave(S.glyph.name);
+}
+function undo() { if (!S.undo.length) return; penDraft = null; S.redo.push(lastSnap); lastSnap = S.undo.pop(); S.glyph = JSON.parse(lastSnap); storeCurrent(); pruneSel(); renderAll(); updateHistoryBtns(); }
+function redo() { if (!S.redo.length) return; penDraft = null; S.undo.push(lastSnap); lastSnap = S.redo.pop(); S.glyph = JSON.parse(lastSnap); storeCurrent(); pruneSel(); renderAll(); updateHistoryBtns(); }
+function revert() {
+  const o = ORIG.get(S.glyph.name);
+  if (!o || !isEdited(S.glyph)) return;
+  penDraft = null; S.glyph = clone(o); S.sel = []; S.iso = null; S.anchor = null;
+  commit(); renderAll(); status('Reverted to the library original. Undo brings your edit back.');
+}
+function updateHistoryBtns() { $('undoBtn').disabled = !S.undo.length; $('redoBtn').disabled = !S.redo.length; }
+function pruneSel() {
+  S.sel = S.sel.filter(s => { try { return s.l < S.glyph.layers.length && (s.p === null || getNode(s)); } catch (e) { return false; } });
+  if (S.iso && !(S.iso.l < S.glyph.layers.length && (S.iso.p === null || getNode(S.iso)))) S.iso = null;
+  S.anchor = null;
+}
+function status(msg, err) { const el = $('status'); el.textContent = msg || ''; el.className = 'status' + (err ? ' err' : ''); }
+
+// ---------- load ----------
+function loadGlyph(i) {
+  S.cur = i; S.glyph = clone(S.lib[i]); S.sel = []; S.undo = []; S.redo = []; lastSnap = JSON.stringify(S.glyph); penDraft = null; S.iso = null; S.anchor = null;
+  S.rt.weight = S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
+  renderAll(); markCurrent(); updateHistoryBtns(); updateGlyphTags(); status('');
+  try { localStorage.setItem('gw-current', S.glyph.name); } catch (e) {}
+}
+
+// ---------- geometry helpers ----------
+const snapV = v => S.snap ? r4(Math.round(v / S.snap) * S.snap) : r4(Math.round(v * 1000) / 1000);
+/** grid snap, then pull onto a guide within 6px */
+function snapPt(p) {
+  const out = { x: snapV(p.x), y: snapV(p.y) };
+  if (S.show.guides) {
+    const tol = 6 / pxPerUnit();
+    for (const g of S.glyph.guides || []) {
+      if (g.axis === 'x' && Math.abs(p.x - g.pos) <= tol) out.x = g.pos;
+      if (g.axis === 'y' && Math.abs(p.y - g.pos) <= tol) out.y = g.pos;
+    }
+  }
+  return out;
+}
+function translateNode(n, dx, dy) {
+  if (!n) return;
+  if (n.transform && Array.isArray(n.transform.origin)) n.transform.origin = [r4(n.transform.origin[0] + dx), r4(n.transform.origin[1] + dy)];
+  if (symOn(n.symmetry)) { const a = core.axisOf(n.symmetry); n.symmetry.axis = { x: r4(a.x + dx), y: r4(a.y + dy), angle: a.angle }; }
+  if (n.children) { n.children.forEach(c => translateNode(c, dx, dy)); return; }
+  switch (n.shape) {
+    case 'rect': case 'triangle': n.x = r4(n.x + dx); n.y = r4(n.y + dy); break;
+    case 'ellipse': case 'circle': case 'polygon': case 'arc': n.cx = r4(n.cx + dx); n.cy = r4(n.cy + dy); break;
+    case 'line': n.x1 = r4(n.x1 + dx); n.y1 = r4(n.y1 + dy); n.x2 = r4(n.x2 + dx); n.y2 = r4(n.y2 + dy); break;
+    case 'polyline': n.pts = n.pts.map(p => [r4(p[0] + dx), r4(p[1] + dy)].concat(p.length > 2 ? [p[2]] : [])); break;
+    case 'pen': n.pts.forEach(q => { q.x = r4(q.x + dx); q.y = r4(q.y + dy); }); break;
+    case 'path': try { n.d = core.translateD(n.d, dx, dy); } catch (e) {} break;
+  }
+}
+/** move a node by a display-space delta, accounting for transformed ancestors */
+function translateSel(s, dx, dy) { const v = apv(inv(parentMatrix(s)), { x: dx, y: dy }); translateNode(getNode(s), r4(v.x), r4(v.y)); }
+const deg = (x, y, cx, cy) => { const a = Math.atan2(y - cy, x - cx) * 180 / Math.PI + 90; return r4(Math.round(a * 10) / 10); };
+const norm = (x, y) => { const l = Math.hypot(x, y); return l > 1e-9 ? { x: x / l, y: y / l, l } : { x: 0, y: 0, l: 0 }; };
+const atDeg = (cx, cy, r, d) => { const a = (d - 90) * Math.PI / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; };
+function getTaper(n) { return (n.deform || []).find(d => d.type === 'taper'); }
+function ensureTaper(n) { let t = getTaper(n); if (!t) { n.deform = n.deform || []; t = { type: 'taper' }; n.deform.push(t); } return t; }
+
+// ---------- transforms ----------
+function ensureT(n) {
+  if (!n.transform) n.transform = {};
+  const t = n.transform;
+  if (!Array.isArray(t.origin)) { const b = core.rawBounds(n); t.origin = b ? [r4(b[0] + b[2] / 2), r4(b[1] + b[3] / 2)] : [12, 12]; }
+  if (t.rotate == null) t.rotate = 0; if (t.scaleX == null) t.scaleX = 1; if (t.scaleY == null) t.scaleY = 1;
+  if (t.flipX == null) t.flipX = false; if (t.flipY == null) t.flipY = false;
+  return t;
+}
+/** move the anchor point to q (node's parent space) without moving the drawn result */
+function setOrigin(n, q) {
+  const t = ensureT(n);
+  const M = core.nodeMatrix(n);
+  const o = { x: t.origin[0], y: t.origin[1] };
+  const A = [M[0], M[1], M[2], M[3], 0, 0];
+  // d = A^-1 (I - A)(o - q)
+  const w = { x: o.x - q.x, y: o.y - q.y };
+  const Aw = apv(A, w);
+  const d = apv(inv(A), { x: w.x - Aw.x, y: w.y - Aw.y });
+  if (Math.abs(d.x) > 1e-6 || Math.abs(d.y) > 1e-6) translateNode(n, d.x, d.y);
+  t.origin = [r4(q.x), r4(q.y)];
+}
+
+// handle descriptors in the node's RAW space: {x, y, kind, set(node, start, pos, ev)}
+function handlesFor(n, px) {
+  const H = [];
+  if (!n || !n.shape) return H;
+  const off = 14 * px;
+  const pt = (x, y, set, kind = 'pt') => H.push({ x, y, kind, set });
+  switch (n.shape) {
+    case 'rect': case 'triangle': {
+      const { x, y, w, h } = n;
+      pt(x, y, (m, s, p) => { m.x = p.x; m.y = p.y; m.w = r4(s.x + s.w - p.x); m.h = r4(s.y + s.h - p.y); });
+      pt(x + w, y, (m, s, p) => { m.y = p.y; m.w = r4(p.x - s.x); m.h = r4(s.y + s.h - p.y); });
+      pt(x + w, y + h, (m, s, p) => { m.w = r4(p.x - s.x); m.h = r4(p.y - s.y); });
+      pt(x, y + h, (m, s, p) => { m.x = p.x; m.w = r4(s.x + s.w - p.x); m.h = r4(p.y - s.y); });
+      pt(x + w / 2, y, (m, s, p) => { m.y = p.y; m.h = r4(s.y + s.h - p.y); });
+      pt(x + w / 2, y + h, (m, s, p) => { m.h = r4(p.y - s.y); });
+      pt(x, y + h / 2, (m, s, p) => { m.x = p.x; m.w = r4(s.x + s.w - p.x); });
+      pt(x + w, y + h / 2, (m, s, p) => { m.w = r4(p.x - s.x); });
+      if (n.shape === 'triangle') {
+        const d = Math.max(n.r || 0, 10 * px);
+        pt(x + w / 2, y + d * 1.6, (m, s, p) => { m.r = Math.max(0, snapV((p.y - s.y) / 1.6)); }, 'radius');
+        break;
+      }
+      const rr = Array.isArray(n.r) ? n.r : [n.r || 0, n.r || 0, n.r || 0, n.r || 0];
+      [[x, y, 1, 1], [x + w, y, -1, 1], [x + w, y + h, -1, -1], [x, y + h, 1, -1]].forEach(([cx, cy, sx, sy], i) => {
+        const d = Math.max(rr[i] || 0, 10 * px);
+        pt(cx + sx * d, cy + sy * d, (m, s, p, ev) => {
+          const v = Math.max(0, Math.min(Math.min(Math.abs(s.w), Math.abs(s.h)), snapV(((p.x - cx) * sx + (p.y - cy) * sy) / 2)));
+          const cur = Array.isArray(m.r) ? m.r.slice() : [m.r || 0, m.r || 0, m.r || 0, m.r || 0];
+          if (ev.shiftKey) m.r = [v, v, v, v]; else { cur[i] = v; m.r = cur; }
+        }, 'radius');
+      });
+      const t = getTaper(n) || {};
+      pt(x + w - (t.top || 0), y - off, (m, s, p) => { ensureTaper(m).top = r4(Math.max(-s.w / 2, Math.min(s.w / 2, s.x + s.w - p.x))); }, 'taper');
+      pt(x + w - (t.bottom || 0), y + h + off, (m, s, p) => { ensureTaper(m).bottom = r4(Math.max(-s.w / 2, Math.min(s.w / 2, s.x + s.w - p.x))); }, 'taper');
+      break;
+    }
+    case 'circle':
+      pt(n.cx + n.r, n.cy, (m, s, p) => { m.r = r4(Math.max(0.1, Math.hypot(p.x - s.cx, p.y - s.cy))); });
+      pt(n.cx, n.cy + n.r, (m, s, p) => { m.r = r4(Math.max(0.1, Math.hypot(p.x - s.cx, p.y - s.cy))); });
+      break;
+    case 'ellipse':
+      pt(n.cx + n.rx, n.cy, (m, s, p, ev) => { m.rx = r4(Math.abs(p.x - s.cx)); if (ev.shiftKey) m.ry = m.rx; });
+      pt(n.cx, n.cy + n.ry, (m, s, p, ev) => { m.ry = r4(Math.abs(p.y - s.cy)); if (ev.shiftKey) m.rx = m.ry; });
+      pt(n.cx + n.rx, n.cy + n.ry, (m, s, p, ev) => { m.rx = r4(Math.abs(p.x - s.cx)); m.ry = ev.shiftKey ? m.rx : r4(Math.abs(p.y - s.cy)); });
+      break;
+    case 'line':
+      pt(n.x1, n.y1, (m, s, p) => { m.x1 = p.x; m.y1 = p.y; });
+      pt(n.x2, n.y2, (m, s, p) => { m.x2 = p.x; m.y2 = p.y; });
+      break;
+    case 'polyline':
+      n.pts.forEach((q, i) => pt(q[0], q[1], (m, s, p) => { m.pts[i] = [p.x, p.y].concat(q.length > 2 ? [q[2]] : []); }));
+      break;
+    case 'pen':
+      n.pts.forEach((q, i) => {
+        H.push({ x: q.x, y: q.y, kind: 'pt', ai: i, set: (m, s, p) => { m.pts[i].x = p.x; m.pts[i].y = p.y; } });
+        // the selected corner anchor gets a radius dot on its bisector (that vertex's own corner radius)
+        if (i === S.anchor && !q.in && !q.out) {
+          const N = n.pts.length, pv = n.pts[(i - 1 + N) % N], nx = n.pts[(i + 1) % N];
+          const ends = n.closed || (i > 0 && i < N - 1);
+          if (ends) {
+            const u1 = norm(pv.x - q.x, pv.y - q.y), u2 = norm(nx.x - q.x, nx.y - q.y), b = norm(u1.x + u2.x, u1.y + u2.y);
+            if (b.l > 1e-6) {
+              const half = Math.acos(Math.max(-1, Math.min(1, u1.x * u2.x + u1.y * u2.y))) / 2; // half the interior angle
+              const k = 1 / Math.sin(half || 1e-3); // centre of an r-fillet sits r/sin(half) along the bisector
+              const d = Math.max((q.r || 0) * k, 10 * px);
+              H.push({ x: q.x + b.x * d, y: q.y + b.y * d, kind: 'radius', set: (m, st, p) => {
+                const r = Math.max(0, snapV(((p.x - q.x) * b.x + (p.y - q.y) * b.y) / k));
+                if (r > 0) m.pts[i].r = r; else delete m.pts[i].r;
+              } });
+            }
+          }
+        }
+        for (const side of ['in', 'out']) {
+          if (!Array.isArray(q[side])) continue;
+          const other = side === 'in' ? 'out' : 'in';
+          H.push({ x: q.x + q[side][0], y: q.y + q[side][1], kind: 'ctrl', anchor: [q.x, q.y], set: (m, s, p, ev) => {
+            const a = m.pts[i]; const v = [r4(p.x - a.x), r4(p.y - a.y)]; a[side] = v;
+            // smooth by default: the opposite handle keeps its length and turns to stay collinear (⌥ breaks it)
+            const so = s.pts[i][other];
+            if (!ev.altKey && Array.isArray(so)) { const L = Math.hypot(so[0], so[1]), l = Math.hypot(v[0], v[1]) || 1; a[other] = [r4(-v[0] / l * L), r4(-v[1] / l * L)]; }
+          } });
+        }
+      });
+      break;
+    case 'polygon': {
+      const v0 = atDeg(n.cx, n.cy, n.r, n.rotation || 0);
+      pt(v0[0], v0[1], (m, s, p, ev) => { m.r = r4(Math.hypot(p.x - s.cx, p.y - s.cy)); if (!ev.shiftKey) m.rotation = deg(p.x, p.y, s.cx, s.cy); });
+      if (n.star) { const cnt = n.sides * 2; const v1 = atDeg(n.cx, n.cy, n.star.inner, (n.rotation || 0) + 360 / cnt); pt(v1[0], v1[1], (m, s, p) => { m.star = { inner: r4(Math.hypot(p.x - s.cx, p.y - s.cy)) }; }, 'radius'); }
+      break;
+    }
+    case 'arc': {
+      const a = atDeg(n.cx, n.cy, n.r, n.start), b = atDeg(n.cx, n.cy, n.r, n.end);
+      pt(a[0], a[1], (m, s, p) => { m.start = deg(p.x, p.y, s.cx, s.cy); });
+      pt(b[0], b[1], (m, s, p) => { m.end = deg(p.x, p.y, s.cx, s.cy); });
+      let e = n.end; if (e < n.start) e += 360; const mid = atDeg(n.cx, n.cy, n.r, (n.start + e) / 2);
+      pt(mid[0], mid[1], (m, s, p) => { m.r = snapV(Math.hypot(p.x - s.cx, p.y - s.cy)); }, 'radius');
+      break;
+    }
+  }
+  return H;
+}
+
+// ---------- canvas ----------
+const cv = $('canvas');
+function pxPerUnit() { const r = cv.getBoundingClientRect(); return (r.width || 600) / S.view.s; }
+function applyView() { cv.setAttribute('viewBox', `${S.view.x} ${S.view.y} ${S.view.s} ${S.view.s}`); $('zoomLbl').textContent = Math.round(26 / S.view.s * 100) + '%'; renderRulers(); }
+function el(tag, attrs, parent) { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+function gridPath(step, from = 0, to = 24, skip) {
+  let d = '';
+  for (let k = 0; ; k++) { const v = r4(from + k * step); if (v > to + 1e-6) break; if (skip && skip(v)) continue; d += `M${v} ${from}V${to}M${from} ${v}H${to}`; }
+  return d;
+}
+const NS = { 'vector-effect': 'non-scaling-stroke' };
+function renderGrid() {
+  const g = $('gGrid'); g.innerHTML = ''; const k = $('gKey'); k.innerHTML = '';
+  if (S.show.grid) {
+    const ppu = pxPerUnit();
+    const mk = (d, c, w) => el('path', Object.assign({ d, fill: 'none', stroke: c, 'stroke-width': w, 'shape-rendering': 'crispEdges' }, NS), g);
+    if (ppu * 0.1 >= 6) mk(gridPath(0.1, 0, 24, v => Math.abs(v / 0.3 - Math.round(v / 0.3)) < 1e-6), 'var(--grid-minor)', 1);
+    if (ppu * 0.3 >= 5) mk(gridPath(0.3), 'var(--grid-lattice)', 1);
+    if (ppu * 0.5 >= 6) mk(gridPath(0.5, 0, 24, v => Number.isInteger(v)), 'var(--grid-major)', 0.6);
+    mk(gridPath(1, 0, 24, v => v % 2 === 0), 'var(--grid-major)', 1);
+    mk(gridPath(2), 'var(--grid-unit2)', 1);
+  }
+  const kl = Object.assign({ fill: 'none', stroke: 'var(--keyline)', 'stroke-width': 1 }, NS);
+  if (S.show.keylines) {
+    el('rect', Object.assign({ x: 3, y: 3, width: 18, height: 18, 'stroke-dasharray': '3 3' }, kl), k);
+    el('circle', Object.assign({ cx: 12, cy: 12, r: 9.6 }, kl), k);
+    el('rect', Object.assign({ x: 3.3, y: 3.3, width: 17.4, height: 17.4, rx: 1.2 }, kl), k);
+    el('rect', Object.assign({ x: 4.2, y: 2.4, width: 15.6, height: 19.2, rx: 1.2, 'stroke-opacity': .5 }, kl), k);
+    el('rect', Object.assign({ x: 2.4, y: 4.2, width: 19.2, height: 15.6, rx: 1.2, 'stroke-opacity': .5 }, kl), k);
+    el('path', Object.assign({ d: 'M12 0V24M0 12H24M0 0L24 24M24 0L0 24', 'stroke-opacity': .45 }, kl), k);
+  }
+  if (S.show.safe) el('rect', Object.assign({ x: 2.4, y: 2.4, width: 19.2, height: 19.2, fill: 'none', stroke: 'var(--safe)', 'stroke-width': 1.5, 'stroke-dasharray': '6 3' }, NS), k);
+  if (S.show.artboard) el('rect', Object.assign({ x: 0, y: 0, width: 24, height: 24, fill: 'none', stroke: 'var(--text-3)', 'stroke-width': 1.5 }, NS), k);
+}
+// ---------- symmetry scopes: the glyph's own, plus any group with symmetry {mirror, rotate, axis, half} ----------
+const symOn = sym => !!(sym && (sym.mirror || (sym.rotate || 1) > 1));
+function symScopes() {
+  const out = [];
+  if (symOn(S.glyph.symmetry)) out.push({ key: 'glyph', sym: S.glyph.symmetry, M: ID, covers: (l) => S.glyph.layers[l].symmetry !== false });
+  S.glyph.layers.forEach((L, l) => {
+    const walk = (n, p) => {
+      if (!n || !n.children) return;
+      if (symOn(n.symmetry)) out.push({ key: l + ':' + p.join('.'), s: { l, p }, sym: n.symmetry, M: fullMatrix({ l, p }), covers: (ll, pp) => ll === l && pp.length > p.length && prefixOf(p, pp) });
+      n.children.forEach((c, i) => walk(c, p.concat(i)));
+    };
+    walk(L.node, []);
+  });
+  return out;
+}
+const symObj = sc => (sc.key === 'glyph' ? S.glyph.symmetry : getNode(sc.s).symmetry);
+/** every symmetry image of leaf (l, p) other than itself, as glyph-space matrices (inner scopes first) */
+function ghostMatrices(scopes, l, p) {
+  let imgs = [ID];
+  const mine = scopes.filter(sc => sc.covers(l, p)).sort((a, b) => (b.s ? b.s.p.length : -1) - (a.s ? a.s.p.length : -1));
+  for (const sc of mine) {
+    const Mi = inv(sc.M);
+    const Ts = core.symmetryMatrices(sc.sym).map(T => mul(sc.M, mul(T, Mi)));
+    imgs = Ts.flatMap(T => imgs.map(I => mul(T, I)));
+  }
+  return imgs.slice(1);
+}
+function tfD(d, m) { const cp = new paper.CompoundPath(d); cp.transform(new paper.Matrix(m[0], m[1], m[2], m[3], m[4], m[5])); return core.itemD(cp); }
+/** which scope axes are drawn: the glyph's always; a group's while it, something in it, or its isolation is selected */
+function scopeShown(sc) {
+  if (sc.key === 'glyph') return !S.iso || S.glyph.layers[S.iso.l].symmetry !== false;
+  const { l, p } = sc.s;
+  if (S.iso && S.iso.l === l && S.iso.p && (prefixOf(S.iso.p, p) || prefixOf(p, S.iso.p))) return true;
+  return S.sel.some(s => s.l === l && s.p !== null && (prefixOf(p, s.p) || prefixOf(s.p, p)));
+}
+let axisHandles = [];
+const AXIS_LEN = 10.5;
+function renderAxes(scopes) {
+  const g = $('gSym'); g.innerHTML = ''; axisHandles = [];
+  const px = 1 / pxPerUnit(), sz = 4.5 * px;
+  for (const sc of scopes) {
+    if (!scopeShown(sc)) continue;
+    const a = core.axisOf(sc.sym), rad = a.angle * Math.PI / 180, m = sc.sym.mirror;
+    const dx = { x: -Math.sin(rad), y: Math.cos(rad) }, dy = { x: Math.cos(rad), y: Math.sin(rad) };
+    const P = (x, y) => ap(sc.M, { x, y });
+    const c = P(a.x, a.y);
+    const st = Object.assign({ stroke: 'var(--accent)', 'stroke-width': 1, 'stroke-dasharray': '6 4', opacity: .8, 'data-axis': sc.key }, NS);
+    const line = dir => { const p0 = P(a.x - dir.x * AXIS_LEN, a.y - dir.y * AXIS_LEN), p1 = P(a.x + dir.x * AXIS_LEN, a.y + dir.y * AXIS_LEN); el('path', Object.assign({ d: `M${p0.x} ${p0.y}L${p1.x} ${p1.y}` }, st), g); };
+    if (m === 'x' || m === 'xy') line(dx);
+    if (m === 'y' || m === 'xy') line(dy);
+    el('circle', Object.assign({ cx: c.x, cy: c.y, r: sz * .6, fill: 'var(--accent)', 'data-axis-centre': sc.key }, NS), g);
+    if (!m) { axisHandles.push({ x: c.x, y: c.y, kind: 'axis-move', sc }); continue; }
+    const prim = m === 'y' ? dy : dx;
+    const rot = P(a.x - prim.x * AXIS_LEN, a.y - prim.y * AXIS_LEN), mov = P(a.x + prim.x * AXIS_LEN, a.y + prim.y * AXIS_LEN);
+    axisHandles.push({ x: rot.x, y: rot.y, kind: 'axis-rot', sc }, { x: mov.x, y: mov.y, kind: 'axis-move', sc });
+    el('circle', Object.assign({ cx: rot.x, cy: rot.y, r: sz, fill: 'var(--canvas-bg)', stroke: 'var(--accent)', 'stroke-width': 1.5, 'data-axis-handle': 'rot', 'data-scope': sc.key }, NS), g);
+    el('rect', Object.assign({ x: mov.x - sz, y: mov.y - sz, width: sz * 2, height: sz * 2, fill: 'var(--accent)', stroke: 'var(--accent)', 'stroke-width': 1, 'data-axis-handle': 'move', 'data-scope': sc.key }, NS), g);
+  }
+}
+/** an axis angle from a pointer vector (scope-local), snapped to 0 / 45 / 90 within 8 degrees (shift: 15 degree steps) */
+function axisAngle(v, mirror, ev) {
+  let a = Math.atan2(v.x, -v.y) * 180 / Math.PI + (mirror === 'y' ? 90 : 0);
+  a = ((a + 90) % 180 + 180) % 180 - 90; // the axis is a line: keep it in [-90, 90)
+  if (ev && ev.shiftKey) a = Math.round(a / 15) * 15;
+  else { const k = Math.round(a / 45) * 45; a = Math.abs(a - k) <= 8 ? k : Math.round(a); }
+  return a === -90 ? 90 : a;
+}
+// ---------- isolation ----------
+function isoLabel(t) {
+  const L = S.glyph.layers[t.l]; const parts = [L.name || L.id];
+  if (t.p) for (let k = 0; k <= t.p.length; k++) parts.push(nodeLabel(getNode({ l: t.l, p: t.p.slice(0, k) })));
+  return parts;
+}
+function isoEnter(t) {
+  S.iso = t; S.anchor = null;
+  S.sel = S.sel.filter(s => s.l === t.l && (t.p === null || (s.p !== null && prefixOf(t.p, s.p))));
+  refresh(true); status('Isolated ' + isoLabel(t).join(' › ') + ' — everything else is dimmed and locked. Esc or Exit returns.');
+}
+function isoExit() { if (!S.iso) return false; S.iso = null; refresh(true); status('Isolation ended.'); return true; }
+function renderIsoBar() {
+  const bar = $('isoBar'); bar.hidden = !S.iso;
+  if (!S.iso) return;
+  const parts = isoLabel(S.iso);
+  $('isoCrumbs').innerHTML = parts.map((t, i) => (i === parts.length - 1 ? '<b></b>' : '<span></span>')).join(' › ');
+  $('isoCrumbs').querySelectorAll('b, span').forEach((e, i) => { e.textContent = parts[i]; });
+}
+/** double-click target: a selected group holding the hit, else the outermost group below the current scope */
+function isoTargetFor(f) {
+  const grp = S.sel.find(s => s.p !== null && s.l === f.l && f.p.length > s.p.length && prefixOf(s.p, f.p) && getNode(s).children);
+  if (grp && !(S.iso && same(grp, S.iso))) return grp;
+  const base = S.iso && S.iso.l === f.l && S.iso.p ? S.iso.p.length + 1 : 0;
+  for (let k = base; k < f.p.length; k++) { const q = f.p.slice(0, k); const n = getNode({ l: f.l, p: q }); if (n && n.children) return { l: f.l, p: q }; }
+  return null;
+}
+const ROLE_CANVAS = { primary: 'var(--text)', secondary: 'var(--icon-color-secondary)', accent: 'var(--icon-color-accent)' };
+let formCache = [];
+function leafList() {
+  const out = [];
+  S.glyph.layers.forEach((L, l) => {
+    // cut = path of the nearest enclosing cutter (a child after the first of a subtract group), if any
+    const walk = (n, p, anc, cut) => { if (!n || n.hidden) return; if (n.shape) out.push({ l, p, n, anc, cut }); else (n.children || []).forEach((c, i) => walk(c, p.concat(i), anc.concat([n]), n.op === 'subtract' && i > 0 ? p.concat(i) : cut)); };
+    walk(L.node, [], [], null);
+  });
+  return out;
+}
+function renderCanvas() {
+  applyView();
+  const gL = $('gLayers'); gL.innerHTML = '';
+  gL.setAttribute('opacity', S.show.original && ORIG.has(S.glyph.name) ? 0.45 : 1);
+  const W = S.rt.weight;
+  S.resolved.forEach((L, li) => {
+    if (!L.visible) return;
+    const col = L.color || ROLE_CANVAS[L.role] || 'var(--text)';
+    const dim = S.iso && !(S.iso.l === li && S.iso.p === null) ? 0.15 : 1;
+    for (const part of L.parts) {
+      const a = { d: part.d, fill: 'none', 'fill-rule': 'nonzero', opacity: L.opacity * dim };
+      if (L.paint !== 'stroke') a.fill = col;
+      const style = core.strokeStyle(S.glyph, S.rt, part.cap);
+      if (L.paint !== 'fill') Object.assign(a, { stroke: col, 'stroke-width': W, 'stroke-linecap': style.cap, 'stroke-linejoin': style.join });
+      el('path', a, gL);
+    }
+  });
+  // isolated object: drawn on its own at full strength over the dimmed glyph
+  const gI = $('gIso'); gI.innerHTML = '';
+  if (S.iso && S.iso.p !== null) {
+    const L = S.glyph.layers[S.iso.l], n = getNode(S.iso); let fm = null;
+    try { fm = core.form(n, ancestorsOf(S.iso)); } catch (e) {}
+    if (fm) {
+      const col = L.color || ROLE_CANVAS[L.role || 'primary'] || 'var(--text)', paint = L.paint || 'stroke';
+      const items = [].concat(fm.closed ? [{ d: core.itemD(fm.closed) }] : [], fm.open.map(o => ({ d: core.itemD(o), cap: o.data && o.data.cap })));
+      for (const it of items) {
+        const a = { d: it.d, fill: paint !== 'stroke' ? col : 'none', 'data-iso': '1' };
+        const style = core.strokeStyle(S.glyph, S.rt, it.cap);
+        if (paint !== 'fill') Object.assign(a, { stroke: col, 'stroke-width': W, 'stroke-linecap': style.cap, 'stroke-linejoin': style.join });
+        el('path', a, gI);
+      }
+    }
+  }
+  const gO = $('gOrig'); gO.innerHTML = '';
+  const original = ORIG.get(S.glyph.name);
+  if (S.show.original && original) {
+    for (const layer of core.resolve(original)) {
+      for (const path of layer.parts || []) el('path', { d: path.d, fill: layer.paint === 'fill' ? 'var(--orig)' : 'none', stroke: 'var(--orig)', 'stroke-width': original.weight || 1.2 }, gO);
+    }
+  }
+  $('origBtn').disabled = !original;
+  $('origBtn').title = original ? 'Show the starter icon before edits' : 'No starter reference for this icon';
+  const gF = $('gForms'); gF.innerHTML = '';
+  formCache = leafList().map(f => { let fm = null; try { fm = core.form(f.n, f.anc); } catch (e) {} return Object.assign(f, { fm }); });
+  renderGuides();
+  renderSelection();
+}
+// ---------- cutters: the later children of a subtract group, drawn dashed when their group or they are selected ----------
+function cutterActive(l, opPath) {
+  return S.sel.some(s => s.l === l && (s.p === null || prefixOf(s.p, opPath) || prefixOf(opPath, s.p)));
+}
+function cutterVisible(l, cutPath) { return S.iso ? inIso(l, cutPath) : (S.show.cutters || cutterActive(l, cutPath.slice(0, -1))); }
+function renderCutters() {
+  const g = $('gCut'); g.innerHTML = '';
+  S.glyph.layers.forEach((L, l) => {
+    if (L.visible === false) return;
+    const walk = (n, p, anc) => {
+      if (!n || n.hidden || !n.children) return;
+      if (n.op === 'subtract') {
+        const active = cutterActive(l, p);
+        n.children.forEach((c, i) => {
+          if (i === 0 || c.hidden || !cutterVisible(l, p.concat(i))) return;
+          let fm = null; try { fm = core.form(c, anc.concat([n])); } catch (e) {}
+          if (!fm || !fm.d) return;
+          el('path', Object.assign({ d: fm.d, fill: active && c.edge !== 'open' ? 'var(--cutter-fill)' : 'none', stroke: 'var(--cutter)', 'stroke-width': active ? 1.6 : 1, 'stroke-dasharray': c.edge === 'open' ? '2 3' : '6 3', opacity: active ? 1 : 0.6, 'data-cutter': l + ':' + p.concat(i).join('.'), 'data-edge': c.edge || 'drawn' }, NS), g);
+        });
+      }
+      n.children.forEach((c, i) => walk(c, p.concat(i), anc.concat([n])));
+    };
+    walk(L.node, [], []);
+  });
+}
+function renderGuides() {
+  const g = $('gGuides'); g.innerHTML = '';
+  if (!S.show.guides) return;
+  const v = S.view;
+  for (const gd of S.glyph.guides || []) {
+    const d = gd.axis === 'x' ? `M${gd.pos} ${v.y - 1}V${v.y + v.s + 1}` : `M${v.x - 1} ${gd.pos}H${v.x + v.s + 1}`;
+    el('path', Object.assign({ d, stroke: 'var(--guide)', 'stroke-width': 1 }, NS), g);
+  }
+}
+let activeHandles = [];
+let penHover = null;
+let insertHover = null; // pen tool over an outline: where a click would add an anchor
+/** selection-dependent overlays: forms, symmetry ghosts, axes, isolation bar */
+function renderOverlays() {
+  const gF = $('gForms'); gF.innerHTML = '';
+  // noise control: outside isolation only the selected object's forms are outlined (Forms toggle = show all);
+  // inside isolation, every form of the isolated object and nothing else
+  const gG = $('gGhost'); gG.innerHTML = '';
+  const scopes = symScopes();
+  for (const f of formCache) {
+    if (!f.fm || !f.fm.d || f.n.hidden || S.glyph.layers[f.l].visible === false) continue;
+    if (!(S.iso ? inIso(f.l, f.p) : (S.show.forms || selCovers(f.l, f.p)))) continue;
+    el('path', Object.assign({ d: f.fm.d, fill: 'none', stroke: 'var(--form)', 'stroke-width': 1, 'stroke-dasharray': '4 3', 'data-form': f.l + ':' + f.p.join('.') }, NS), gF);
+    // the mirrored / rotated images: live, dashed, never hit-tested (pointer-events: none on the group)
+    for (const m of ghostMatrices(scopes, f.l, f.p)) el('path', Object.assign({ d: tfD(f.fm.d, m), fill: 'none', stroke: 'var(--accent)', 'stroke-width': 1, 'stroke-dasharray': '1.5 2.5', opacity: .65, 'data-ghost': f.l + ':' + f.p.join('.') }, NS), gG);
+  }
+  renderAxes(scopes);
+  renderGeometryInspection();
+  renderIsoBar();
+}
+function renderGeometryInspection() {
+  const forms = formCache.filter(f => f.fm && !f.n.hidden && S.glyph.layers[f.l].visible !== false);
+  const report = inspectGeometry(forms);
+  const selected = forms.filter(f => selCovers(f.l, f.p));
+  const shown = (S.iso ? forms.filter(f => inIso(f.l, f.p)) : selected.length ? selected : forms);
+  const keys = new Set(shown.map(f => `${f.l}:${f.p.join('.')}`));
+  const points = report.points.filter(point => keys.has(point.key));
+  const rows = $('pointRows'); rows.replaceChildren();
+  for (const point of points) {
+    const row = rows.insertRow();
+    for (const value of [`${point.name} [${point.key}]`, point.index + 1, r4(point.x), r4(point.y)]) row.insertCell().textContent = String(value);
+  }
+  const overlay = $('gPoints'); overlay.replaceChildren();
+  if (S.show.points) {
+    const px = 1 / pxPerUnit();
+    const unique = new Map(points.map(point => [`${r4(point.x)},${r4(point.y)}`, point]));
+    for (const point of unique.values()) {
+      el('circle', { cx: point.x, cy: point.y, r: 2.5 * px, fill: 'var(--canvas-bg)', stroke: 'var(--accent)', 'stroke-width': px }, overlay);
+      const label = el('text', { x: point.x + 5 * px, y: point.y - 5 * px, class: 'point-coordinate', 'font-size': 10 * px }, overlay);
+      label.textContent = `${r4(point.x)}, ${r4(point.y)}`;
+    }
+  }
+  $('geometrySummary').textContent = `${report.points.length} source points · ${report.overlaps.length ? `${report.overlaps.length} coincident segment(s) to inspect` : 'No coincident source segments detected'}. ${selected.length ? 'Showing selected objects.' : 'Showing all objects.'}`;
+  const list = $('overlapList'); list.replaceChildren();
+  for (const overlap of report.overlaps) {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'overlap-item';
+    button.textContent = `${overlap.a.name} / ${overlap.b.name}: ${overlap.partial ? 'partially overlapping line' : 'coincident segment'}`;
+    button.onclick = () => { S.sel = [overlap.a.selection, overlap.b.selection]; renderTree(); renderInspector(); renderSelection(); };
+    list.appendChild(button);
+  }
+}
+function renderSelection() {
+  renderCutters(); // cutter visibility follows the selection
+  renderOverlays();
+  const gS = $('gSel'); gS.innerHTML = '';
+  const px = 1 / pxPerUnit();
+  activeHandles = [];
+  for (const s of S.sel) {
+    if (s.p === null) continue;
+    const n = getNode(s); if (!n) continue;
+    let fm = null; try { fm = core.form(n, ancestorsOf(s)); } catch (e) {}
+    if (fm && fm.d) el('path', Object.assign({ d: fm.d, fill: 'none', stroke: 'var(--sel)', 'stroke-width': 1.5 }, NS), gS);
+  }
+  const ps = primarySel(); const n = ps && ps.p !== null && getNode(ps);
+  const sz = 4.5 * px;
+  const square = h => el('rect', Object.assign({ x: h.x - sz, y: h.y - sz, width: sz * 2, height: sz * 2, fill: 'var(--canvas-bg)', stroke: 'var(--sel)', 'stroke-width': 1.5 }, NS), gS);
+  if (n && S.sel.length === 1 && (S.tool === 'select' || (S.tool === 'pen' && !penDraft))) {
+    if (S.hmode === 'shape' && n.shape) {
+      const M = fullMatrix(ps), Mi = inv(M);
+      const raw = handlesFor(n, px / Math.max(1e-3, Math.sqrt(Math.abs(M[0] * M[3] - M[1] * M[2]))));
+      for (const h of raw) {
+        const d = ap(M, h);
+        const H = Object.assign({}, h, { x: d.x, y: d.y, M, Mi });
+        activeHandles.push(H);
+        if (h.kind === 'ctrl') { const a = ap(M, { x: h.anchor[0], y: h.anchor[1] }); el('path', Object.assign({ d: `M${a.x} ${a.y}L${d.x} ${d.y}`, stroke: 'var(--sel)', 'stroke-width': 1 }, NS), gS); }
+      }
+      for (const H of activeHandles) {
+        if (H.kind === 'pt') { const r = square(H); if (H.ai != null) { r.setAttribute('data-anchor', H.ai); if (H.ai === S.anchor) r.setAttribute('fill', 'var(--sel)'); } }
+        else if (H.kind === 'radius' || H.kind === 'ctrl') el('circle', Object.assign({ cx: H.x, cy: H.y, r: sz * .85, fill: H.kind === 'ctrl' ? 'var(--canvas-bg)' : 'var(--sel)', stroke: 'var(--sel)', 'stroke-width': 1.2 }, NS), gS);
+        else el('path', Object.assign({ d: `M${H.x} ${H.y - sz * 1.2}L${H.x + sz * 1.2} ${H.y}L${H.x} ${H.y + sz * 1.2}L${H.x - sz * 1.2} ${H.y}Z`, fill: 'var(--sel)', 'fill-opacity': getTaper(n) ? 1 : .35, stroke: 'var(--sel)', 'stroke-width': 1 }, NS), gS);
+      }
+    }
+    if (S.hmode === 'transform') {
+      const b = core.rawBounds(n);
+      if (b) {
+        const M = fullMatrix(ps), Mp = parentMatrix(ps);
+        const corners = [[b[0], b[1]], [b[0] + b[2], b[1]], [b[0] + b[2], b[1] + b[3]], [b[0], b[1] + b[3]]].map(c => ap(M, { x: c[0], y: c[1] }));
+        el('path', Object.assign({ d: 'M' + corners.map(c => c.x + ' ' + c.y).join('L') + 'Z', fill: 'none', stroke: 'var(--sel)', 'stroke-width': 1, 'stroke-dasharray': '3 2' }, NS), gS);
+        corners.forEach(c => activeHandles.push({ x: c.x, y: c.y, kind: 'tscale' }));
+        const top = ap(M, { x: b[0] + b[2] / 2, y: b[1] }), ctr = ap(M, { x: b[0] + b[2] / 2, y: b[1] + b[3] / 2 });
+        const dv = { x: top.x - ctr.x, y: top.y - ctr.y }, dl = Math.hypot(dv.x, dv.y) || 1;
+        const knob = { x: top.x + dv.x / dl * 22 * px, y: top.y + dv.y / dl * 22 * px, kind: 'trotate' };
+        el('path', Object.assign({ d: `M${top.x} ${top.y}L${knob.x} ${knob.y}`, stroke: 'var(--sel)', 'stroke-width': 1 }, NS), gS);
+        activeHandles.push(knob);
+        const t = n.transform && Array.isArray(n.transform.origin) ? n.transform.origin : [b[0] + b[2] / 2, b[1] + b[3] / 2];
+        const o = ap(Mp, { x: t[0], y: t[1] });
+        activeHandles.push({ x: o.x, y: o.y, kind: 'torigin' });
+        for (const H of activeHandles) {
+          if (H.kind === 'tscale') square(H);
+          if (H.kind === 'trotate') el('circle', Object.assign({ cx: H.x, cy: H.y, r: sz, fill: 'var(--canvas-bg)', stroke: 'var(--sel)', 'stroke-width': 1.5 }, NS), gS);
+          if (H.kind === 'torigin') { el('circle', Object.assign({ cx: H.x, cy: H.y, r: sz * 1.1, fill: 'none', stroke: 'var(--guide)', 'stroke-width': 1.5 }, NS), gS); el('path', Object.assign({ d: `M${H.x - sz * 1.8} ${H.y}H${H.x + sz * 1.8}M${H.x} ${H.y - sz * 1.8}V${H.y + sz * 1.8}`, stroke: 'var(--guide)', 'stroke-width': 1.2 }, NS), gS); }
+        }
+      }
+    }
+  }
+  if (insertHover && S.tool === 'pen' && !penDraft) {
+    el('circle', Object.assign({ cx: insertHover.x, cy: insertHover.y, r: sz * 1.1, fill: 'var(--canvas-bg)', stroke: 'var(--sel)', 'stroke-width': 1.5, 'data-insert': '1' }, NS), gS);
+    el('path', Object.assign({ d: `M${insertHover.x - sz * .6} ${insertHover.y}H${insertHover.x + sz * .6}M${insertHover.x} ${insertHover.y - sz * .6}V${insertHover.y + sz * .6}`, stroke: 'var(--sel)', 'stroke-width': 1.2 }, NS), gS);
+  }
+  // pen draft feedback
+  if (penDraft && S.tool === 'pen') {
+    const pn = getNode(penDraft.s);
+    if (pn && pn.pts && pn.pts.length) {
+      const M = fullMatrix(penDraft.s);
+      pn.pts.forEach((q, i) => { const d = ap(M, q); el('rect', Object.assign({ x: d.x - sz, y: d.y - sz, width: sz * 2, height: sz * 2, fill: i === 0 ? 'var(--sel)' : 'var(--canvas-bg)', stroke: 'var(--sel)', 'stroke-width': 1.5 }, NS), gS); });
+      if (penHover) { const last = ap(M, pn.pts[pn.pts.length - 1]); el('path', Object.assign({ d: `M${last.x} ${last.y}L${penHover.x} ${penHover.y}`, stroke: 'var(--sel)', 'stroke-width': 1, 'stroke-dasharray': '3 3' }, NS), gS); }
+    }
+  }
+}
+function toUnits(ev) { const pt = cv.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const q = pt.matrixTransform(cv.getScreenCTM().inverse()); return { x: q.x, y: q.y }; }
+function hitForm(pos) {
+  const tol = 6 / pxPerUnit();
+  const pt = new paper.Point(pos.x, pos.y);
+  let best = null;
+  let bestCut = null;
+  for (let i = formCache.length - 1; i >= 0; i--) {
+    const f = formCache[i]; if (!f.fm || f.n.hidden || S.glyph.layers[f.l].visible === false) continue;
+    if (!inIso(f.l, f.p)) continue; // isolation: the rest of the glyph does not take clicks
+    // a cutter is only grabbable while it is drawn (show-cutters on, or its group selected)
+    if (f.cut && !cutterVisible(f.l, f.cut)) continue;
+    for (const it of [].concat(f.fm.closed ? [f.fm.closed] : [], f.fm.open)) {
+      const near = it.getNearestPoint(pt); const dist = near ? near.getDistance(pt) : Infinity;
+      if (dist <= tol) return f;
+      if (it.closed !== false && it.contains && it.contains(pt)) { if (f.cut) { if (!bestCut && cutterActive(f.l, f.cut.slice(0, -1))) bestCut = f; } else if (!best) best = f; }
+    }
+  }
+  return best || bestCut;
+}
+/** pen tool: the outline under the pointer (selected form first), with the nearest point on it */
+function hitOutline(pos) {
+  const tol = 6 / pxPerUnit(), pt = new paper.Point(pos.x, pos.y);
+  const ps = primarySel();
+  const order = formCache.slice().reverse().sort((a, b) => (ps && same(b, ps) ? 1 : 0) - (ps && same(a, ps) ? 1 : 0));
+  for (const f of order) {
+    if (!f.fm || f.n.hidden || S.glyph.layers[f.l].visible === false || !inIso(f.l, f.p)) continue;
+    if (f.cut && !cutterVisible(f.l, f.cut)) continue;
+    for (const it of [].concat(f.fm.closed ? [f.fm.closed] : [], f.fm.open)) {
+      const near = it.getNearestPoint(pt);
+      if (near && near.getDistance(pt) <= tol) return { f, x: near.x, y: near.y };
+    }
+  }
+  return null;
+}
+/** add an anchor where (pos) meets the form's outline; a primitive first becomes a pen path in place */
+function insertAnchor(hit, ev) {
+  let s = { l: hit.f.l, p: hit.f.p };
+  let n = getNode(s);
+  const originalMatrix = fullMatrix(s);
+  const q = ap(inv(originalMatrix), { x: hit.x, y: hit.y });
+  let converted = false;
+  if (n.shape !== 'pen' || n.deform?.length || (n.pts || []).some(point => point.r > 0)) {
+    const vector = core.toPen(n); if (!vector) return false;
+    if (s.p.length) getParent(s).children[s.p.at(-1)] = vector; else layerOf(s).node = vector;
+    n = vector; converted = true;
+    if (n.children) {
+      let nearest = [], distance = Infinity;
+      const visit = (child, pathIndices) => {
+        if (child.children) { child.children.forEach((nested, index) => visit(nested, pathIndices.concat(index))); return; }
+        for (const path of core.shapeItems(child)) {
+          const value = path.getNearestPoint(new paper.Point(q.x, q.y)).getDistance(new paper.Point(q.x, q.y));
+          if (value < distance) { distance = value; nearest = pathIndices; }
+        }
+      };
+      n.children.forEach((child, index) => visit(child, [index]));
+      s = { l: s.l, p: s.p.concat(nearest) }; n = getNode(s);
+    }
+  }
+  const Mi = inv(fullMatrix(s)), local = ap(Mi, { x: hit.x, y: hit.y });
+  const nearAnchor = n.pts.findIndex(point => {
+    const world = ap(fullMatrix(s), point);
+    return Math.hypot(world.x - hit.x, world.y - hit.y) <= 6 / pxPerUnit();
+  });
+  if (ev.altKey || nearAnchor >= 0) {
+    S.sel = [s]; S.anchor = nearAnchor >= 0 ? nearAnchor : null;
+    if (converted) commit();
+    if (ev.altKey && S.anchor != null) deleteAnchor();
+    refresh(true); return true;
+  }
+  const result = core.insertPoint(n, local.x, local.y);
+  if (!result) { if (converted) { commit(); refresh(true); } return false; }
+  n.pts = result.node.pts;
+  S.sel = [s]; S.anchor = result.index; insertHover = null;
+  drag = { kind: 'anchor', s, i: result.index, Mi, from: { x: hit.x, y: hit.y }, moved: false };
+  cv.setPointerCapture(ev.pointerId);
+  refresh(true);
+  status(`${converted ? 'Converted to editable vectors · ' : ''}Point ${result.index + 1} added. Alt-click a point or press Delete to remove it.`);
+  return true;
+}
+function toggleSmooth(s, i) {
+  const n = getNode(s); if (!n || n.shape !== 'pen') return;
+  const q = n.pts[i], N = n.pts.length;
+  if (q.in || q.out) { delete q.in; delete q.out; status(`Anchor ${i + 1}: corner.`); }
+  else {
+    const pv = n.pts[(i - 1 + N) % N], nx = n.pts[(i + 1) % N];
+    const first = !n.closed && i === 0, last = !n.closed && i === N - 1;
+    const a = first ? q : pv, b = last ? q : nx;
+    const t = norm(b.x - a.x, b.y - a.y); if (!t.l) return;
+    const li = Math.hypot(q.x - pv.x, q.y - pv.y) / 3, lo = Math.hypot(nx.x - q.x, nx.y - q.y) / 3;
+    if (!first) q.in = [r4(-t.x * li), r4(-t.y * li)];
+    if (!last) q.out = [r4(t.x * lo), r4(t.y * lo)];
+    delete q.r; status(`Anchor ${i + 1}: smooth.`);
+  }
+  S.anchor = i; commit(); refresh(true);
+}
+function deleteAnchor() {
+  const s = primarySel(); const n = s && s.p !== null && getNode(s);
+  if (!n || n.shape !== 'pen' || S.anchor == null || !n.pts[S.anchor]) return false;
+  if (n.pts.length <= (n.closed ? 3 : 2)) { status('A path keeps at least ' + (n.closed ? 3 : 2) + ' anchors.', true); return true; }
+  n.pts.splice(S.anchor, 1); S.anchor = null; commit(); refresh(true); status('Anchor deleted.');
+  return true;
+}
+function hitGuide(pos) {
+  if (!S.show.guides) return -1;
+  const tol = 5 / pxPerUnit();
+  return (S.glyph.guides || []).findIndex(g => Math.abs((g.axis === 'x' ? pos.x : pos.y) - g.pos) <= tol);
+}
+function overRuler(ev, axis) { const r = cv.getBoundingClientRect(); return axis === 'x' ? ev.clientX < r.left + 2 : ev.clientY < r.top + 2; }
+
+// ---------- pointer interaction ----------
+let drag = null;
+function restore(n, snap) { Object.keys(n).forEach(k => delete n[k]); Object.assign(n, clone(snap)); }
+listen(cv, 'pointerdown', ev => {
+  if (ev.button === 1 || ev.altKey && S.tool === 'select' && !activeHandles.length) { drag = { pan: true, x: ev.clientX, y: ev.clientY, v: Object.assign({}, S.view) }; cv.classList.add('panning'); cv.setPointerCapture(ev.pointerId); return; }
+  const pos = toUnits(ev); const px = 1 / pxPerUnit();
+  cv.focus({ preventScroll: true });
+  const now = performance.now();
+  if (ev.button === 0 && !ev.altKey && lastDown && now - lastDown.t < 400 && Math.hypot(ev.clientX - lastDown.x, ev.clientY - lastDown.y) < 5) { lastDown = null; drag = null; onDoubleClick(ev); return; }
+  lastDown = { t: now, x: ev.clientX, y: ev.clientY };
+  const hit = activeHandles.find(h => Math.hypot(h.x - pos.x, h.y - pos.y) <= 8 * px);
+  const axh = !hit && axisHandles.find(h => Math.hypot(h.x - pos.x, h.y - pos.y) <= 8 * px);
+  if (axh) {
+    const sym = symObj(axh.sc); const a = core.axisOf(sym);
+    drag = { kind: axh.kind, sc: axh.sc, sym, start: a, Mi: inv(axh.sc.M), from: pos, moved: false };
+    cv.setPointerCapture(ev.pointerId); return;
+  }
+  if (S.tool === 'pen' && (penDraft || !hit)) {
+    if (!penDraft) { const o = hitOutline(pos); if (o) { insertAnchor(o, ev); return; } }
+    penDown(pos, ev); return;
+  }
+  if (hit && S.tool === 'pen' && ev.altKey && hit.ai != null) { S.anchor = hit.ai; deleteAnchor(); return; }
+  if (hit) {
+    const s = primarySel(); const n = getNode(s);
+    if (hit.ai != null && S.anchor !== hit.ai) { S.anchor = hit.ai; renderInspector(); renderSelection(); }
+    if (hit.kind === 'tscale' || hit.kind === 'trotate' || hit.kind === 'torigin') ensureT(n);
+    drag = { kind: hit.kind.startsWith('t') ? hit.kind : 'handle', h: hit, s, start: clone(n), from: pos, Mp: parentMatrix(s), moved: false };
+    cv.setPointerCapture(ev.pointerId); return;
+  }
+  const gi = hitGuide(pos);
+  if (gi >= 0) { drag = { kind: 'guide', i: gi, moved: false }; cv.setPointerCapture(ev.pointerId); return; }
+  const f = hitForm(pos);
+  if (!f) { if (!ev.shiftKey) { S.sel = []; S.anchor = null; renderTree(); renderSelection(); renderInspector(); } return; }
+  S.anchor = null;
+  let target = { l: f.l, p: f.p };
+  const grp = S.sel.find(s => s.p !== null && s.l === f.l && f.p.length > s.p.length && JSON.stringify(f.p.slice(0, s.p.length)) === JSON.stringify(s.p));
+  if (grp && !ev.shiftKey && !ev.metaKey) target = grp;
+  // a cutter inside the selected group is picked directly, so it can be dragged and resized on its own
+  if (grp && f.cut && f.cut.length > grp.p.length && prefixOf(grp.p, f.cut)) target = { l: f.l, p: f.cut };
+  if (ev.shiftKey || ev.metaKey) { if (isSel(target)) S.sel = S.sel.filter(s => !same(s, target)); else S.sel.push(target); }
+  else if (!isSel(target)) S.sel = [target];
+  renderTree(); renderInspector(); renderSelection();
+  drag = { kind: 'move', from: pos, starts: S.sel.filter(s => s.p !== null).map(s => ({ s, n: clone(getNode(s)) })), moved: false };
+  cv.setPointerCapture(ev.pointerId);
+});
+listen(cv, 'pointermove', ev => {
+  const pos = toUnits(ev);
+  if (!drag) {
+    if (S.tool === 'pen' && penDraft) { penHover = snapPt(pos); renderSelection(); }
+    else if (S.tool === 'pen') { const o = hitOutline(pos); const had = !!insertHover; insertHover = o ? { x: o.x, y: o.y } : null; cv.classList.toggle('insert', !!o); if (o || had) renderSelection(); }
+    return;
+  }
+  if (drag.kind === 'axis-move' || drag.kind === 'axis-rot') {
+    const q = ap(drag.Mi, pos), a = drag.start;
+    if (drag.kind === 'axis-move') { const q0 = ap(drag.Mi, drag.from); drag.sym.axis = { x: snapV(a.x + q.x - q0.x), y: snapV(a.y + q.y - q0.y), angle: a.angle }; }
+    else drag.sym.axis = { x: a.x, y: a.y, angle: axisAngle({ x: q.x - a.x, y: q.y - a.y }, drag.sym.mirror, ev) };
+    drag.moved = true; refresh(false); renderInspectorAxisOnly(); return;
+  }
+  if (drag.kind === 'anchor') {
+    const n = getNode(drag.s); const q = ap(drag.Mi, snapPt(pos));
+    n.pts[drag.i].x = r4(q.x); n.pts[drag.i].y = r4(q.y);
+    drag.moved = true; refresh(false); return;
+  }
+  if (drag.pan) { const k = S.view.s / cv.getBoundingClientRect().width; S.view.x = drag.v.x - (ev.clientX - drag.x) * k; S.view.y = drag.v.y - (ev.clientY - drag.y) * k; applyView(); renderGuides(); return; }
+  if (drag.kind === 'pen') { penDrag(pos, ev); return; }
+  if (drag.kind === 'guide' || drag.kind === 'newGuide') { const g = S.glyph.guides[drag.i]; g.pos = snapV(g.axis === 'x' ? pos.x : pos.y); drag.moved = true; drag.ev = ev; renderGuides(); renderRulers(); return; }
+  const n = drag.s ? getNode(drag.s) : null;
+  if (drag.kind === 'handle') {
+    restore(n, drag.start);
+    const sp = snapPt(pos); const raw = ap(drag.h.Mi, sp);
+    drag.h.set(n, drag.start, { x: r4(raw.x), y: r4(raw.y) }, ev);
+    drag.moved = true; refresh(false);
+  } else if (drag.kind === 'tscale' || drag.kind === 'trotate' || drag.kind === 'torigin') {
+    restore(n, drag.start);
+    const t = n.transform; const Mpi = inv(drag.Mp);
+    const P = ap(Mpi, pos), P0 = ap(Mpi, drag.from), o = { x: t.origin[0], y: t.origin[1] };
+    if (drag.kind === 'torigin') { setOrigin(n, ap(Mpi, snapPt(pos))); }
+    else if (drag.kind === 'trotate') {
+      let a = (Math.atan2(P.y - o.y, P.x - o.x) - Math.atan2(P0.y - o.y, P0.x - o.x)) * 180 / Math.PI + (t.rotate || 0);
+      a = ev.shiftKey ? Math.round(a / 15) * 15 : Math.round(a * 10) / 10;
+      t.rotate = r4(((a + 540) % 360) - 180);
+    } else {
+      const rad = -(t.rotate || 0) * Math.PI / 180, cs = Math.cos(rad), sn = Math.sin(rad);
+      const loc = q => ({ x: cs * (q.x - o.x) - sn * (q.y - o.y), y: sn * (q.x - o.x) + cs * (q.y - o.y) });
+      const v = loc(P), v0 = loc(P0);
+      let fx = Math.abs(v0.x) > 1e-3 ? v.x / v0.x : 1, fy = Math.abs(v0.y) > 1e-3 ? v.y / v0.y : 1;
+      if (S.lockAspect !== ev.shiftKey) { const f = (v.x * v0.x + v.y * v0.y) / ((v0.x * v0.x + v0.y * v0.y) || 1); fx = fy = f; }
+      const q = x => Math.max(0.01, Math.round(Math.abs(x) * 100) / 100);
+      t.scaleX = q((drag.start.transform.scaleX || 1) * fx); t.scaleY = q((drag.start.transform.scaleY || 1) * fy);
+    }
+    drag.moved = true; refresh(false); renderInspectorTransformOnly();
+  } else if (drag.kind === 'move') {
+    const dx = snapV(pos.x - drag.from.x), dy = snapV(pos.y - drag.from.y);
+    if (!dx && !dy && !drag.moved) return;
+    for (const st of drag.starts) { const m = getNode(st.s); restore(m, st.n); translateSel(st.s, dx, dy); }
+    drag.moved = true; refresh(false);
+  }
+});
+function endDrag(ev) {
+  if (!drag) return; cv.classList.remove('panning');
+  if (drag.kind === 'pen') { penUp(); drag = null; return; }
+  if (drag.kind === 'anchor' || drag.kind === 'axis-move' || drag.kind === 'axis-rot') { commit(); refresh(true); drag = null; return; }
+  if (drag.kind === 'guide' || drag.kind === 'newGuide') {
+    const g = S.glyph.guides[drag.i];
+    if (ev && overRuler(ev, g.axis) || !drag.moved && drag.kind === 'newGuide') { S.glyph.guides.splice(drag.i, 1); status('Guide removed.'); }
+    if (!S.glyph.guides.length) delete S.glyph.guides;
+    commit(); renderGuides(); renderRulers(); drag = null; return;
+  }
+  if (drag.moved) { commit(); renderInspector(); renderTree(); }
+  drag = null;
+}
+listen(cv, 'pointerup', endDrag); listen(cv, 'pointercancel', endDrag);
+listen(cv, 'pointerleave', () => { if (penHover || insertHover) { penHover = null; insertHover = null; renderSelection(); } });
+// double-click is detected from pointerdowns: the canvas re-renders between the two clicks, so the native
+// dblclick (which needs both clicks on the same element) is unreliable here
+let lastDown = null;
+function onDoubleClick(ev) {
+  if (S.tool !== 'select') return;
+  const pos = toUnits(ev), px = 1 / pxPerUnit();
+  const ah = activeHandles.find(h => h.ai != null && Math.hypot(h.x - pos.x, h.y - pos.y) <= 8 * px);
+  if (ah) { toggleSmooth(primarySel(), ah.ai); return; }
+  const f = hitForm(pos);
+  if (!f) { isoExit(); return; }
+  const t = isoTargetFor(f);
+  if (t) isoEnter(t);
+}
+listen(cv, 'wheel', ev => {
+  ev.preventDefault();
+  const r = cv.getBoundingClientRect(); const k = S.view.s / r.width;
+  if (ev.ctrlKey || ev.metaKey) zoomAt(toUnits(ev), Math.exp(ev.deltaY * 0.01));
+  else { S.view.x += ev.deltaX * k; S.view.y += ev.deltaY * k; applyView(); renderGuides(); }
+}, { passive: false });
+function zoomAt(pos, f) {
+  const ns = Math.max(1.2, Math.min(40, S.view.s * f)); const k = ns / S.view.s;
+  S.view.x = pos.x - (pos.x - S.view.x) * k; S.view.y = pos.y - (pos.y - S.view.y) * k; S.view.s = ns; renderGrid(); renderCanvas();
+}
+$('zoomIn').onclick = () => zoomAt({ x: S.view.x + S.view.s / 2, y: S.view.y + S.view.s / 2 }, 1 / 1.5);
+$('zoomOut').onclick = () => zoomAt({ x: S.view.x + S.view.s / 2, y: S.view.y + S.view.s / 2 }, 1.5);
+$('zoomFit').onclick = () => { S.view = { x: -1, y: -1, s: 26 }; renderGrid(); renderCanvas(); };
+
+// ---------- pen tool ----------
+function penDown(pos, ev) {
+  const p = snapPt(pos);
+  if (penDraft) {
+    const n = getNode(penDraft.s);
+    if (!n) { penDraft = null; return penDown(pos, ev); }
+    const M = fullMatrix(penDraft.s);
+    const first = ap(M, n.pts[0]);
+    if (n.pts.length >= 2 && Math.hypot(first.x - pos.x, first.y - pos.y) <= 8 / pxPerUnit()) {
+      n.closed = true; commit(); finishPen('Path closed.'); return;
+    }
+    const raw = ap(inv(M), p); n.pts.push({ x: r4(raw.x), y: r4(raw.y) });
+  } else {
+    const n = { shape: 'pen', pts: [], closed: false };
+    insertNode(n);
+    penDraft = { s: primarySel() };
+    const raw = ap(inv(fullMatrix(penDraft.s)), p); n.pts.push({ x: r4(raw.x), y: r4(raw.y) });
+    status('Pen: click to add anchors, drag to pull curve handles, click the first anchor to close, Enter or Esc to finish.');
+  }
+  drag = { kind: 'pen', from: p, moved: false };
+  cv.setPointerCapture(ev.pointerId);
+  refresh(true);
+}
+function penDrag(pos) {
+  const n = getNode(penDraft.s); if (!n) return;
+  const M = fullMatrix(penDraft.s), Mi = inv(M);
+  const a = n.pts[n.pts.length - 1];
+  const raw = ap(Mi, snapPt(pos));
+  const v = [r4(raw.x - a.x), r4(raw.y - a.y)];
+  if (Math.hypot(v[0], v[1]) < 0.15) { delete a.out; delete a.in; } else { a.out = v; a.in = [-v[0], -v[1]]; }
+  drag.moved = true; refresh(false);
+}
+function penUp() { commit(); refresh(true); }
+function finishPen(msg) {
+  if (!penDraft) return;
+  const n = getNode(penDraft.s);
+  if (n && n.pts.length < 2) { del(); status('Pen path needs two anchors — removed.'); }
+  else status(msg || 'Path finished — switch to Select to edit anchors and handles.');
+  penDraft = null; penHover = null; refresh(true);
+}
+
+// ---------- rulers & guides ----------
+function renderRulers() {
+  const top = $('rulerTop'), left = $('rulerLeft');
+  const W = cv.getBoundingClientRect().width || 600;
+  const k = W / S.view.s; // px per unit
+  const step = k >= 60 ? 1 : k >= 24 ? 2 : 4;
+  const minor = k >= 30 ? 0.5 : step / 2;
+  let dt = '', dl = '', tt = '', tl = '';
+  const start = Math.floor(S.view.x / minor) * minor, startY = Math.floor(S.view.y / minor) * minor;
+  for (let u = start; u <= S.view.x + S.view.s; u = r4(u + minor)) { const x = (u - S.view.x) * k; const major = Math.abs(u / step - Math.round(u / step)) < 1e-6; dt += `M${x.toFixed(1)} 20V${major ? 8 : 14}`; if (major) tt += `<text x="${(x + 2).toFixed(1)}" y="9">${u}</text>`; }
+  for (let u = startY; u <= S.view.y + S.view.s; u = r4(u + minor)) { const y = (u - S.view.y) * k; const major = Math.abs(u / step - Math.round(u / step)) < 1e-6; dl += `M20 ${y.toFixed(1)}H${major ? 8 : 14}`; if (major) tl += `<text x="9" y="${(y - 2).toFixed(1)}" transform="rotate(-90 9 ${(y - 2).toFixed(1)})">${u}</text>`; }
+  // guide markers
+  let gt = '', gl = '';
+  for (const g of (S.glyph && S.glyph.guides) || []) {
+    if (g.axis === 'x') gt += `<path d="M${((g.pos - S.view.x) * k).toFixed(1)} 20V0" stroke="var(--guide)"/>`;
+    else gl += `<path d="M20 ${((g.pos - S.view.y) * k).toFixed(1)}H0" stroke="var(--guide)"/>`;
+  }
+  top.setAttribute('viewBox', `0 0 ${W} 20`); left.setAttribute('viewBox', `0 0 20 ${W}`);
+  top.innerHTML = `<path d="${dt}" stroke="var(--ruler-tick)" stroke-width="1" shape-rendering="crispEdges"/>${tt}${gt}`;
+  left.innerHTML = `<path d="${dl}" stroke="var(--ruler-tick)" stroke-width="1" shape-rendering="crispEdges"/>${tl}${gl}`;
+}
+function rulerDown(axis) {
+  return ev => {
+    ev.preventDefault();
+    S.glyph.guides = S.glyph.guides || [];
+    const pos = toUnits(ev);
+    S.glyph.guides.push({ axis, pos: snapV(axis === 'x' ? pos.x : pos.y) });
+    S.show.guides = true; syncToggles();
+    drag = { kind: 'newGuide', i: S.glyph.guides.length - 1, moved: false };
+    ev.currentTarget.setPointerCapture(ev.pointerId);
+    renderGuides(); renderRulers();
+  };
+}
+for (const [id, axis] of [['rulerTop', 'y'], ['rulerLeft', 'x']]) {
+  const r = $(id);
+  listen(r, 'pointerdown', rulerDown(axis));
+  listen(r, 'pointermove', ev => { if (drag && drag.kind === 'newGuide') { const g = S.glyph.guides[drag.i]; const pos = toUnits(ev); g.pos = snapV(axis === 'x' ? pos.x : pos.y); drag.moved = true; renderGuides(); renderRulers(); } });
+  listen(r, 'pointerup', endDrag);
+}
+
+// ---------- tree ----------
+const kindIcon = n => uiIcon(n.shape ? (n.shape === 'polygon' && n.star ? 'star' : n.shape) : n.op === 'compound' ? 'exclude' : (n.op || 'union'));
+function nodeLabel(n) { if (n.shape) return (n.name || (n.shape === 'polygon' && n.star ? 'star' : n.shape)); return n.name || n.op || 'union'; }
+function nodeMeta(n) {
+  let m = '';
+  if (n.shape === 'rect' || n.shape === 'triangle') m = `${n.w}×${n.h}`; else if (n.shape === 'ellipse') m = `r ${n.rx}${n.ry !== n.rx ? '/' + n.ry : ''}`;
+  else if (n.shape === 'circle') m = `r ${n.r}`; else if (n.shape === 'polyline' || n.shape === 'pen') m = `${(n.pts || []).length} pts`; else if (n.children) m = `${n.children.length}`;
+  if (n.transform && core.hasTransform(n.transform)) m = uiIcon('rotate') + ' ' + m;
+  return m;
+}
+function renderTree() {
+  const t = $('tree'); t.innerHTML = '';
+  S.glyph.layers.forEach((L, l) => {
+    const sL = { l, p: null };
+    const row = document.createElement('div'); row.className = 'tree-row'; row.setAttribute('role', 'treeitem'); row.tabIndex = 0;
+    row.setAttribute('aria-selected', isSel(sL)); row.style.paddingLeft = '6px';
+    const dotCol = { primary: 'var(--text)', secondary: 'var(--icon-color-secondary)', accent: 'var(--icon-color-accent)' }[L.role || 'primary'];
+    row.innerHTML = `<button class="eye" aria-pressed="${L.visible !== false}" aria-label="Toggle layer visibility" title="Visibility">${uiIcon(L.visible !== false ? 'eye' : 'eye-off')}</button><span class="kind">${uiIcon('layers')}</span><span class="role-dot" style="background:${dotCol}"></span><span class="name layer"></span><span class="meta">${L.paint || 'stroke'}</span>${isoBtnHTML(sL)}`;
+    if (S.iso && S.iso.l !== l) row.classList.add('dim');
+    wireIso(row, sL);
+    row.querySelector('.name').textContent = L.name || L.id;
+    row.querySelector('.eye').onclick = e => { e.stopPropagation(); L.visible = L.visible === false; commit(); refresh(true); };
+    row.onclick = e => selectRow(sL, e); row.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectRow(sL, e); } };
+    row.ondblclick = () => renameInline(row.querySelector('.name'), L.name || L.id, v => { L.name = v; commit(); refresh(true); });
+    t.appendChild(row);
+    const walk = (n, p, depth, isCutter) => {
+      if (!n) return;
+      const s = { l, p };
+      const r = document.createElement('div'); r.className = 'tree-row' + (isCutter ? ' cutter' : ''); r.setAttribute('role', 'treeitem'); r.tabIndex = 0;
+      r.setAttribute('aria-selected', isSel(s)); r.style.paddingLeft = (6 + depth * 14) + 'px';
+      const cutTag = isCutter && n.edge === 'open' ? 'clear · ' : '';
+      r.innerHTML = `<button class="eye" aria-pressed="${!n.hidden}" aria-label="Toggle node visibility" title="Visibility">${uiIcon(n.hidden ? 'eye-off' : 'eye')}</button><span class="kind" title="${isCutter ? 'cutter' : n.shape || n.op || 'union'}">${isCutter ? uiIcon('cutter') : kindIcon(n)}</span><span class="name"></span><span class="meta mono">${cutTag + (symOn(n.symmetry) ? 'mirror · ' : '') + (n.from ? 'converted · ' : '') + (n.deform && n.deform.length ? '~' + n.deform.length + ' ' : '') + nodeMeta(n)}</span>${n.children ? isoBtnHTML(s) : ''}`;
+      if (!inIso(l, p)) r.classList.add('dim');
+      if (n.children) wireIso(r, s);
+      r.querySelector('.name').textContent = nodeLabel(n);
+      r.querySelector('.eye').onclick = e => { e.stopPropagation(); if (n.hidden) delete n.hidden; else n.hidden = true; commit(); refresh(true); };
+      r.onclick = e => selectRow(s, e); r.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectRow(s, e); } };
+      r.ondblclick = () => renameInline(r.querySelector('.name'), nodeLabel(n), v => { n.name = v; commit(); refresh(true); });
+      t.appendChild(r);
+      if (n.children) n.children.forEach((c, i) => walk(c, p.concat(i), depth + 1, n.op === 'subtract' && i > 0));
+    };
+    walk(L.node, [], 1, false);
+  });
+}
+function isoBtnHTML(s) { const on = !!(S.iso && same(S.iso, s)); return `<button class="iso" aria-pressed="${on}" aria-label="${on ? 'Exit isolation' : 'Isolate'}" title="${on ? 'Exit isolation (Esc)' : 'Isolate: dim everything else'}" data-isolate="${s.l}:${s.p === null ? 'layer' : s.p.join('.')}">${uiIcon('fit')}</button>`; }
+function wireIso(row, s) { const b = row.querySelector('.iso'); if (b) b.onclick = e => { e.stopPropagation(); if (S.iso && same(S.iso, s)) isoExit(); else isoEnter(s); }; }
+function selectRow(s, e) {
+  if (S.iso && !(s.p === null ? (S.iso.l === s.l && S.iso.p === null) : inIso(s.l, s.p))) S.iso = null; // picking outside the isolated object leaves isolation
+  S.anchor = null;
+  if (e && (e.shiftKey || e.metaKey || e.ctrlKey)) { if (isSel(s)) S.sel = S.sel.filter(x => !same(x, s)); else S.sel.push(s); }
+  else S.sel = [s];
+  renderTree(); renderInspector(); renderSelection();
+}
+function renameInline(span, value, done) {
+  const inp = document.createElement('input'); inp.type = 'text'; inp.value = value; inp.style.width = '100%'; inp.setAttribute('aria-label', 'Name');
+  span.replaceWith(inp); inp.focus(); inp.select();
+  let fin = false; const finish = ok => { if (fin) return; fin = true; if (ok && inp.value.trim()) done(inp.value.trim()); else renderTree(); };
+  inp.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); };
+  inp.onblur = () => finish(true);
+}
+
+// ---------- structural edits ----------
+function insertNode(n) {
+  const ps = primarySel();
+  let target;
+  if (!S.glyph.layers.length) addLayer(false);
+  if (ps && ps.p !== null && getNode(ps)) {
+    const sel = getNode(ps);
+    if (sel.children) { sel.children.push(n); target = { l: ps.l, p: ps.p.concat(sel.children.length - 1) }; }
+    else if (ps.p.length) { const par = getParent(ps); const i = ps.p[ps.p.length - 1] + 1; par.children.splice(i, 0, n); target = { l: ps.l, p: ps.p.slice(0, -1).concat(i) }; }
+    else { layerOf(ps).node = { op: 'union', children: [sel, n] }; target = { l: ps.l, p: [1] }; }
+  } else {
+    const l = ps ? ps.l : S.glyph.layers.length - 1; const L = S.glyph.layers[l];
+    if (!L.node) { L.node = n; target = { l, p: [] }; }
+    else if (L.node.children) { L.node.children.push(n); target = { l, p: [L.node.children.length - 1] }; }
+    else { L.node = { op: 'union', children: [L.node, n] }; target = { l, p: [1] }; }
+  }
+  S.sel = [target];
+}
+function addShape(type) {
+  if (type === 'pen') { setTool('pen'); return; }
+  insertNode(DEFAULT_SHAPES[type]());
+  commit(); refresh(true); status(`Added ${type}. Drag it, or type exact values in the inspector.`);
+}
+function addLayer(doCommit = true) {
+  const id = 'l' + Math.random().toString(36).slice(2, 6);
+  S.glyph.layers.push({ id, name: 'Layer ' + (S.glyph.layers.length + 1), role: 'primary', paint: 'stroke', node: { op: 'union', children: [] } });
+  S.sel = [{ l: S.glyph.layers.length - 1, p: null }];
+  if (doCommit) { commit(); refresh(true); }
+}
+function group(op) {
+  const nodes = S.sel.filter(s => s.p !== null);
+  if (!nodes.length) { status('Select one or more forms first (⇧-click to add to the selection).', true); return; }
+  if (nodes.length === 1 && getNode(nodes[0]).children) { getNode(nodes[0]).op = op; commit(); refresh(true); status(`Group set to ${op}.`); return; }
+  const l = nodes[0].l, parentKey = JSON.stringify(nodes[0].p.slice(0, -1));
+  if (nodes.some(s => s.l !== l || JSON.stringify(s.p.slice(0, -1)) !== parentKey || (s.p.length === 0 && nodes.length > 1))) { status('Booleans need siblings in the same layer and group.', true); return; }
+  if (nodes.length === 1 && nodes[0].p.length === 0) {
+    const L = S.glyph.layers[l]; L.node = { op, children: [L.node] }; S.sel = [{ l, p: [] }];
+  } else {
+    const par = getParent(nodes[0]); const idxs = nodes.map(s => s.p[s.p.length - 1]).sort((a, b) => a - b);
+    const kids = idxs.map(i => par.children[i]);
+    for (let k = idxs.length - 1; k >= 0; k--) par.children.splice(idxs[k], 1);
+    par.children.splice(idxs[0], 0, { op, children: kids });
+    S.sel = [{ l, p: nodes[0].p.slice(0, -1).concat(idxs[0]) }];
+  }
+  commit(); refresh(true); status(`Grouped into ${op}.`);
+}
+function ungroup() {
+  const s = primarySel(); const n = s && getNode(s);
+  if (!n || !n.children) { status('Select a boolean group to ungroup.', true); return; }
+  if (!s.p.length) {
+    if (n.children.length === 1) { layerOf(s).node = n.children[0]; commit(); refresh(true); return; }
+    if ((n.op || 'union') === 'union') { status('This is already the layer root union.', true); return; }
+    n.op = 'union'; commit(); refresh(true); status('Root changed to union (a layer keeps one root).'); return;
+  }
+  const par = getParent(s); const i = s.p[s.p.length - 1];
+  par.children.splice(i, 1, ...n.children);
+  S.sel = n.children.map((c, k) => ({ l: s.l, p: s.p.slice(0, -1).concat(i + k) }));
+  commit(); refresh(true);
+}
+function move(dir) {
+  const s = primarySel(); if (!s) return;
+  if (s.p === null || s.p.length === 0) {
+    const j = s.l + dir; if (j < 0 || j >= S.glyph.layers.length) return;
+    const L = S.glyph.layers; [L[s.l], L[j]] = [L[j], L[s.l]]; S.sel = [{ l: j, p: s.p }];
+  } else {
+    const par = getParent(s); const i = s.p[s.p.length - 1], j = i + dir; if (j < 0 || j >= par.children.length) return;
+    [par.children[i], par.children[j]] = [par.children[j], par.children[i]]; S.sel = [{ l: s.l, p: s.p.slice(0, -1).concat(j) }];
+  }
+  commit(); refresh(true);
+}
+function duplicate() {
+  const s = primarySel(); if (!s) return;
+  if (s.p === null || s.p.length === 0) { const L = clone(layerOf(s)); L.id = L.id + '-copy'; L.name = (L.name || L.id) + ' copy'; S.glyph.layers.splice(s.l + 1, 0, L); S.sel = [{ l: s.l + 1, p: s.p }]; }
+  else { const par = getParent(s); const i = s.p[s.p.length - 1]; par.children.splice(i + 1, 0, clone(par.children[i])); S.sel = [{ l: s.l, p: s.p.slice(0, -1).concat(i + 1) }]; }
+  commit(); refresh(true); status('Duplicated in place — nudge with the arrow keys.');
+}
+function del() {
+  if (!S.sel.length) return;
+  const list = S.sel.slice().sort((a, b) => (b.l - a.l) || ((b.p || []).length - (a.p || []).length) || (JSON.stringify(b.p) > JSON.stringify(a.p) ? 1 : -1));
+  for (const s of list) {
+    if (s.p === null || s.p.length === 0) S.glyph.layers.splice(s.l, 1);
+    else { const par = getParent(s); if (par) par.children.splice(s.p[s.p.length - 1], 1); }
+  }
+  S.sel = []; commit(); refresh(true);
+}
+function nudge(dx, dy) {
+  const nodes = S.sel.filter(s => s.p !== null); if (!nodes.length) return false;
+  nodes.forEach(s => translateSel(s, dx, dy)); commit(); refresh(true); return true;
+}
+function setTool(t) {
+  if (S.tool === 'pen' && t !== 'pen') finishPen();
+  S.tool = t; cv.classList.toggle('pen', t === 'pen'); syncToggles(); renderSelection();
+  if (t === 'pen') status('Pen: click to place anchors, drag for curves, click the first anchor to close, Enter or Esc to finish.');
+}
+
+// ---------- inspector ----------
+function field(parent, label, value, onInput, opts = {}) {
+  const w = document.createElement('label'); w.className = 'f' + (opts.wide ? ' wide' : '');
+  const sp = document.createElement('span'); sp.textContent = label; w.appendChild(sp);
+  let inp;
+  if (opts.options) { inp = document.createElement('select'); for (const o of opts.options) { const op = document.createElement('option'); op.value = o; op.textContent = o === '' ? '(layer)' : o; inp.appendChild(op); } inp.value = value == null ? '' : value; inp.onchange = () => { onInput(inp.value); commit(); refresh(true); }; }
+  else if (opts.check) { inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = !!value; inp.onchange = () => { onInput(inp.checked); commit(); refresh(true); }; w.style.flexDirection = 'row'; w.style.alignItems = 'center'; w.style.gap = '6px'; }
+  else if (opts.area) { inp = document.createElement('textarea'); inp.rows = opts.rows || 3; inp.value = value; inp.oninput = () => { onInput(inp.value); refresh(false); }; inp.onchange = () => { commit(); refresh(true); }; }
+  else if (opts.text) { inp = document.createElement('input'); inp.type = 'text'; inp.value = value == null ? '' : value; inp.oninput = () => { onInput(inp.value); refresh(false); }; inp.onchange = () => { commit(); refresh(true); }; if (opts.mono) inp.className = 'mono'; }
+  else {
+    inp = document.createElement('input'); inp.type = 'number'; inp.step = opts.step || (S.snap || 0.1); inp.value = value == null ? '' : value;
+    inp.oninput = () => { const v = parseFloat(inp.value); if (isFinite(v)) { onInput(v); refresh(false); } };
+    inp.onchange = () => { commit(); refresh(false); renderTree(); };
+  }
+  if (opts.min != null) inp.min = opts.min;
+  if (opts.max != null) inp.max = opts.max;
+  if (opts.key) inp.dataset.key = opts.key;
+  w.appendChild(inp); parent.appendChild(w); return inp;
+}
+function sub(parent, text, btns) { const d = document.createElement('div'); d.className = 'sub'; d.textContent = text; if (btns) btns.forEach(b => d.appendChild(b)); parent.appendChild(d); return d; }
+function smallBtn(text, fn, title, icon) {
+  const b = document.createElement('button'); b.className = 'btn sm' + (icon && !text ? ' icon' : ''); if (title) b.title = title; b.onclick = fn;
+  if (icon) { b.innerHTML = uiIcon(icon); if (!text) b.setAttribute('aria-label', title || icon); }
+  if (text) { const sp = document.createElement('span'); sp.textContent = text; b.appendChild(sp); }
+  return b;
+}
+const DEF_FIELDS = { taper: ['top', 'bottom', 'left', 'right'], skew: ['x', 'y'], round: ['r'], offset: ['d'] };
+function transformSection(g, n) {
+  const t = n.transform || {};
+  const b = core.rawBounds(n);
+  sub(g, 'Transform (about the anchor point)', [smallBtn('Reset', () => { delete n.transform; commit(); refresh(true); }, 'Remove rotate / scale / flip', 'rotate')]);
+  // 9-point anchor picker
+  const wrap = document.createElement('div'); wrap.className = 'f';
+  const lab = document.createElement('span'); lab.textContent = 'anchor point'; wrap.appendChild(lab);
+  const pick = document.createElement('div'); pick.className = 'anchor-pick'; pick.setAttribute('role', 'group'); pick.setAttribute('aria-label', 'Anchor point');
+  const o = Array.isArray(t.origin) ? t.origin : b ? [b[0] + b[2] / 2, b[1] + b[3] / 2] : [12, 12];
+  for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) {
+    const btn = document.createElement('button'); btn.type = 'button';
+    const ax = b ? b[0] + b[2] * i / 2 : 12, ay = b ? b[1] + b[3] * j / 2 : 12;
+    btn.title = ['top', 'middle', 'bottom'][j] + ' ' + ['left', 'centre', 'right'][i];
+    btn.setAttribute('aria-label', btn.title);
+    btn.setAttribute('aria-pressed', String(!!b && Math.abs(o[0] - ax) < 1e-3 && Math.abs(o[1] - ay) < 1e-3));
+    // the picked point is the displayed (transformed) bounds point, so the result does not jump
+    btn.onclick = () => { const M = core.nodeMatrix(n); setOrigin(n, ap(M, { x: ax, y: ay })); commit(); refresh(true); };
+    pick.appendChild(btn);
+  }
+  wrap.appendChild(pick); g.appendChild(wrap);
+  const T = () => ensureT(n);
+  field(g, 'anchor x', r4(o[0]), v => setOrigin(n, { x: v, y: T().origin[1] }), { key: 'ox' });
+  field(g, 'anchor y', r4(o[1]), v => setOrigin(n, { x: T().origin[0], y: v }), { key: 'oy' });
+  field(g, 'rotate°', t.rotate || 0, v => { T().rotate = v; }, { step: 1, key: 'rot' });
+  field(g, 'scale x %', r4((t.scaleX == null ? 1 : t.scaleX) * 100), v => { const tt = T(); const old = tt.scaleX || 1; tt.scaleX = Math.max(0.01, v / 100); if (S.lockAspect) tt.scaleY = r4((tt.scaleY || 1) * tt.scaleX / old); }, { step: 1, key: 'sx' });
+  field(g, 'scale y %', r4((t.scaleY == null ? 1 : t.scaleY) * 100), v => { const tt = T(); const old = tt.scaleY || 1; tt.scaleY = Math.max(0.01, v / 100); if (S.lockAspect) tt.scaleX = r4((tt.scaleX || 1) * tt.scaleY / old); }, { step: 1, key: 'sy' });
+  const lock = field(g, 'lock aspect', S.lockAspect, v => { S.lockAspect = v; }, { check: true });
+  lock.onchange = () => { S.lockAspect = lock.checked; };
+  const fl = document.createElement('div'); fl.className = 'f'; fl.innerHTML = '<span>flip</span>';
+  const row = document.createElement('div'); row.className = 'seg';
+  const fh = smallBtn('H', () => { const tt = T(); tt.flipX = !tt.flipX; commit(); refresh(true); }, 'Flip horizontally about the anchor', 'flip-h'); fh.setAttribute('aria-pressed', String(!!t.flipX)); fh.setAttribute('aria-label', 'Flip horizontally');
+  const fv = smallBtn('V', () => { const tt = T(); tt.flipY = !tt.flipY; commit(); refresh(true); }, 'Flip vertically about the anchor', 'flip-v'); fv.setAttribute('aria-pressed', String(!!t.flipY)); fv.setAttribute('aria-label', 'Flip vertically');
+  row.appendChild(fh); row.appendChild(fv); fl.appendChild(row); g.appendChild(fl);
+}
+function cutterSection(g, s, n) {
+  const par = getParent(s); if (!par || par.op !== 'subtract' || s.p[s.p.length - 1] === 0) return;
+  sub(g, 'Cutter');
+  field(g, 'edge', n.edge === 'open' ? 'open (clearance)' : 'drawn', v => { if (v.startsWith('open')) n.edge = 'open'; else delete n.edge; }, { options: ['drawn', 'open (clearance)'] });
+  const fi = field(g, 'group fillet r', par.fillet || 0, v => { if (v > 0) par.fillet = r4(v); else delete par.fillet; }, { step: 0.05, key: 'fillet' });
+  fi.title = 'Rounds the corners this group\'s cutters leave';
+}
+function symSection(g, obj, set) {
+  const sym = obj.symmetry && obj.symmetry !== false ? obj.symmetry : {};
+  const ensure = () => { if (!obj.symmetry || obj.symmetry === false) obj.symmetry = { mirror: null, rotate: 1 }; return obj.symmetry; };
+  field(g, 'mirror', sym.mirror || 'none', v => { ensure().mirror = v === 'none' ? null : v; }, { options: ['none', 'x', 'y', 'xy'] });
+  field(g, 'radial copies', sym.rotate || 1, v => { ensure().rotate = Math.max(1, Math.min(32, Math.round(+v || 1))); }, { step: 1, min: 1, max: 32 });
+  if (!symOn(sym)) return;
+  const a = core.axisOf(sym);
+  const setAx = (k, v) => { const sy = ensure(); sy.axis = Object.assign(core.axisOf(sy), { [k]: k === 'angle' ? ((((v + 90) % 180) + 180) % 180 - 90 === -90 ? 90 : (((v + 90) % 180) + 180) % 180 - 90) : v }); };
+  field(g, 'axis x', a.x, v => setAx('x', v), { key: 'axx' });
+  field(g, 'axis y', a.y, v => setAx('y', v), { key: 'axy' });
+  field(g, 'axis angle°', a.angle, v => setAx('angle', v), { key: 'axa', step: 1 });
+  if (sym.mirror) field(g, 'draw half (clip at the axis)', !!sym.half, v => { if (v) ensure().half = true; else delete ensure().half; }, { check: true });
+}
+function renderInspectorAxisOnly() {
+  if (!drag || !drag.sym) return;
+  const a = core.axisOf(drag.sym), box = $('insp');
+  const set = (k, v) => { const i = box.querySelector(`[data-key="${k}"]`); if (i && document.activeElement !== i) i.value = v; };
+  set('axx', a.x); set('axy', a.y); set('axa', a.angle);
+}
+function renderInspectorTransformOnly() {
+  const s = primarySel(); const n = s && getNode(s); if (!n || !n.transform) return;
+  const t = n.transform, box = $('insp');
+  const set = (k, v) => { const i = box.querySelector(`[data-key="${k}"]`); if (i && document.activeElement !== i) i.value = v; };
+  set('ox', r4(t.origin[0])); set('oy', r4(t.origin[1])); set('rot', t.rotate || 0); set('sx', r4((t.scaleX || 1) * 100)); set('sy', r4((t.scaleY || 1) * 100));
+}
+function renderInspector() {
+  const box = $('insp'); box.innerHTML = '';
+  const g = document.createElement('div'); g.className = 'insp'; box.appendChild(g);
+  const s = primarySel();
+  $('inspPath').textContent = s ? (layerOf(s).name || layerOf(s).id) + (s.p ? ' / ' + (s.p.length ? s.p.join('.') : 'root') : '') : 'glyph';
+  if (!s) {
+    const G = S.glyph;
+    field(g, 'name', G.name, v => { G.name = v; }, { text: true, mono: true, wide: true });
+    field(g, 'weight (standard)', G.weight, v => { G.weight = v; S.rt.weight = v; }, { step: 0.1 });
+    field(g, 'grid', G.grid, v => { G.grid = v; }, { step: 0.1 });
+    sub(g, 'Symmetry (glyph)');
+    symSection(g, G);
+    const st = core.stats(G);
+    const p = document.createElement('div'); p.className = 'wide lbl'; p.textContent = `${st.layers} layers · ${st.shapes} forms · ${st.ops} booleans · ${st.deformers} deformers · ${st.paths} path escape-hatches · ${(G.guides || []).length} guides. Select a form on the canvas or in the layer tree to edit it.`; g.appendChild(p);
+    if ((G.guides || []).length) g.appendChild(smallBtn('Clear guides', () => { delete G.guides; commit(); refresh(true); renderRulers(); }));
+    return;
+  }
+  if (S.sel.length > 1) { const p = document.createElement('div'); p.className = 'wide lbl'; p.textContent = `${S.sel.length} items selected — combine them with the Boolean buttons (union, subtract, intersect, exclude), nudge with arrows, or delete.`; g.appendChild(p); return; }
+  const L = layerOf(s);
+  if (s.p === null) {
+    field(g, 'layer name', L.name, v => { L.name = v; }, { text: true });
+    field(g, 'id', L.id, v => { L.id = v; }, { text: true, mono: true });
+    field(g, 'role', L.role || 'primary', v => { L.role = v; }, { options: ['primary', 'secondary', 'accent'] });
+    field(g, 'custom color (#hex)', L.color || '', value => { if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(value)) L.color = value; else if (!value.trim()) delete L.color; }, { text: true });
+    field(g, 'paint', L.paint || 'stroke', v => { L.paint = v; }, { options: ['stroke', 'fill', 'both'] });
+    field(g, 'opacity', L.opacity == null ? 1 : L.opacity, v => { L.opacity = Math.max(0, Math.min(1, v)); }, { step: 0.05 });
+    field(g, 'visible', L.visible !== false, v => { L.visible = v; }, { check: true });
+    field(g, 'uses glyph symmetry', L.symmetry !== false, v => { if (v) delete L.symmetry; else L.symmetry = false; }, { check: true });
+    return;
+  }
+  const n = getNode(s); if (!n) return;
+  field(g, 'name', n.name || '', v => { if (v) n.name = v; else delete n.name; }, { text: true });
+  if (n.children) {
+    field(g, 'boolean', n.op || 'union', v => { n.op = v; }, { options: ['union', 'subtract', 'intersect', 'exclude', 'compound'] });
+    if (n.op === 'compound') field(g, 'fill rule', n.fillRule || 'nonzero', v => { if (v === 'evenodd') n.fillRule = v; else delete n.fillRule; }, { options: ['nonzero', 'evenodd'] });
+    const p = document.createElement('div'); p.className = 'wide lbl';
+    p.textContent = n.op === 'compound' ? 'One filled outline made of every child path, like an SVG path with several subpaths: counters come from each path\'s drawn direction (nonzero) or from nesting (evenodd). Imported fill glyphs use this, one pen per subpath.'
+      : (n.op === 'subtract' ? 'First child minus every later child. ' : n.op === 'intersect' ? 'Overlap of all children. ' : n.op === 'exclude' ? 'Even-odd of all children. ' : 'All children merged. ') + 'Open forms (lines, arcs, open pen paths) pass through unions and are clipped by subtract / intersect.';
+    g.appendChild(p);
+    if (n.op === 'subtract') {
+      sub(g, 'Clean-up (on the result)');
+      field(g, 'fillet r', n.fillet || 0, v => { if (v > 0) n.fillet = r4(v); else delete n.fillet; }, { step: 0.05, key: 'fillet' });
+      field(g, 'cap (cleared ends)', n.cap || '', v => { if (v) n.cap = v; else delete n.cap; }, { options: ['', 'round', 'butt', 'square'] });
+      const c = document.createElement('div'); c.className = 'wide lbl';
+      c.textContent = `${n.children.length - 1} cutter(s). Fillet rounds every sharp corner the cutters leave (arc meets arc too). A cutter set to edge "open" is a clearance cutter: it removes outline without drawing its own edge.`;
+      g.appendChild(c);
+    }
+    field(g, 'hidden', !!n.hidden, v => { if (v) n.hidden = true; else delete n.hidden; }, { check: true });
+    sub(g, 'Symmetry (this group: draw one side, the rest follows)');
+    symSection(g, n);
+    cutterSection(g, s, n);
+    transformSection(g, n);
+    return;
+  }
+  const nf = (k, label, step) => field(g, label || k, n[k], v => { n[k] = v; }, { step });
+  const capField = () => field(g, 'cap', n.cap || '', v => { if (v) n.cap = v; else delete n.cap; }, { options: ['', 'round', 'butt', 'square'] });
+  switch (n.shape) {
+    case 'rect': {
+      nf('x'); nf('y'); nf('w'); nf('h');
+      const rr = Array.isArray(n.r) ? n.r : [n.r || 0, n.r || 0, n.r || 0, n.r || 0];
+      ['r tl', 'r tr', 'r br', 'r bl'].forEach((lab, i) => field(g, lab, rr[i], v => { const c = Array.isArray(n.r) ? n.r.slice() : rr.slice(); c[i] = v; n.r = c; }));
+      break;
+    }
+    case 'triangle': nf('x'); nf('y'); nf('w'); nf('h'); nf('r', 'corner r'); break;
+    case 'circle': nf('cx'); nf('cy'); nf('r'); break;
+    case 'ellipse': nf('cx'); nf('cy'); nf('rx'); nf('ry'); break;
+    case 'line': nf('x1'); nf('y1'); nf('x2'); nf('y2'); capField(); break;
+    case 'polyline': {
+      field(g, 'points (x,y[,r] …)', n.pts.map(p => p.join(',')).join(' '), v => { const pts = v.trim().split(/\s+/).map(t => t.split(',').map(Number)).filter(p => (p.length === 2 || p.length === 3) && p.every(isFinite)); if (pts.length >= 2) n.pts = pts; }, { text: true, mono: true, wide: true });
+      field(g, 'closed', !!n.closed, v => { n.closed = v; }, { check: true });
+      capField();
+      g.appendChild(smallBtn('+ point', () => { const a = n.pts[n.pts.length - 1], b = n.pts[n.pts.length - 2] || [a[0] - 2, a[1]]; n.pts.push([r4(a[0] + (a[0] - b[0]) / 2), r4(a[1] + (a[1] - b[1]) / 2)]); commit(); refresh(true); }));
+      g.appendChild(smallBtn('− point', () => { if (n.pts.length > 2) { n.pts.pop(); commit(); refresh(true); } }));
+      break;
+    }
+    case 'pen': {
+      field(g, 'anchors (JSON: x, y, in/out handle offsets)', JSON.stringify(n.pts), v => { try { const p = JSON.parse(v); if (Array.isArray(p) && p.length >= 2) n.pts = p; } catch (e) {} }, { area: true, wide: true, rows: 4 });
+      field(g, 'closed', !!n.closed, v => { n.closed = v; }, { check: true });
+      capField();
+      if (S.anchor != null && n.pts[S.anchor]) {
+        const i = S.anchor, q = n.pts[i];
+        sub(g, `Anchor ${i + 1} of ${n.pts.length}` + (n.from ? ` (path from ${n.from})` : ''));
+        field(g, 'anchor x', q.x, v => { q.x = v; }, { key: 'ax' });
+        field(g, 'anchor y', q.y, v => { q.y = v; }, { key: 'ay' });
+        field(g, 'anchor type', q.in || q.out ? 'smooth' : 'corner', v => { if ((v === 'smooth') !== !!(q.in || q.out)) toggleSmooth(s, i); }, { options: ['corner', 'smooth'] });
+        if (!q.in && !q.out) field(g, 'anchor corner r', q.r || 0, v => { if (v > 0) q.r = r4(v); else delete q.r; }, { key: 'ar', step: 0.05 });
+        g.appendChild(smallBtn('Delete anchor', () => deleteAnchor(), 'Remove this anchor (⌫)', 'delete'));
+      }
+      g.appendChild(smallBtn('Corners only', () => { n.pts.forEach(q => { delete q.in; delete q.out; }); commit(); refresh(true); }, 'Remove all bezier handles'));
+      g.appendChild(smallBtn('Continue path', () => { penDraft = { s }; setTool('pen'); }, 'Add anchors to the end with the pen'));
+      break;
+    }
+    case 'polygon':
+      nf('cx'); nf('cy'); nf('r'); nf('sides', 'sides', 1); nf('rotation', 'rotation°', 1);
+      field(g, 'star', !!n.star, v => { if (v) n.star = { inner: r4(n.r / 2) }; else delete n.star; }, { check: true });
+      if (n.star) field(g, 'inner radius', n.star.inner, v => { n.star.inner = v; });
+      break;
+    case 'arc': nf('cx'); nf('cy'); nf('r'); nf('start', 'start° (0 = top)', 1); nf('end', 'end°', 1); capField(); break;
+    case 'path': field(g, 'd (escape hatch)', n.d, v => { n.d = v; }, { area: true, wide: true }); break;
+  }
+  field(g, 'hidden', !!n.hidden, v => { if (v) n.hidden = true; else delete n.hidden; }, { check: true });
+  if (n.shape !== 'pen' && n.shape !== 'path') g.appendChild(smallBtn('Edit points', () => {
+    const pn = core.toPen(n); if (!pn) return;
+    if (s.p.length) getParent(s).children[s.p[s.p.length - 1]] = pn; else layerOf(s).node = pn;
+    commit(); refresh(true); status(`${pn.from} is now a path (same place, transform and role). Pen tool: click its outline to add anchors.`);
+  }, 'Convert to an editable path in place; or use the Pen on its outline to add an anchor', 'anchor'));
+  cutterSection(g, s, n);
+  transformSection(g, n);
+  const add = document.createElement('select'); add.setAttribute('aria-label', 'Add deformer');
+  add.innerHTML = '<option value="">+ deformer…</option><option>taper</option><option>skew</option><option>round</option><option>offset</option>';
+  add.onchange = () => { if (!add.value) return; n.deform = n.deform || []; const d = { type: add.value }; if (add.value === 'round') d.r = 0.6; if (add.value === 'taper') d.top = 1.2; if (add.value === 'offset') d.d = 0.3; if (add.value === 'skew') { d.x = 10; d.y = 0; } n.deform.push(d); commit(); refresh(true); };
+  sub(g, 'Deformers (applied in order, before the transform)', [add]);
+  (n.deform || []).forEach((d, i) => {
+    const card = document.createElement('div'); card.className = 'def-card'; g.appendChild(card);
+    const head = document.createElement('div'); head.className = 'def-head'; head.textContent = (i + 1) + '. ' + d.type; card.appendChild(head);
+    if (i > 0) head.appendChild(smallBtn('', () => { [n.deform[i - 1], n.deform[i]] = [n.deform[i], n.deform[i - 1]]; commit(); refresh(true); }, 'Apply earlier', 'up'));
+    head.appendChild(smallBtn('Remove', () => { n.deform.splice(i, 1); if (!n.deform.length) delete n.deform; commit(); refresh(true); }, 'Remove deformer', 'delete'));
+    for (const k of DEF_FIELDS[d.type] || []) field(card, k + (d.type === 'skew' ? '°' : ''), d[k] == null ? 0 : d[k], v => { if (v === 0 && d.type === 'taper') delete d[k]; else d[k] = v; }, { step: d.type === 'skew' ? 1 : (S.snap || 0.1) });
+  });
+}
+
+// ---------- previews ----------
+const SIZES = [12, 16, 20, 24, 32, 48];
+function previewSVG(size, extraClass) {
+  const W = S.rt.weight;
+  const parts = [];
+  for (const L of S.resolved) {
+    if (!L.visible || !L.d) continue;
+    const col = L.color || core.ROLE_VARS[L.role] || 'currentColor';
+    for (const part of L.parts) {
+      let d = part.d, w = W;
+      if (S.rt.hint && size <= 20) { const h = core.hintD(d, size, W, L.paint); d = h.d; w = h.weight; }
+      const stroke = L.paint !== 'fill', fill = L.paint !== 'stroke';
+      const style = core.strokeStyle(S.glyph, S.rt, part.cap);
+      parts.push(`<path d="${d}" fill="${fill ? col : 'none'}"${stroke ? ` stroke="${col}" style="stroke-width:${S.rt.hint && size <= 20 ? w : 'var(--icon-stroke-width)'};stroke-linecap:${style.runtimeCap};stroke-linejoin:${style.runtimeJoin}"` : ''}${L.opacity !== 1 ? ` opacity="${L.opacity}"` : ''}/>`);
+    }
+  }
+  return `<svg class="icon ${extraClass || ''}" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${parts.join('')}</svg>`;
+}
+function renderPreviews() {
+  const root = document.documentElement.style;
+  root.setProperty('--icon-stroke-width', S.rt.weight);
+  root.setProperty('--icon-stroke-linecap', S.rt.cap);
+  root.setProperty('--icon-stroke-linejoin', S.rt.join);
+  const tiles = SIZES.map(sz => `<div class="pv">${previewSVG(sz)}<span>${sz}</span></div>`).join('');
+  $('pvLight').innerHTML = tiles; $('pvDark').innerHTML = tiles;
+  $('pvGrid').classList.toggle('rtl', S.rt.rtl);
+  const ic = previewSVG(16), ic20 = previewSVG(20);
+  const label = (S.glyph.name || 'icon').replace(/-outline$/, '').replace(/-/g, ' ');
+  $('ctx').innerHTML = `<button class="cbtn" type="button" tabindex="-1">${ic}<span></span></button>
+    <div class="nav" aria-hidden="true"><div>${ic20}Home</div><div class="on">${ic20}<span></span></div><div>${ic20}Settings</div></div>
+    <span class="badge">${previewSVG(14)}<span>3 new</span></span>`;
+  $('ctx').querySelector('.cbtn span').textContent = label.charAt(0).toUpperCase() + label.slice(1);
+  $('ctx').querySelector('.nav .on span').textContent = label;
+  $('ctx').classList.toggle('rtl', S.rt.rtl);
+  $('wVal').textContent = S.rt.weight.toFixed(1); $('wRange').value = S.rt.weight;
+  $('wWarn').hidden = S.rt.weight < 2.0;
+}
+
+// ---------- library ----------
+// The browser: one button per glyph, built once; search and the provenance filter only toggle `hidden`.
+// Thumbnails are generated lazily from each glyph's geometry.
+const LIBEL = new Map();
+const thumbCache = new WeakMap();
+let thumbObserver = null;
+const PROV_LABEL = { 'hand-built': 'hand-built', 'converted-stroke': 'converted stroke', 'imported-fill': 'imported fill', 'imported-stroke': 'imported stroke' };
+function thumbOf(g) {
+  if (!thumbCache.has(g)) thumbCache.set(g, thumbFor(g));
+  return thumbCache.get(g);
+}
+function paintThumb(b) {
+  const g = S.lib[idx(b.dataset.name)]; if (!g) return;
+  b.querySelector('.thumb').innerHTML = thumbOf(g); b.dataset.painted = '1';
+}
+function libMatches(g, q, f) {
+  if (q && ![g.name, g.description || '', ...(g.aliases || [])].join(' ').toLowerCase().includes(q)) return false;
+  switch (f) {
+    case 'all': return true;
+    case 'edited': return EDITS.has(g.name) || pendingSave.has(g.name);
+    default: return g.provenance === f;
+  }
+}
+function applyLibFilter() {
+  const q = $('libSearch').value.trim().toLowerCase(), f = $('libFilter').value;
+  let shown = 0, total = 0;
+  for (const g of S.lib) {
+    const b = LIBEL.get(g.name); if (!b) continue;
+    const pool = libMatches(g, '', f), on = pool && libMatches(g, q, f);
+    if (pool) total++; if (on) shown++;
+    b.hidden = !on;
+  }
+  $('libCount').textContent = q ? `${shown} of ${total} match` : `${total} glyph${total === 1 ? '' : 's'}`;
+  let empty = $('lib').querySelector('.lib-empty');
+  if (!shown) { if (!empty) { empty = document.createElement('div'); empty.className = 'lib-empty'; $('lib').appendChild(empty); } empty.textContent = q ? `No icon metadata matches “${q}”.` : 'Nothing here yet.'; }
+  else if (empty) empty.remove();
+}
+function tileTitle(g) {
+  return [g.name, PROV_LABEL[g.provenance] || 'new', EDITS.has(g.name) ? 'edited (saved in this browser)' : ''].filter(Boolean).join(' · ');
+}
+function renderLibrary() {
+  const box = $('lib'); box.innerHTML = ''; LIBEL.clear();
+  if (thumbObserver) thumbObserver.disconnect();
+  thumbObserver = 'IntersectionObserver' in window ? new IntersectionObserver(ents => {
+    for (const en of ents) if (en.isIntersecting) { paintThumb(en.target); thumbObserver.unobserve(en.target); }
+  }, { root: box, rootMargin: '160px 0px' }) : null;
+  const frag = document.createDocumentFragment();
+  for (const g of S.lib) {
+    if (LIBEL.has(g.name)) continue;
+    const b = document.createElement('button'); b.className = 'lib-item'; b.type = 'button'; b.dataset.name = g.name;
+    b.setAttribute('aria-current', String(S.glyph ? g.name === S.glyph.name : false));
+    b.innerHTML = `<i class="prov-dot" data-p="${g.provenance || ''}"></i><span class="edited" hidden>●</span><span class="thumb"></span><span class="lbl-name"></span>`;
+    b.querySelector('.lbl-name').textContent = g.name.replace(/^ui-/, '');
+    b.title = tileTitle(g); b.querySelector('.edited').hidden = !EDITS.has(g.name);
+    b.onclick = () => { const i = idx(g.name); if (i >= 0) loadGlyph(i); };
+    LIBEL.set(g.name, b); frag.appendChild(b);
+    if (thumbObserver) thumbObserver.observe(b); else paintThumb(b);
+  }
+  box.appendChild(frag);
+  applyLibFilter();
+}
+function updateLibItem(name) {
+  const b = LIBEL.get(name); if (!b) return;
+  const g = S.lib[idx(name)]; if (!g) return;
+  b.querySelector('.edited').hidden = !(EDITS.has(name) || pendingSave.has(name)); b.title = tileTitle(g);
+  if (b.dataset.painted) paintThumb(b);
+}
+function markCurrent() {
+  for (const b of $('lib').querySelectorAll('.lib-item[aria-current="true"]')) b.setAttribute('aria-current', 'false');
+  const b = LIBEL.get(S.glyph.name); if (!b) return;
+  b.setAttribute('aria-current', 'true');
+  if (!b.hidden) { const box = $('lib'), r = b.getBoundingClientRect(), br = box.getBoundingClientRect(); if (r.top < br.top || r.bottom > br.bottom) box.scrollTop += r.top - br.top - br.height / 2 + r.height / 2; }
+}
+function updateGlyphTags() {
+  if (!S.glyph) return;
+  const g = S.glyph, p = PROV_LABEL[g.provenance] || g.provenance || 'new glyph';
+  $('hdrProv').textContent = p;
+  const edited = ORIG.has(g.name) && isEdited(g);
+  $('hdrEdited').hidden = !edited;
+  $('revertBtn').disabled = !edited;
+  $('revertBtn').title = ORIG.has(g.name) ? 'Put this glyph back to its library original (undo brings your edit back)' : 'Not in the library: nothing to revert to';
+}
+
+// ---------- refresh ----------
+function refresh(full) {
+  S.resolved = core.resolve(S.glyph);
+  const errs = S.resolved.filter(r => r.error);
+  if (errs.length) status('Geometry error in ' + errs.map(e => e.id).join(', ') + ': ' + errs[0].error, true);
+  renderCanvas(); renderPreviews();
+  if (full) { renderTree(); renderInspector(); }
+  $('hdrName').textContent = S.glyph.name;
+  const style = S.glyph.setStyle || {};
+  $('setThicknessEnabled').checked = style.thickness != null; $('setRoundingEnabled').checked = !!style.rounding;
+  if (document.activeElement !== $('setThickness')) $('setThickness').value = style.thickness ?? 1.6;
+  if (document.activeElement !== $('setRounding')) $('setRounding').value = style.rounding || 0.5;
+  $('drawingMode').value = S.glyph.kind === 'app-icon' ? 'app-icon' : 'interface';
+  $('exportSize').value = S.glyph.exportSize || (S.glyph.kind === 'app-icon' ? 1024 : 24);
+  $('modeHint').textContent = S.glyph.kind === 'app-icon' ? 'App icon · 24-unit canvas · scalable export' : 'Interface icon · 24-unit canvas';
+  if (document.activeElement !== $('iconDescription')) $('iconDescription').value = S.glyph.description || '';
+  if (document.activeElement !== $('iconAliases')) $('iconAliases').value = (S.glyph.aliases || []).join(', ');
+  const st = core.stats(S.glyph);
+  $('statsLine').textContent = `${st.nodes} nodes · ${st.shapes} forms · ${st.ops} booleans · ${st.deformers} deformers · ${st.paths} path`;
+  syncToggles();
+  if (full) renderLibraryThumb();
+}
+function renderLibraryThumb() { const b = LIBEL.get(S.glyph.name); if (b) { b.querySelector('.thumb').innerHTML = core.toSVG(S.glyph, { size: 24, resolved: S.resolved }); b.dataset.painted = '1'; } updateGlyphTags(); }
+function renderAll() { renderGrid(); refresh(true); }
+function symmetryTarget() {
+  if ($('symScope').value === 'glyph') return S.glyph;
+  const selected = primarySel();
+  const node = selected && selected.p !== null && getNode(selected);
+  return node?.children ? node : null;
+}
+function syncToggles() {
+  root.querySelectorAll('[data-snap]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.snap === S.snap)));
+  const target = symmetryTarget();
+  const sym = target?.symmetry || {};
+  root.querySelectorAll('[data-mirror]').forEach(b => b.setAttribute('aria-pressed', String((sym.mirror || '').includes(b.dataset.mirror))));
+  root.querySelectorAll('[data-rot]').forEach(b => b.setAttribute('aria-pressed', String((sym.rotate || 1) === +b.dataset.rot)));
+  root.querySelectorAll('[data-show]').forEach(b => b.setAttribute('aria-pressed', String(!!S.show[b.dataset.show])));
+  root.querySelectorAll('[data-cap]').forEach(b => b.setAttribute('aria-pressed', String(S.rt.cap === b.dataset.cap)));
+  root.querySelectorAll('[data-join]').forEach(b => b.setAttribute('aria-pressed', String(S.rt.join === b.dataset.join)));
+  root.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', String(S.tool === b.dataset.tool)));
+  root.querySelectorAll('[data-hmode]').forEach(b => b.setAttribute('aria-pressed', String(S.hmode === b.dataset.hmode)));
+  root.querySelectorAll('[data-palette="pen"]').forEach(b => b.setAttribute('aria-pressed', String(S.tool === 'pen')));
+  $('hintBtn').setAttribute('aria-pressed', String(S.rt.hint)); $('rtlBtn').setAttribute('aria-pressed', String(S.rt.rtl));
+}
+
+// ---------- wiring ----------
+decorate();
+const pal = $('palette');
+const palBtn = (k, parent) => { const b = document.createElement('button'); b.className = 'btn'; b.title = k === 'pen' ? 'Pen tool (P)' : 'Add ' + k; b.dataset.palette = k; b.innerHTML = `${uiIcon(k)}<span>${k}</span>`; b.onclick = () => addShape(k); parent.appendChild(b); };
+PRIMARY_TOOLS.forEach(k => palBtn(k, pal));
+const moreLbl = document.createElement('div'); moreLbl.className = 'lbl'; moreLbl.textContent = 'More forms'; pal.appendChild(moreLbl);
+const more = document.createElement('div'); more.className = 'more'; pal.appendChild(more);
+MORE_TOOLS.forEach(k => palBtn(k, more));
+root.querySelectorAll('[data-group]').forEach(b => b.onclick = () => group(b.dataset.group));
+root.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
+root.querySelectorAll('[data-hmode]').forEach(b => b.onclick = () => { S.hmode = b.dataset.hmode; syncToggles(); renderSelection(); });
+$('ungroupBtn').onclick = ungroup; $('upBtn').onclick = () => move(-1); $('downBtn').onclick = () => move(1);
+$('dupBtn').onclick = duplicate; $('delBtn').onclick = del; $('addLayerBtn').onclick = () => addLayer(true);
+$('undoBtn').onclick = undo; $('redoBtn').onclick = redo;
+$('isoExit').onclick = () => isoExit();
+root.querySelectorAll('[data-snap]').forEach(b => b.onclick = () => { S.snap = +b.dataset.snap; syncToggles(); renderInspector(); });
+root.querySelectorAll('[data-mirror]').forEach(b => b.onclick = () => {
+  const target = symmetryTarget(); if (!target) { status('Select a group in the Layers tree first.', true); return; }
+  const sym = target.symmetry = target.symmetry || { mirror: null, rotate: 1 };
+  const set = new Set((sym.mirror || '').split('').filter(Boolean)); const k = b.dataset.mirror;
+  if (set.has(k)) set.delete(k); else set.add(k);
+  sym.mirror = set.size === 2 ? 'xy' : set.size ? [...set][0] : null; commit(); refresh(true);
+});
+root.querySelectorAll('[data-rot]').forEach(b => b.onclick = () => { const target = symmetryTarget(); if (!target) { status('Select a group in the Layers tree first.', true); return; } target.symmetry ||= { mirror: null }; target.symmetry.rotate = +b.dataset.rot; commit(); refresh(true); });
+$('symScope').onchange = syncToggles;
+root.querySelectorAll('[data-show]').forEach(b => b.onclick = () => { S.show[b.dataset.show] = !S.show[b.dataset.show]; renderGrid(); renderCanvas(); syncToggles(); });
+$('wRange').oninput = () => { S.rt.weight = +$('wRange').value; renderCanvas(); renderPreviews(); };
+root.querySelectorAll('[data-cap]').forEach(b => b.onclick = () => { S.rt.cap = b.dataset.cap; refresh(false); });
+root.querySelectorAll('[data-join]').forEach(b => b.onclick = () => { S.rt.join = b.dataset.join; refresh(false); });
+$('hintBtn').onclick = () => { S.rt.hint = !S.rt.hint; refresh(false); };
+$('rtlBtn').onclick = () => { S.rt.rtl = !S.rt.rtl; refresh(false); };
+const sw = () => { const st = $('pvGrid').style; st.setProperty('--sw-secondary-light', $('swSecL').value); st.setProperty('--sw-secondary-dark', $('swSecD').value); st.setProperty('--sw-accent-light', $('swAccL').value); st.setProperty('--sw-accent-dark', $('swAccD').value); };
+['swSecL', 'swSecD', 'swAccL', 'swAccD'].forEach(id => $(id).oninput = sw);
+$('themeBtn').onclick = () => {
+  const r = document.documentElement; const dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  r.dataset.theme = dark ? 'light' : 'dark'; try { localStorage.setItem('gw-theme', r.dataset.theme); } catch (e) {}
+};
+try { const t = localStorage.getItem('gw-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+$('drawingMode').onchange = () => { S.glyph.kind = $('drawingMode').value === 'app-icon' ? 'app-icon' : 'interface'; S.glyph.exportSize = S.glyph.kind === 'app-icon' ? 1024 : 24; commit(); refresh(true); };
+$('exportSize').onchange = () => { S.glyph.exportSize = Math.max(16, Math.min(4096, Math.round(+$('exportSize').value || 24))); commit(); refresh(true); };
+$('newBtn').onclick = () => {
+  const g = TEMPLATES[$('tplSel').value](); let name = $('tplSel').value === 'blank' ? 'untitled' : g.name + '-copy'; let k = 1;
+  while (idx(name) >= 0) name = name.replace(/-\d+$/, '') + '-' + (++k);
+  g.name = name; g.provenance = 'hand-built'; S.lib.push(g); renderLibrary(); loadGlyph(S.lib.length - 1); queueSave(name); status(`New glyph from ${$('tplSel').value} template.`);
+};
+function applySetSettings() {
+  if (penDraft) finishPen();
+  const style = {
+    thickness: $('setThicknessEnabled').checked ? Math.max(0.1, Math.min(8, +$('setThickness').value || 1.6)) : null,
+    rounding: $('setRoundingEnabled').checked ? Math.max(0, Math.min(6, +$('setRounding').value || 0)) : 0,
+  };
+  try { localStorage.setItem('gw-open-pending-set-style', JSON.stringify(style)); } catch {}
+  S.glyph.setStyle = clone(style); commit();
+  S.lib = S.lib.map(glyph => ({ ...glyph, setStyle: clone(style) }));
+  for (const glyph of S.lib) queueSave(glyph.name);
+  S.rt.weight = style.thickness ?? S.glyph.weight ?? 1.2;
+  refresh(true); renderLibrary(); status(`Set settings applied to ${S.lib.length} icons.`);
+}
+for (const id of ['setThicknessEnabled', 'setRoundingEnabled', 'setThickness', 'setRounding']) $(id).onchange = applySetSettings;
+$('iconDescription').onchange = () => { S.glyph.description = $('iconDescription').value.trim(); commit(); applyLibFilter(); };
+$('iconAliases').onchange = () => { S.glyph.aliases = [...new Set($('iconAliases').value.split(',').map(term => term.trim()).filter(Boolean))]; commit(); applyLibFilter(); };
+const io = $('ioText');
+$('expJson').onclick = () => { if (penDraft) finishPen(); io.value = JSON.stringify(S.glyph, null, 2); status('JSON source in the box — Copy, or edit and Import.'); };
+$('expSvg').onclick = () => { io.value = core.toSVG(S.glyph); status('Runtime SVG: weight, caps, joins and role colours come from CSS vars.'); };
+$('expBaked').onclick = () => { io.value = core.toSVG(S.glyph, { mode: 'baked', weight: S.rt.weight, cap: S.rt.cap, join: S.rt.join }); status('Baked SVG at the current runtime settings.'); };
+$('copyBtn').onclick = async () => {
+  if (!io.value) $('expJson').onclick();
+  try { await navigator.clipboard.writeText(io.value); status('Copied to clipboard.'); }
+  catch (e) { io.focus(); io.select(); status('Clipboard blocked here — text is selected, press ⌘C.'); }
+};
+$('importBtn').onclick = () => importLibraryText(io.value, 'pasted JSON');
+function downloadJSON(filename, data) {
+  downloadBlob(filename, new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+}
+const bakedSVG = () => core.toSVG(S.glyph, { mode: 'baked', weight: S.rt.weight, cap: S.rt.cap, join: S.rt.join });
+const outputName = () => S.glyph.name.replace(/[^a-z0-9_-]+/gi, '-');
+$('downloadSvg').onclick = () => { if (penDraft) finishPen(); downloadBlob(`${outputName()}.svg`, new Blob([bakedSVG()], { type: 'image/svg+xml' })); status('Downloaded SVG.'); };
+$('downloadPng').onclick = async () => {
+  if (penDraft) finishPen();
+  try { const size = S.glyph.exportSize || 24; downloadBlob(`${outputName()}-${size}.png`, await svgToPNG(bakedSVG(), size)); status(`Downloaded ${size} × ${size} PNG.`); }
+  catch (error) { status(error.message, true); }
+};
+function exportLibrary(scope) {
+  if (penDraft) finishPen();
+  const glyphs = scope === 'one' ? [S.glyph] : scope === 'edited' ? S.lib.filter(isEdited) : S.lib;
+  if (!glyphs.length) { status('No glyphs to export.', true); return; }
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+  downloadJSON(`glyph-library-${scope}-${stamp}.json`, libraryDocument(glyphs, scope));
+  status(`Exported ${glyphs.length} glyph${glyphs.length === 1 ? '' : 's'}.`);
+}
+async function importLibraryText(text, fileName, mode = $('importMode').value) {
+  let result;
+  try {
+    const glyphs = parseLibrary(text);
+    // Evaluate before touching the current library: bad geometry cannot leave a partial import.
+    for (const glyph of glyphs) {
+      const errors = core.resolve(glyph).filter(layer => layer.error);
+      if (errors.length) throw new Error(`${glyph.name}: ${errors[0].error}`);
+    }
+    if (penDraft) finishPen();
+    result = mergeLibrary(S.lib, glyphs, mode);
+  } catch (error) { status(`Import: ${error.message}`, true); return null; }
+  if (penDraft) finishPen();
+  const current = S.glyph.name;
+  S.lib = result.library;
+  for (const name of result.names) queueSave(name);
+  await flushSaves();
+  renderLibrary();
+  loadGlyph(Math.max(0, idx(result.names.length === 1 ? result.names[0] : current)));
+  status(`Imported ${fileName || 'JSON'}: ${result.added} added, ${result.replaced} overwritten${result.renamed ? ` (${result.renamed} renamed to keep existing icons)` : ''}.`);
+  return { added: result.added, replaced: result.replaced, renamed: result.renamed, names: result.names };
+}
+$('expOne').onclick = () => exportLibrary('one');
+$('expEdited').onclick = () => exportLibrary('edited');
+$('expAll').onclick = () => exportLibrary('all');
+$('impFileBtn').onclick = () => $('impFile').click();
+$('impFile').onchange = async () => { const f = $('impFile').files[0]; if (!f) return; await importLibraryText(await f.text(), f.name); $('impFile').value = ''; };
+$('revertBtn').onclick = revert;
+$('libSearch').oninput = applyLibFilter;
+$('libFilter').onchange = () => { applyLibFilter(); try { localStorage.setItem('gw-lib-filter', $('libFilter').value); } catch (e) {} };
+try { const f = localStorage.getItem('gw-lib-filter'); if (f && [...$('libFilter').options].some(o => o.value === f)) $('libFilter').value = f; } catch (e) {}
+$('libSearchIcon').innerHTML = uiIcon('search-outline');
+listen(document, 'keydown', e => {
+  if (!root.contains(document.activeElement)) return;
+  const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+  if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+  if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicate(); return; }
+  if (mod && e.key.toLowerCase() === 'g') { e.preventDefault(); group('union'); return; }
+  if (penDraft && (e.key === 'Enter' || e.key === 'Escape')) { e.preventDefault(); finishPen(); setTool('select'); return; }
+  if (!mod && e.key.toLowerCase() === 'p') { setTool('pen'); return; }
+  if (!mod && e.key.toLowerCase() === 'v') { setTool('select'); return; }
+  if (!mod && e.key.toLowerCase() === 't') { S.hmode = S.hmode === 'transform' ? 'shape' : 'transform'; syncToggles(); renderSelection(); return; }
+  if (e.key === 'Delete' || e.key === 'Backspace') { if (S.sel.length) { e.preventDefault(); if (!deleteAnchor()) del(); } return; }
+  if (e.key === 'Escape') { if (isoExit()) return; S.sel = []; S.anchor = null; refresh(true); return; }
+  const step = (S.snap || 0.1) * (e.shiftKey ? 10 : 1);
+  const dirs = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+  if (dirs[e.key] && t && t.getAttribute && t.getAttribute('role') === 'treeitem' && !S.sel.some(s => s.p !== null)) return;
+  if (dirs[e.key] && nudge(...dirs[e.key])) e.preventDefault();
+});
+const resizeObserver = new ResizeObserver(() => { if (!S.glyph || disposed) return; renderGrid(); renderRulers(); renderSelection(); });
+resizeObserver.observe(cv);
+
+// ---------- boot: saved edits applied, then the last-open glyph (or camera) loaded ----------
+window.__gw = { S, core, refresh, group, addShape, commit, setTool, setOrigin, getNode, fullMatrix, loadGlyph, idx, paintUI, isoEnter, isoExit,
+  revert, flushSaves, exportLibrary, importLibraryText, isEdited, EDITS, ORIG, ready: false };
+const ready = (async () => {
+  await loadSaved();
+  if (disposed) return;
+  try {
+    const journal = localStorage.getItem('gw-open-pending-glyph');
+    if (journal) { const glyph = normalizeGlyph(JSON.parse(journal)); const at = idx(glyph.name); if (at >= 0) S.lib[at] = glyph; else S.lib.push(glyph); queueSave(glyph.name); }
+  } catch {}
+  try { const journal = localStorage.getItem('gw-open-pending-set-style'); if (journal) { const style = JSON.parse(journal); S.lib = S.lib.map(glyph => ({ ...glyph, setStyle: clone(style) })); for (const glyph of S.lib) queueSave(glyph.name); } } catch {}
+  if (!S.lib.length) S.lib.push(TEMPLATES.blank());
+  renderLibrary();
+  let last = null; try { last = localStorage.getItem('gw-current'); } catch (e) {}
+  const at = last ? idx(last) : -1;
+  loadGlyph(at >= 0 ? at : 0);
+  window.__gw.ready = true; window.__gw.readyAt = performance.now();
+})();
+return {
+  ready,
+  dispose() {
+    disposed = true;
+    abort.abort(); resizeObserver.disconnect(); thumbObserver?.disconnect();
+    clearTimeout(saveTimer);
+    if (pendingSave.size && DB.db) flushSaves().finally(() => DB.db?.close());
+    else DB.db?.close();
+    project.remove();
+    if (window.__gw?.S === S) delete window.__gw;
+  },
+};
+}

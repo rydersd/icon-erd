@@ -1,0 +1,7 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "icon-erd",
+  "account_id": "2b250052124accae567e3ff5a45b3a3d",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./out" }
+}

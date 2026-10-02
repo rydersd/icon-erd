@@ -1,0 +1,30 @@
+{
+  "name": "glyph-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "A modular vector icon editor powered by Paper.js",
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "next build",
+    "preview": "python3 -m http.server 3000 --bind 127.0.0.1 --directory out",
+    "test": "node --test tests/*.test.js",
+    "test:browser": "playwright test",
+    "start": "python3 -m http.server 3000 --bind 127.0.0.1 --directory out",
+    "deploy": "npm run build && wrangler deploy",
+    "test:imports": "node scripts/verify-private-imports.mjs"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.8.0",
+    "next": "^16.3.8",
+    "paper": "0.12.18",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "@fortawesome/free-solid-svg-icons": "^7.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "wrangler": "^4.146.0"
+  }
+}
