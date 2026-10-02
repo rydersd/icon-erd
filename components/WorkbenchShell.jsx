@@ -19,7 +19,15 @@ export function WorkbenchShell() {
     <Button className="btn sm icon" id="undoBtn" title="Undo (⌘Z)" aria-label="Undo" data-icon-ui="undo"></Button>
     <Button className="btn sm icon" id="redoBtn" title="Redo (⇧⌘Z)" aria-label="Redo" data-icon-ui="redo"></Button>
   </div>
-  <Button className="btn sm icon" id="themeBtn" title="Toggle page theme" aria-label="Toggle page theme" data-icon-ui="theme"></Button>
+  <div className="seg" role="group" aria-label="Theme">
+    <Button className="btn sm icon" data-theme-choice="light" title="Light theme" aria-label="Light theme" data-icon-ui="sun"></Button>
+    <Button className="btn sm icon" data-theme-choice="dark" title="Dark theme" aria-label="Dark theme" data-icon-ui="theme"></Button>
+    <Button className="btn sm icon" id="appearanceToggle" title="Customize appearance" aria-label="Customize appearance" aria-haspopup="dialog" aria-controls="appearancePalette" aria-expanded="false">▾</Button>
+  </div>
+  <div id="appearancePalette" className="floating-panel appearance-palette" role="dialog" aria-label="Customize appearance" hidden>
+    <h2 id="appearanceTheme">Appearance</h2><p>Colors and opacity (%) for this theme.</p>
+    <div id="appearanceFields"></div><Button className="btn sm" id="resetAppearance">Reset this theme</Button>
+  </div>
 </header>
 
 <main className="app">
@@ -128,6 +136,8 @@ export function WorkbenchShell() {
       <h2 id="metadataH">Icon metadata</h2>
       <div className="pad metadata">
         <label htmlFor="iconDescription">Description</label><textarea id="iconDescription" rows="2" placeholder="What does this icon represent?"></textarea>
+        <label htmlFor="iconGroup">Primary group (export folder)</label><input id="iconGroup" type="text" placeholder="Navigation / Arrows" />
+        <label htmlFor="iconTags">Usage tags (comma separated)</label><input id="iconTags" type="text" placeholder="navigation, table, action" />
         <label htmlFor="iconAliases">Search terms (comma separated)</label><input id="iconAliases" type="text" placeholder="suggestion, vote, ballot" />
       </div>
     </section>

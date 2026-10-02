@@ -2,6 +2,9 @@ import { createGlyphCore } from './glyph-core.js';
 import { LIBRARY } from './starter-library.js';
 import { uiSVG } from './ui-icons.js';
 import { parseLibraryArchive, mergeLibrary, libraryDocument, normalizeGlyph } from './library-io.js';
+import { suggestedGroup, iconGroup } from './icon-organization.js';
+import { libraryZIP, readLibraryZIP } from './library-zip.js';
+import { mountAppearance } from './appearance.js';
 import { createStorage } from './storage.js';
 
 import paper from 'paper/dist/paper-core.js';
@@ -81,6 +84,9 @@ const EDITS = new Map(); // name -> { name, glyph, thumb, savedAt } as stored
 const DB = createStorage();
 const pendingSave = new Set();
 let libraryResetBackup = null;
+let organizationBackup = null;
+const collapsedGroups = new Set();
+try { for (const group of JSON.parse(localStorage.getItem('gw-collapsed-groups') || '[]')) collapsedGroups.add(group); } catch {}
 let saveTimer = null;
 function isEdited(g) { const o = ORIG.get(g.name); return !o || JSON.stringify(o) !== JSON.stringify(g); }
 function setSaveState(state, detail) {
@@ -129,6 +135,7 @@ async function loadSaved() {
     EDITS.set(r.name, r);
   }
 
+  try { organizationBackup = await DB.run('readonly', store=>store.get('library-organization'), 'snapshots'); $('undoOrganizationBtn').disabled = !organizationBackup; } catch {}
   try { libraryResetBackup = await DB.run('readonly', store => store.get('library-reset'), 'snapshots'); $('undoLibraryResetBtn').disabled = !libraryResetBackup; } catch {}
   if (!disposed) setSaveState('saved');
 }
@@ -187,6 +194,28 @@ async function undoLibraryReset() {
 }
 $('resetLibraryBtn').onclick = resetLibrary;
 $('undoLibraryResetBtn').onclick = undoLibraryReset;
+$('organizeLibraryBtn').onclick = () => {
+  const counts = new Map();
+  for (const glyph of S.lib.filter(glyph=>!glyph.group?.trim())) { const group=suggestedGroup(glyph.name); counts.set(group,(counts.get(group)||0)+1); }
+  const summary=$('organizeSummary'); summary.textContent='';
+  for(const [group,count] of [...counts].sort(([a],[b])=>a.localeCompare(b))){const row=document.createElement('p');row.textContent=`${group}: ${count}`;summary.appendChild(row);}
+  $('applyOrganizeBtn').disabled=!counts.size;$('organizeDialog').showModal();
+};
+$('cancelOrganizeBtn').onclick=()=>$('organizeDialog').close();
+$('applyOrganizeBtn').onclick=async()=>{
+  if(!DB.db){status('Grouping needs storage for an undo backup.',true);return;}
+  const snapshot={id:'library-organization',groups:S.lib.map(glyph=>({name:glyph.name,group:glyph.group,groupSource:glyph.groupSource}))};
+  try{await DB.run('readwrite',store=>store.put(snapshot),'snapshots');}catch(error){status(`Could not save grouping backup: ${error.message}`,true);return;}
+  organizationBackup=snapshot;const current=S.glyph.name;
+  S.lib=S.lib.map(glyph=>glyph.group?.trim()?glyph:{...glyph,group:suggestedGroup(glyph.name),groupSource:'name-based-suggestion'});
+  for(const glyph of S.lib)queueSave(glyph.name);await flushSaves();$('organizeDialog').close();renderLibrary();loadGlyph(Math.max(0,idx(current)));$('undoOrganizationBtn').disabled=false;
+  status('Name-based groups applied. These are suggestions, not verified usage categories.');
+};
+$('undoOrganizationBtn').onclick=async()=>{
+  if(!organizationBackup)return;const previous=new Map(organizationBackup.groups.map(item=>[item.name,item]));const current=S.glyph.name;
+  S.lib=S.lib.map(glyph=>{const before=previous.get(glyph.name);if(!before)return glyph;const copy={...glyph};for(const key of ['group','groupSource']){if(before[key]==null)delete copy[key];else copy[key]=before[key];}return copy;});
+  for(const glyph of S.lib)queueSave(glyph.name);await flushSaves();renderLibrary();loadGlyph(Math.max(0,idx(current)));status('Previous grouping restored; artwork edits retained.');
+};
 function updateHistoryBtns() { $('undoBtn').disabled = !S.undo.length; $('redoBtn').disabled = !S.redo.length; }
 function pruneSel() {
   S.sel = S.sel.filter(s => { try { return s.l < S.glyph.layers.length && (s.p === null || getNode(s)); } catch (e) { return false; } });
@@ -380,7 +409,7 @@ function renderGrid() {
   const g = $('gGrid'); g.innerHTML = ''; const k = $('gKey'); k.innerHTML = '';
   if (S.show.grid) {
     const ppu = pxPerUnit();
-    const mk = (d, c, w) => el('path', Object.assign({ d, fill: 'none', stroke: c, 'stroke-width': w, 'shape-rendering': 'crispEdges' }, NS), g);
+    const mk = (d, c, w) => el('path', Object.assign({ d, fill: 'none', stroke: c, 'stroke-width': w * (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--grid-line-scale')) || 1), 'shape-rendering': 'crispEdges' }, NS), g);
     if (S.gridStep === null) {
       if (ppu * 0.1 >= 6) mk(gridPath(0.1, 0, 24, v => Math.abs(v / 0.3 - Math.round(v / 0.3)) < 1e-6), 'var(--grid-minor)', 1);
       if (ppu * 0.3 >= 5) mk(gridPath(0.3), 'var(--grid-lattice)', 1);
@@ -1128,8 +1157,8 @@ function renderRulers() {
     else gl += `<path d="M20 ${((g.pos - S.view.y) * k).toFixed(1)}H0" stroke="var(--guide)"/>`;
   }
   top.setAttribute('viewBox', `0 0 ${W} 20`); left.setAttribute('viewBox', `0 0 20 ${W}`);
-  top.innerHTML = `<path d="${dt}" stroke="var(--ruler-tick)" stroke-width="1" shape-rendering="crispEdges"/>${tt}${gt}`;
-  left.innerHTML = `<path d="${dl}" stroke="var(--ruler-tick)" stroke-width="1" shape-rendering="crispEdges"/>${tl}${gl}`;
+  top.innerHTML = `<path d="${dt}" stroke="var(--ruler-tick)" stroke-width="var(--ruler-tick-width)" shape-rendering="crispEdges"/>${tt}${gt}`;
+  left.innerHTML = `<path d="${dl}" stroke="var(--ruler-tick)" stroke-width="var(--ruler-tick-width)" shape-rendering="crispEdges"/>${tl}${gl}`;
 }
 function rulerDown(axis) {
   return ev => {
@@ -1167,7 +1196,7 @@ function openPopup(panel, trigger, x, y, focus) {
   panel.style.left = Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8)) + 'px';
   panel.style.top = Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8)) + 'px';
   popup = { panel, trigger, focus };
-  panel.querySelector('button:not(:disabled)')?.focus();
+  panel.querySelector('button:not(:disabled), input:not(:disabled), select')?.focus();
 }
 listen(document, 'pointerdown', event => {
   if (popup && !popup.panel.contains(event.target) && !popup.trigger?.contains(event.target)) closePopup();
@@ -1810,7 +1839,7 @@ function paintThumb(b) {
   b.querySelector('.thumb').innerHTML = thumbOf(g); b.dataset.painted = '1';
 }
 function libMatches(g, q, f) {
-  if (q && ![g.name, g.description || '', ...(g.aliases || [])].join(' ').toLowerCase().includes(q)) return false;
+  if (q && ![g.name, g.description || '', g.group || '', ...(g.tags || []), ...(g.aliases || [])].join(' ').toLowerCase().includes(q)) return false;
   switch (f) {
     case 'all': return true;
     case 'edited': return isEdited(g);
@@ -1826,6 +1855,11 @@ function applyLibFilter() {
     if (pool) total++; if (on) shown++;
     b.hidden = !on;
   }
+  for (const section of $('lib').querySelectorAll('.lib-group')) {
+    const count = [...section.querySelectorAll('.lib-item')].filter(item=>!item.hidden).length;
+    section.hidden = !count; section.querySelector('.lib-group-count').textContent = count;
+    section.open = !!q || !collapsedGroups.has(section.dataset.group);
+  }
   $('libCount').textContent = q ? `${shown} of ${total} match` : `${total} glyph${total === 1 ? '' : 's'}`;
   let empty = $('lib').querySelector('.lib-empty');
   if (!shown) { if (!empty) { empty = document.createElement('div'); empty.className = 'lib-empty'; $('lib').appendChild(empty); } empty.textContent = q ? `No icon metadata matches “${q}”.` : 'Nothing here yet.'; }
@@ -1840,7 +1874,13 @@ function renderLibrary() {
   thumbObserver = 'IntersectionObserver' in window ? new IntersectionObserver(ents => {
     for (const en of ents) if (en.isIntersecting) { paintThumb(en.target); thumbObserver.unobserve(en.target); }
   }, { root: box, rootMargin: '160px 0px' }) : null;
-  const frag = document.createDocumentFragment();
+  const frag = document.createDocumentFragment(), groups = new Map();
+  for(const name of [...new Set(S.lib.map(iconGroup))].sort((a,b)=>a==='Ungrouped'?1:b==='Ungrouped'?-1:a.localeCompare(b))){
+    const section=document.createElement('details');section.className='lib-group';section.dataset.group=name;section.open=!collapsedGroups.has(name);
+    const summary=document.createElement('summary'), title=document.createElement('span'), count=document.createElement('span');title.textContent=name;count.className='lib-group-count';summary.append(title,count);section.appendChild(summary);
+    const grid=document.createElement('div');grid.className='lib-group-grid';section.appendChild(grid);groups.set(name,grid);frag.appendChild(section);
+    summary.onclick=()=>{if($('libSearch').value.trim())return; if(section.open)collapsedGroups.add(name);else collapsedGroups.delete(name);try{localStorage.setItem('gw-collapsed-groups',JSON.stringify([...collapsedGroups]));}catch{}};
+  }
   for (const g of S.lib) {
     if (LIBEL.has(g.name)) continue;
     const b = document.createElement('button'); b.className = 'lib-item'; b.type = 'button'; b.dataset.name = g.name;
@@ -1850,7 +1890,7 @@ function renderLibrary() {
     b.title = tileTitle(g); b.querySelector('.edited').hidden = !isEdited(g);
     b.onclick = () => { const i = idx(g.name); if (i >= 0) loadGlyph(i); };
     wireLibraryMenu(b, g.name);
-    LIBEL.set(g.name, b); frag.appendChild(b);
+    LIBEL.set(g.name, b); groups.get(iconGroup(g)).appendChild(b);
     if (thumbObserver) thumbObserver.observe(b); else paintThumb(b);
   }
   box.appendChild(frag);
@@ -1896,6 +1936,8 @@ function refresh(full) {
   $('exportSize').value = S.glyph.exportSize || (S.glyph.kind === 'app-icon' ? 1024 : 24);
   $('modeHint').textContent = S.glyph.kind === 'app-icon' ? 'App icon · 24-unit canvas · scalable export' : 'Interface icon · 24-unit canvas';
   if (document.activeElement !== $('iconDescription')) $('iconDescription').value = S.glyph.description || '';
+  if (document.activeElement !== $('iconGroup')) $('iconGroup').value = S.glyph.group || '';
+  if (document.activeElement !== $('iconTags')) $('iconTags').value = (S.glyph.tags || []).join(', ');
   if (document.activeElement !== $('iconAliases')) $('iconAliases').value = (S.glyph.aliases || []).join(', ');
   const st = core.stats(S.glyph);
   $('statsLine').textContent = `${st.nodes} nodes · ${st.shapes} forms · ${st.ops} booleans · ${st.deformers} deformers · ${st.paths} path`;
@@ -1980,11 +2022,7 @@ $('hintBtn').onclick = () => { S.rt.hint = !S.rt.hint; refresh(false); };
 $('rtlBtn').onclick = () => { S.rt.rtl = !S.rt.rtl; refresh(false); };
 const sw = () => { const st = $('pvGrid').style; st.setProperty('--sw-secondary-light', $('swSecL').value); st.setProperty('--sw-secondary-dark', $('swSecD').value); st.setProperty('--sw-accent-light', $('swAccL').value); st.setProperty('--sw-accent-dark', $('swAccD').value); };
 ['swSecL', 'swSecD', 'swAccL', 'swAccD'].forEach(id => $(id).oninput = sw);
-$('themeBtn').onclick = () => {
-  const r = document.documentElement; const dark = r.dataset.theme ? r.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-  r.dataset.theme = dark ? 'light' : 'dark'; try { localStorage.setItem('gw-theme', r.dataset.theme); } catch (e) {}
-};
-try { const t = localStorage.getItem('gw-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+mountAppearance({ root, listen, openPopup, closePopup, getPopup: () => popup, renderGrid, renderRulers });
 $('drawingMode').onchange = () => { S.glyph.kind = $('drawingMode').value === 'app-icon' ? 'app-icon' : 'interface'; S.glyph.exportSize = S.glyph.kind === 'app-icon' ? 1024 : 24; commit(); refresh(true); };
 $('exportSize').onchange = () => { S.glyph.exportSize = Math.max(16, Math.min(4096, Math.round(+$('exportSize').value || 24))); commit(); refresh(true); };
 $('newBtn').onclick = () => {
@@ -2009,6 +2047,12 @@ function applySetSettings() {
 for (const id of ['setThicknessEnabled', 'setRoundingEnabled', 'setThickness', 'setRounding', 'setEndRoundingEnabled', 'setEndRounding']) $(id).onchange = applySetSettings;
 $('iconDescription').onchange = () => { S.glyph.description = $('iconDescription').value.trim(); commit(); applyLibFilter(); };
 $('iconAliases').onchange = () => { S.glyph.aliases = [...new Set($('iconAliases').value.split(',').map(term => term.trim()).filter(Boolean))]; commit(); applyLibFilter(); };
+$('iconGroup').onchange = () => { S.glyph.group = $('iconGroup').value.split('/').map(part=>part.trim()).filter(Boolean).join('/'); S.glyph.groupSource='manual'; commit(); renderLibrary(); };
+$('iconTags').onchange = () => { S.glyph.tags = [...new Set($('iconTags').value.split(',').map(term=>term.trim()).filter(Boolean))]; commit(); applyLibFilter(); };
+for (const id of ['exportStructure','exportRoot','exportSVGs']) {
+  try { const saved=localStorage.getItem(`gw-${id}`); if(saved!=null) { if(id==='exportSVGs')$(id).checked=saved==='true';else $(id).value=saved; } } catch {}
+  $(id).onchange=()=>{try{localStorage.setItem(`gw-${id}`,id==='exportSVGs'?String($(id).checked):$(id).value);}catch{}};
+}
 const io = $('ioText');
 $('expJson').onclick = () => { if (penDraft) finishPen(); io.value = JSON.stringify(libraryDocument([S.glyph], 'one', ORIG), null, 2); status('Editable JSON and reset original in the box — Copy, or edit and Import.'); };
 $('expSvg').onclick = () => { io.value = core.toSVG(S.glyph); status('Runtime SVG: weight, caps, joins and role colours come from CSS vars.'); };
@@ -2018,10 +2062,7 @@ $('copyBtn').onclick = async () => {
   try { await navigator.clipboard.writeText(io.value); status('Copied to clipboard.'); }
   catch (e) { io.focus(); io.select(); status('Clipboard blocked here — text is selected, press ⌘C.'); }
 };
-$('importBtn').onclick = () => importLibraryText(io.value, 'pasted JSON');
-function downloadJSON(filename, data) {
-  downloadBlob(filename, new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-}
+$('importBtn').onclick = () => requestLibraryImport(io.value, 'pasted JSON');
 const bakedSVG = () => core.toSVG(S.glyph, { mode: 'baked', weight: S.rt.weight, cap: S.rt.cap, join: S.rt.join });
 const outputName = () => S.glyph.name.replace(/[^a-z0-9_-]+/gi, '-');
 $('downloadSvg').onclick = () => { if (penDraft) finishPen(); downloadBlob(`${outputName()}.svg`, new Blob([bakedSVG()], { type: 'image/svg+xml' })); status('Downloaded SVG.'); };
@@ -2030,15 +2071,45 @@ $('downloadPng').onclick = async () => {
   try { const size = S.glyph.exportSize || 24; downloadBlob(`${outputName()}-${size}.png`, await svgToPNG(bakedSVG(), size)); status(`Downloaded ${size} × ${size} PNG.`); }
   catch (error) { status(error.message, true); }
 };
-function exportLibrary(scope) {
+async function exportLibrary(scope) {
   if (penDraft) finishPen();
   const glyphs = scope === 'one' ? [S.glyph] : scope === 'edited' ? S.lib.filter(isEdited) : S.lib;
   if (!glyphs.length) { status('No glyphs to export.', true); return; }
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
-  downloadJSON(`glyph-library-${scope}-${stamp}.json`, libraryDocument(glyphs, scope, ORIG));
+  try {
+    const data = await libraryZIP(libraryDocument(glyphs, scope, ORIG), glyph => core.toSVG(glyph, { mode: 'baked', weight: glyph.setStyle?.thickness ?? glyph.weight ?? 1.2 }), { structure: $('exportStructure').value, root: $('exportRoot').value, includeSVG: $('exportSVGs').checked });
+    downloadBlob(`glyph-library-${scope}-${stamp}.zip`, new Blob([data], { type: 'application/zip' }));
+  } catch (error) { status(`Export: ${error.message}`, true); return; }
   status(`Exported ${glyphs.length} glyph${glyphs.length === 1 ? '' : 's'}.`);
 }
-async function importLibraryText(text, fileName, mode = $('importMode').value) {
+let pendingImport = null;
+function requestLibraryImport(text, fileName) {
+  try {
+    const archive = parseLibraryArchive(text);
+    for (const glyph of [...archive.glyphs, ...archive.originals.values()]) {
+      const errors = core.resolve(glyph).filter(layer => layer.error);
+      if (errors.length) throw new Error(`${glyph.name}: ${errors[0].error}`);
+    }
+    const matches = archive.glyphs.filter(glyph => idx(glyph.name) >= 0).length;
+    pendingImport = { text, fileName };
+    $('importSummary').textContent = `${fileName}: ${archive.glyphs.length} icon${archive.glyphs.length === 1 ? '' : 's'}, ${matches} matching existing name${matches === 1 ? '' : 's'}.`;
+    $('importReplace').checked = false;
+    $('confirmImportBtn').textContent = 'Add icons';
+    $('importDialog').showModal();
+    $('importReplace').focus();
+  } catch (error) { status(`Import: ${error.message}`, true); }
+}
+$('importReplace').onchange = () => { $('confirmImportBtn').textContent = $('importReplace').checked ? 'Replace matching icons' : 'Add icons'; };
+$('cancelImportBtn').onclick = () => $('importDialog').close();
+listen($('importDialog'), 'close', () => { pendingImport = null; });
+$('confirmImportBtn').onclick = async () => {
+  if (!pendingImport) return;
+  const { text, fileName } = pendingImport, mode = $('importReplace').checked ? 'overwrite' : 'add';
+  pendingImport = null;
+  $('importDialog').close();
+  await importLibraryText(text, fileName, mode);
+};
+async function importLibraryText(text, fileName, mode = 'add') {
   let result, archive;
   try {
     archive = parseLibraryArchive(text);
@@ -2066,7 +2137,7 @@ $('expOne').onclick = () => exportLibrary('one');
 $('expEdited').onclick = () => exportLibrary('edited');
 $('expAll').onclick = () => exportLibrary('all');
 $('impFileBtn').onclick = () => $('impFile').click();
-$('impFile').onchange = async () => { const f = $('impFile').files[0]; if (!f) return; await importLibraryText(await f.text(), f.name); $('impFile').value = ''; };
+$('impFile').onchange = async () => { const f = $('impFile').files[0]; if (!f) return; try { const bytes = new Uint8Array(await f.arrayBuffer()); const text = /\.zip$/i.test(f.name) || (bytes[0] === 80 && bytes[1] === 75) ? readLibraryZIP(bytes) : new TextDecoder().decode(bytes); requestLibraryImport(text, f.name); } catch (error) { status(`Import: ${error.message}`, true); } finally { $('impFile').value = ''; } };
 $('revertBtn').onclick = revert;
 $('makeCutterBtn').onclick = cutterAction;
 $('libSearch').oninput = applyLibFilter;

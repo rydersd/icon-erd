@@ -18,6 +18,8 @@ export function normalizeGlyph(input) {
   if (!Array.isArray(input.layers) || !input.layers.length || input.layers.length > 128) throw new Error(`${input.name}: expected 1–128 layers`);
   const glyph = clone(input);
   if (glyph.aliases != null && (!Array.isArray(glyph.aliases) || !glyph.aliases.every(term => typeof term === 'string'))) throw new Error(`${glyph.name}: search terms must be strings`);
+  if (glyph.group != null && typeof glyph.group !== 'string') throw new Error(`${glyph.name}: primary group must be text`);
+  if (glyph.tags != null && (!Array.isArray(glyph.tags) || !glyph.tags.every(tag => typeof tag === 'string'))) throw new Error(`${glyph.name}: usage tags must be strings`);
   if (glyph.description != null && typeof glyph.description !== 'string') throw new Error(`${glyph.name}: description must be text`);
   if (glyph.exportSize != null && (!Number.isInteger(glyph.exportSize) || glyph.exportSize < 16 || glyph.exportSize > 4096)) throw new Error(`${glyph.name}: invalid export size`);
   if (glyph.setStyle != null) {

@@ -57,3 +57,12 @@ Application source commit: `ee002d3`. Cloudflare version: `4c04abb3-d3bc-4508-b6
 - Local EDS naming preparation covers all 580 icons and checks their evaluated geometry. Recognizable arrow components have Head of Arrow and Shaft of Arrow names; other rules name clock hands, faces, magnifying-glass components and document parts. 340 icons still contain details flagged for visual semantic review in the ignored report. Their structural names are useful starting labels, not claimed as fully reviewed semantic identification. Artwork, naming output and review report remain under ignored imports/.
 
 Verification: 26 unit tests passed; the full local Chromium suite passed 22 tests, followed by one new targeted cross-path multi-selection test. Static export passed. The named EDS pack passed browser import (584 total with starter arrows), original/reset, full archive export and reload checks. The source naming script independently checked evaluated outlines for every one of its 580 icons.
+
+## ZIP libraries, appearance and primary groups
+
+- Library imports now show a review card before mutation, with Replace matching icons unchecked. Cancel is verified to leave the library untouched. Legacy JSON stays supported; ZIP archives contain editable originals, SVGs and organization metadata.
+- The export accordion controls group folders, a root folder, and SVG inclusion. Primary group and multiple usage tags are editable/searchable. Library sections follow those groups, retain collapse preferences, and expand search results. Name-based bulk suggestions are explicitly labeled, previewed and reversibly applied with a persistent metadata backup.
+- Appearance is a sun/moon segment with a dropdown card containing sectioned colors/opacity, grid line scale, ruler tick weight, ruler label size and control corner radius. Light and dark overrides persist independently. A regression verifies defaults serialized as eight-digit hex retain their alpha.
+- `npm test`: 29 passing. Full local Chromium suite: 25 passing. After the final alpha/focus repair, the three focused import/appearance/group tests pass.
+- Actual owner Chrome library import was visibly verified at 584 glyphs and Saved with four artwork edits. Original browser backup: `~/Downloads/glyph-library-all-20261002-1839.json`, also retained under ignored `imports/backups/`.
+- Usage-driven LLM analysis and direct Figma publishing are design proposals in `docs/icon-organization.md`, not shipped integrations. The ZIP organization manifest is the implemented foundation.

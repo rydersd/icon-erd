@@ -1,3 +1,4 @@
+import { readLibraryZIP } from '../../src/library-zip.js';
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 const ready = async page => { await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready); };
@@ -19,16 +20,23 @@ test('file import add/overwrite, atomic rejection, and single/all downloads', as
   await ready(page);
   const source = await page.evaluate(() => structuredClone(window.__gw.S.lib[0])); source.aliases = ['ballot'];
   await page.locator('#impFile').setInputFiles({ name: 'one.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(source)) });
+  await expect(page.getByRole('dialog',{name:'Import icons'})).toBeVisible();
+  await expect(page.locator('#importSummary')).toContainText('1 matching existing name');
+  await expect(page.locator('.lib-item')).toHaveCount(4);await expect(page.locator('#importReplace')).not.toBeChecked();
+  await page.locator('#cancelImportBtn').click();await expect(page.locator('.lib-item')).toHaveCount(4);
+  await page.locator('#impFile').setInputFiles({ name: 'one.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(source)) });
+  await page.locator('#confirmImportBtn').click();
   await expect(page.locator('.lib-item')).toHaveCount(5);
-  await page.locator('#importMode').selectOption('overwrite'); source.description = 'Updated';
+  source.description = 'Updated';
   await page.locator('#impFile').setInputFiles({ name: 'replace.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(source)) });
+  await page.locator('#importReplace').check();await page.locator('#confirmImportBtn').click();
   await expect(page.locator('.lib-item')).toHaveCount(5);
   expect(await page.evaluate(() => window.__gw.S.lib[0].description)).toBe('Updated');
   await page.locator('#ioText').fill(JSON.stringify([source, { name: 'invalid', layers: [{}] }])); await page.locator('#importBtn').click();
   await expect(page.locator('#status')).toContainText('Import:'); await expect(page.locator('.lib-item')).toHaveCount(5);
   for (const [id, count] of [['expOne', 1], ['expAll', 5]]) {
-    const downloadPromise = page.waitForEvent('download'); await page.locator(`#${id}`).click(); const download = await downloadPromise;
-    const data = JSON.parse(await readFile(await download.path(), 'utf8')); expect(data.count).toBe(count); expect(data.glyphs).toHaveLength(count);
+    await page.locator('.export-options').evaluate(el=>el.open=true);const downloadPromise = page.waitForEvent('download'); await page.locator(`#${id}`).click(); const download = await downloadPromise;
+    const data = JSON.parse(readLibraryZIP(await readFile(await download.path()))); expect(data.count).toBe(count); expect(data.glyphs).toHaveLength(count);
   }
 });
 test('pen inserts/removes points in a parametric line, undo restores geometry; group symmetry is scoped', async ({ page }) => {
@@ -66,7 +74,7 @@ test('app icon, per-layer colors, set settings, points and overlap diagnostics',
 test('corner rounding controls stroke joins and caps across canvas, previews and exports, and disabling restores choices', async ({ page }) => {
   await ready(page);
   await page.locator('#ioText').fill(JSON.stringify({ name: 'rounding-check', layers: [{ id: 'stroke', paint: 'stroke', node: { shape: 'path', d: 'M4 16L12 4L20 16', cap: 'butt' } }] }));
-  await page.locator('#importBtn').click();
+  await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();
   await page.locator('[data-cap="square"]').click();
   await page.locator('[data-join="miter"]').click();
   const canvas = page.locator('#gLayers path').first();
@@ -95,7 +103,7 @@ const importTree = async page => {
     { shape: 'circle', name: 'Cutout', cx: 12, cy: 12, r: 4 },
     { op: 'union', name: 'Details', children: [{ shape: 'circle', name: 'Dot', cx: 5, cy: 5, r: 1 }] },
   ] } }] }));
-  await page.locator('#importBtn').click();
+  await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();
 };
 test('right-click targets the item, changes group type/symmetry and makes an editable cutter with undo', async ({ page }) => {
   await importTree(page);
@@ -195,7 +203,7 @@ test('Radius rounds joined strokes and the isolated view agrees with the canvas'
   await page.locator('#ioText').fill(JSON.stringify({ name: 'joined-stroke', layers: [{ id: 'stroke', paint: 'stroke', node: { op: 'union', children: [
     { shape: 'line', x1: 4, y1: 4, x2: 16, y2: 4 }, { shape: 'line', x1: 16, y1: 4, x2: 16, y2: 20 },
   ] } }] }));
-  await page.locator('#importBtn').click();
+  await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();
   await page.locator('#setRoundingEnabled').check();
   await page.locator('#setEndRoundingEnabled').check();
   await page.locator('#setRounding').fill('2'); await page.locator('#setRounding').press('Tab');
@@ -213,7 +221,7 @@ test('Radius rounds joined strokes and the isolated view agrees with the canvas'
 test('desktop/mobile layout and dark theme remain readable', async ({ page }) => {
   await ready(page);
   await page.screenshot({ path: 'artifacts/workbench-desktop.png', fullPage: true });
-  await page.locator('#themeBtn').click();
+  await page.getByRole('button',{name:'Dark theme',exact:true}).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await page.screenshot({ path: 'artifacts/workbench-dark.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -224,7 +232,7 @@ test('desktop/mobile layout and dark theme remain readable', async ({ page }) =>
 test('source anchor selection and rounding tags change individual stroke tips with undo and persistence', async ({ page }) => {
   await ready(page);
   await page.locator('#ioText').fill(JSON.stringify({ name: 'tagged-tips', layers: [{ id: 'stroke', paint: 'stroke', node: { shape: 'pen', name: 'Stem', pts: [{ x: 12, y: 5 }, { x: 12, y: 20 }] } }] }));
-  await page.locator('#importBtn').click();
+  await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();
   await page.locator('#setRoundingEnabled').check();
   await page.locator('#setEndRoundingEnabled').check();
   await page.locator('#setEndRounding').fill('0.1'); await page.locator('#setEndRounding').press('Tab');
@@ -269,7 +277,7 @@ test('tip radius changes rendered pixels in runtime and baked SVG', async ({ pag
 test('corner and line-end radii are independent', async ({ page }) => {
   await ready(page);
   await page.locator('#ioText').fill(JSON.stringify({ name: 'independent-radii', layers: [{ id: 'stroke', paint: 'stroke', node: { shape: 'pen', pts: [{ x: 4, y: 4 }, { x: 16, y: 4 }, { x: 16, y: 20 }] } }] }));
-  await page.locator('#importBtn').click();
+  await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();
   await page.locator('#setEndRoundingEnabled').check();
   const path = page.locator('#gLayers > path').first();
   const tip = page.locator('#gLayers [data-stroke-tip] path').first();
@@ -305,7 +313,7 @@ test('Use as cutter toggles back to normal geometry from the context menu and in
 const screenPoint = (page, x, y) => page.evaluate(({x,y}) => { const svg=document.querySelector('#canvas'),point=svg.createSVGPoint();point.x=x;point.y=y;const screen=point.matrixTransform(svg.getScreenCTM());return {x:screen.x,y:screen.y}; },{x,y});
 test('Direct selection selects and moves multiple anchors independently from object selection', async ({page}) => {
   await ready(page);
-  await page.locator('#ioText').fill(JSON.stringify({name:'direct-fixture',layers:[{id:'lines',paint:'stroke',node:{op:'union',children:[{shape:'pen',name:'Bent line',pts:[{x:4,y:4},{x:12,y:4},{x:12,y:12},{x:20,y:12}]}]}}]}));await page.locator('#importBtn').click();await expect(page.locator('#hdrName')).toHaveText('direct-fixture');
+  await page.locator('#ioText').fill(JSON.stringify({name:'direct-fixture',layers:[{id:'lines',paint:'stroke',node:{op:'union',children:[{shape:'pen',name:'Bent line',pts:[{x:4,y:4},{x:12,y:4},{x:12,y:12},{x:20,y:12}]}]}}]}));await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();await expect(page.locator('#hdrName')).toHaveText('direct-fixture');
   await page.locator('#canvas').focus();await page.keyboard.press('v');
   const start=await screenPoint(page,4,4);await page.mouse.click(start.x,start.y);
   expect(await page.evaluate(()=>window.__gw.S.sel[0].p)).toEqual([]);
@@ -323,7 +331,7 @@ test('Direct selection selects and moves multiple anchors independently from obj
   await page.keyboard.press('p');await expect(page.locator('[data-tool="pen"]')).toHaveAttribute('aria-pressed','true');
 });
 test('rounded, square and disconnected anchors have circle, square and diamond markers', async ({page}) => {
-  await ready(page);await page.locator('#ioText').fill(JSON.stringify({name:'marker-fixture',setStyle:{rounding:1,endRounding:0},layers:[{id:'stroke',paint:'stroke',node:{shape:'pen',name:'Markers',pts:[{x:4,y:4},{x:12,y:4},{x:12,y:12,in:[0,-1],out:[1,0]},{x:20,y:12}]}}]}));await page.locator('#importBtn').click();
+  await ready(page);await page.locator('#ioText').fill(JSON.stringify({name:'marker-fixture',setStyle:{rounding:1,endRounding:0},layers:[{id:'stroke',paint:'stroke',node:{shape:'pen',name:'Markers',pts:[{x:4,y:4},{x:12,y:4},{x:12,y:12,in:[0,-1],out:[1,0]},{x:20,y:12}]}}]}));await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();
   await page.locator('[data-source-point="0::0"]').click();
   await expect(page.locator('#gSel [data-anchor="0"]')).toHaveAttribute('data-point-kind','square');
   await expect(page.locator('#gSel [data-anchor="1"]')).toHaveAttribute('data-point-kind','circle');
@@ -344,23 +352,63 @@ test('Alt-click defines persistent snap slots and shortcuts can be remapped with
 test('import originals reset after reload and exported archives retain baselines; library reset is recoverable',async({page})=>{
   await ready(page);const original={name:'reset-fixture',layers:[{id:'art',name:'Artwork',paint:'fill',node:{shape:'rect',name:'Body',x:4,y:4,w:16,h:16}}]};
   await page.locator('#impFile').setInputFiles({name:'original.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(original))});
+  await page.locator('#confirmImportBtn').click();
+  await expect(page.locator('#hdrName')).toHaveText('reset-fixture');
   await expect(page.locator('#revertBtn')).toBeDisabled();
   await page.locator('#iconDescription').fill('Edited description');await page.locator('#iconDescription').press('Tab');
   await page.waitForTimeout(400);await page.reload();await page.waitForFunction(()=>window.__gw?.ready);
   await expect(page.locator('#revertBtn')).toBeEnabled();
-  const pending=page.waitForEvent('download');await page.locator('#expOne').click();const archive=JSON.parse(await readFile(await(await pending).path(),'utf8'));
+  await page.locator('.export-options').evaluate(el=>el.open=true);const pending=page.waitForEvent('download');await page.locator('#expOne').click();const archive=JSON.parse(readLibraryZIP(await readFile(await(await pending).path())));
   expect(archive.originals[0].description).toBeUndefined();expect(archive.glyphs[0].description).toBe('Edited description');
   await page.locator('#revertBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');await page.locator('#undoBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('Edited description');
   await page.locator('#resetLibraryBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');
   await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await page.locator('#undoLibraryResetBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('Edited description');
-  await page.locator('#importMode').selectOption('add');await page.locator('#impFile').setInputFiles({name:'archive.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(archive))});
+  await page.locator('#impFile').setInputFiles({name:'archive.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(archive))});
+  await page.locator('#confirmImportBtn').click();
   await expect(page.locator('#hdrName')).toHaveText('reset-fixture-2');await page.locator('#revertBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');
 });
 
 test('Direct selection extends across paths without moving unselected anchors',async({page})=>{
-  await ready(page);await page.locator('#ioText').fill(JSON.stringify({name:'multiple-path-points',layers:[{id:'lines',paint:'stroke',node:{op:'union',children:[{shape:'pen',name:'Upper line',pts:[{x:4,y:4},{x:20,y:4}]},{shape:'pen',name:'Lower line',pts:[{x:4,y:20},{x:20,y:20}]}]}}]}));await page.locator('#importBtn').click();
+  await ready(page);await page.locator('#ioText').fill(JSON.stringify({name:'multiple-path-points',layers:[{id:'lines',paint:'stroke',node:{op:'union',children:[{shape:'pen',name:'Upper line',pts:[{x:4,y:4},{x:20,y:4}]},{shape:'pen',name:'Lower line',pts:[{x:4,y:20},{x:20,y:20}]}]}}]}));await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();
   await expect(page.locator('#hdrName')).toHaveText('multiple-path-points');await page.locator('[data-source-point="0:0:0"]').click();
   const point=await screenPoint(page,4,20);await page.keyboard.down('Shift');await page.mouse.click(point.x,point.y);await page.keyboard.up('Shift');
   await expect(page.locator('#gSel [data-anchor][data-selected="true"]')).toHaveCount(2);await page.keyboard.press('ArrowRight');
   expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children.map(node=>node.pts.map(point=>point.x)))).toEqual([[4.1,20],[4.1,20]]);
+});
+
+test('appearance card customizes colors, opacity and ruler weights independently by theme and persists',async({page})=>{
+  await ready(page);
+  await page.getByRole('button',{name:'Light theme',exact:true}).click();
+  await page.getByRole('button',{name:'Customize appearance',exact:true}).click();
+  await expect(page.getByRole('dialog',{name:'Customize appearance'})).toBeVisible();
+  await expect(page.getByRole('spinbutton',{name:'Minor grid opacity',exact:true})).toHaveValue('5');
+  await page.locator('#appearance-grid-major').fill('#aabbcc');await page.getByRole('spinbutton',{name:'Major grid opacity',exact:true}).fill('45');
+  await page.locator('#appearance-accent').fill('#cc2244');await page.getByRole('spinbutton',{name:'Rulers Tick weight',exact:true}).fill('2');await page.getByRole('spinbutton',{name:'Rulers Tick weight',exact:true}).press('Tab');
+  await expect(page.locator('#rulerTop path').first()).toHaveCSS('stroke-width','2px');
+  expect(await page.locator('#gGrid path').evaluateAll(elements=>elements.map(el=>getComputedStyle(el).stroke))).toContain('rgba(170, 187, 204, 0.45)');
+  await page.keyboard.press('Escape');await page.getByRole('button',{name:'Dark theme',exact:true}).click();
+  expect(await page.locator('html').evaluate(el=>el.style.getPropertyValue('--accent'))).toBe('');
+  await page.getByRole('button',{name:'Light theme',exact:true}).click();
+  expect(await page.locator('html').evaluate(el=>el.style.getPropertyValue('--accent'))).toBe('rgba(204,34,68,1)');
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);
+  expect(await page.locator('html').evaluate(el=>el.style.getPropertyValue('--grid-major'))).toBe('rgba(170,187,204,0.45)');
+  await page.getByRole('button',{name:'Customize appearance',exact:true}).click();await page.screenshot({path:'artifacts/appearance-card.png'});
+  await page.getByRole('button',{name:'Reset this theme',exact:true}).click();expect(await page.locator('html').evaluate(el=>el.style.getPropertyValue('--accent'))).toBe('');
+  await page.keyboard.press('Escape');await page.setViewportSize({width:390,height:844});
+  await page.getByRole('button',{name:'Customize appearance',exact:true}).click();const bounds=await page.locator('#appearancePalette').boundingBox();expect(bounds.x).toBeGreaterThanOrEqual(0);expect(bounds.x+bounds.width).toBeLessThanOrEqual(390);
+});
+
+test('primary groups organize library and ZIP folders; tags search, collapsed groups persist and bulk suggestions are reversible',async({page})=>{
+ await ready(page);await page.locator('#iconGroup').fill('Navigation/Arrows');await page.locator('#iconGroup').press('Tab');await page.locator('#iconTags').fill('pagination, table');await page.locator('#iconTags').press('Tab');
+ await expect(page.locator('.lib-group').filter({hasText:'Navigation/Arrows'})).toHaveCount(1);
+ await page.locator('#libSearch').fill('pagination');await expect(page.locator('.lib-item:visible')).toHaveCount(1);await page.locator('#libSearch').fill('');
+ const section=page.locator('.lib-group[data-group="Navigation/Arrows"]');await section.locator('summary').click();await expect(section).not.toHaveAttribute('open');
+ await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(section).not.toHaveAttribute('open');await page.locator('#libSearch').fill('table');await expect(section).toHaveAttribute('open');await page.locator('#libSearch').fill('');
+ await page.locator('#organizeLibraryBtn').click();await expect(page.locator('#organizeSummary')).toContainText('Navigation/Arrows: 3');await page.locator('#applyOrganizeBtn').click();await expect(page.locator('.lib-group')).toHaveCount(1);await expect(page.locator('#status')).toContainText('Name-based');
+ await page.locator('.export-options summary').click();await page.locator('#exportRoot').fill('icons');await page.locator('#exportRoot').press('Tab');
+ const pending=page.waitForEvent('download');await page.locator('#expAll').click();const download=await pending;expect(download.suggestedFilename()).toMatch(/\.zip$/);const bytes=await readFile(await download.path());
+ const exported=JSON.parse(readLibraryZIP(bytes));expect(exported.glyphs.filter(icon=>icon.group==='Navigation/Arrows')).toHaveLength(4);
+ // Import the ZIP through the real picker flow and cancel first: no library mutation.
+ await page.locator('#impFile').setInputFiles({name:'roundtrip.zip',mimeType:'application/zip',buffer:bytes});await expect(page.locator('#importSummary')).toContainText('4 matching existing names');await page.locator('#cancelImportBtn').click();await expect(page.locator('.lib-item')).toHaveCount(4);
+ await page.locator('#undoOrganizationBtn').click();await expect(page.locator('.lib-group')).toHaveCount(2);await expect(page.locator('#iconTags')).toHaveValue('pagination, table');
 });

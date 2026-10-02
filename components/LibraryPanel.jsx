@@ -20,15 +20,31 @@ export function LibraryPanel() {
         </select>
       </div>
       <div className="lib-meta"><span id="libCount" aria-live="polite"></span><span className="legend" aria-hidden="true"><span><i className="prov-dot" data-p="hand-built"></i>hand</span><span><i className="prov-dot" data-p="converted-stroke"></i>stroke</span><span><i className="prov-dot" data-p="imported-fill"></i>fill</span></span></div>
+      <div className="row lib-organize"><Button className="btn sm" id="organizeLibraryBtn">Suggest groups</Button><Button className="btn sm" id="undoOrganizationBtn" disabled>Undo grouping</Button></div>
+      <dialog id="organizeDialog" className="import-dialog" aria-labelledby="organizeHeading"><h2 id="organizeHeading">Suggested groups</h2><p>Based on icon names, not verified product usage. Only unassigned icons will change.</p><div id="organizeSummary"></div><div className="row"><Button className="btn" id="cancelOrganizeBtn">Cancel</Button><Button className="btn" id="applyOrganizeBtn">Apply groups</Button></div></dialog>
       <div className="lib-list" id="lib" aria-label="Glyphs"></div>
       <div className="lib-io">
-        <Button className="btn sm" id="expOne" title="Download the selected icon as JSON" data-icon-ui="export">Export icon</Button>
-        <Button className="btn sm" id="expEdited" title="Download every edited glyph as one JSON file" data-icon-ui="export">Export edited</Button>
-        <Button className="btn sm" id="expAll" title="Download the whole library, edits included, as one JSON file" data-icon-ui="export">Export all</Button>
-        <Button className="btn sm" id="impFileBtn" title="Load a library JSON file (or a single glyph JSON)" data-icon-ui="import">Import file</Button>
-        <label className="lbl" htmlFor="importMode">Import collisions</label><select id="importMode"><option value="add">Add (keep both)</option><option value="overwrite">Overwrite matching names</option></select>
+        <details className="export-options"><summary>Export ZIP</summary>
+          <div className="export-settings">
+            <label htmlFor="exportStructure">Folder structure</label><select id="exportStructure"><option value="group">By primary group</option><option value="flat">Flat — all icons together</option></select>
+            <label htmlFor="exportRoot">Root folder (optional)</label><input id="exportRoot" type="text" placeholder="icons" />
+            <label className="row"><input id="exportSVGs" type="checkbox" defaultChecked /> Include SVG files</label>
+            <p>Unassigned icons go in Ungrouped. Editable JSON and organization metadata are always included.</p>
+            <Button className="btn sm" id="expOne" data-icon-ui="export">Export icon ZIP</Button>
+            <Button className="btn sm" id="expEdited" data-icon-ui="export">Export edited ZIP</Button>
+            <Button className="btn sm" id="expAll" data-icon-ui="export">Export all ZIP</Button>
+          </div>
+        </details>
+        <Button className="btn sm" id="impFileBtn" title="Load a ZIP library or legacy JSON file" data-icon-ui="import">Import ZIP</Button>
+        <dialog id="importDialog" className="import-dialog" aria-labelledby="importHeading" aria-describedby="importSummary">
+          <h2 id="importHeading">Import icons</h2>
+          <p id="importSummary"></p>
+          <label className="row"><input type="checkbox" id="importReplace" /> Replace matching icons</label>
+          <p>Replace keeps other icons in your library. Add renames incoming icons when a name is already in use.</p>
+          <div className="row"><Button className="btn" id="cancelImportBtn">Cancel</Button><Button className="btn" id="confirmImportBtn">Add icons</Button></div>
+        </dialog>
         <div className="row"><Button className="btn sm" id="resetLibraryBtn" title="Restore imported originals; undo restores your edits">Reset library</Button><Button className="btn sm" id="undoLibraryResetBtn" disabled>Undo library reset</Button></div>
-        <input type="file" id="impFile" accept="application/json,.json" hidden />
+        <input type="file" id="impFile" accept="application/zip,.zip,application/json,.json" hidden />
       </div>
       </Collapsible.Panel>
     </Collapsible.Root>

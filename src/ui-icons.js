@@ -5,7 +5,7 @@ import {
   faScissors, faObjectGroup, faObjectUngroup, faClone, faTrash, faPlus,
   faArrowUp, faArrowDown, faRotateLeft, faRotateRight, faRotate, faArrowsUpDownLeftRight,
   faMagnifyingGlassPlus, faMagnifyingGlassMinus, faExpand, faUpload, faDownload,
-  faMoon, faSliders, faCrosshairs, faArrowsLeftRight, faArrowsUpDown, faMagnifyingGlass,
+  faMoon, faSun, faSliders, faCrosshairs, faArrowsLeftRight, faArrowsUpDown, faMagnifyingGlass,
   faBorderAll, faBullseye, faBraille, faShapes,
 } from '@fortawesome/free-solid-svg-icons';
 const ICONS = {
@@ -18,7 +18,7 @@ const ICONS = {
   'plus-outline': faPlus, up: faArrowUp, down: faArrowDown, undo: faRotateLeft, redo: faRotateRight,
   rotate: faRotate, transform: faArrowsUpDownLeftRight, anchor: faCrosshairs, guides: faCrosshairs,
   'zoom-in': faMagnifyingGlassPlus, 'zoom-out': faMagnifyingGlassMinus, fit: faExpand,
-  import: faUpload, export: faDownload, theme: faMoon, deform: faSliders,
+  import: faUpload, export: faDownload, theme: faMoon, sun: faSun, deform: faSliders,
   'flip-h': faArrowsLeftRight, 'flip-v': faArrowsUpDown, 'search-outline': faMagnifyingGlass,
   grid: faBorderAll, safe: faDrawPolygon, keylines: faBullseye, points: faBraille, forms: faShapes,
 };
