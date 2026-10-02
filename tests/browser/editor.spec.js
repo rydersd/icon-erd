@@ -447,3 +447,10 @@ test('group review arrow takes over drawing plane and highlights reconstruction 
  await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.weight)).toBe(weightBefore);
  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('.needs-reconstruction-review')).toHaveCount(1);
 });
+
+test('EDS reconstruction matching keeps starter arrows separate from renamed imported arrows',async({page})=>{
+ await ready(page);const source=await page.evaluate(()=>structuredClone(window.__gw.S.lib[0]));source.eds={iou24:1,iou96:1};await page.locator('#ioText').fill(JSON.stringify(source));await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();await expect(page.locator('#hdrName')).toHaveText('arrow-right-2');
+ const report=await page.evaluate(()=>({format:'glyph-workbench-reconstruction',version:1,sourceProject:'eds-icons',entries:[{name:'arrow-right',status:'existing',reason:'Existing paths',sourceSignature:JSON.stringify(window.__gw.core.resolve(window.__gw.S.glyph).map(layer=>({id:layer.id,paint:layer.paint,d:layer.d}))),candidate:null}]}));
+ await page.locator('#impFile').setInputFiles({name:'eds-review.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(report))});await page.locator('#confirmImportBtn').click();await expect(page.locator('#status')).toContainText('Attached 1');
+ expect(await page.evaluate(()=>window.__gw.S.lib.find(g=>g.name==='arrow-right').reconstruction)).toBeUndefined();expect(await page.evaluate(()=>window.__gw.S.lib.find(g=>g.name==='arrow-right-2').reconstruction.status)).toBe('existing');
+});

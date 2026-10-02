@@ -1983,16 +1983,17 @@ function openGroupReview(group) {
   only.onchange=()=>{for(const card of grid.children)card.hidden=only.checked&&card.dataset.needsReview!=='true';};
 }
 async function attachReconstructionReport(report) {
-  const current=S.glyph.name;let attached=0, changed=0;
+  const current=S.glyph.name;let attached=0, changed=0;const attachedNames=new Set();
   const entries=new Map(report.entries.map(entry=>[entry.name,entry]));
   S.lib=S.lib.map(glyph=>{
-    const entry=entries.get(glyph.name);if(!entry)return glyph;
+    if(report.sourceProject==='eds-icons'&&!glyph.eds){if(glyph.reconstruction?.reason==='Drawing has changed since the reconstruction source; candidate was not attached.'){const copy={...glyph};delete copy.reconstruction;attachedNames.add(glyph.name);return copy;}return glyph;}
+    const entry=entries.get(glyph.name)||(report.sourceProject==='eds-icons'?entries.get(glyph.name.replace(/-\d+$/,'')):null);if(!entry)return glyph;
     const signature=JSON.stringify(core.resolve(glyph).map(layer=>({id:layer.id,paint:layer.paint,d:layer.d})));
-    attached++;
+    attached++;attachedNames.add(glyph.name);
     if(signature!==entry.sourceSignature){changed++;return {...glyph,reconstruction:{status:'needs-review',reason:'Drawing has changed since the reconstruction source; candidate was not attached.'}};}
     return {...glyph,reconstruction:clone(entry)};
   });
-  for(const glyph of S.lib)if(entries.has(glyph.name))queueSave(glyph.name);
+  for(const name of attachedNames)queueSave(name);
   await flushSaves();renderLibrary();loadGlyph(Math.max(0,idx(current)));status(`Attached ${attached} reconstruction results${changed?`; ${changed} changed drawings flagged`:''}. Original drawings retained; review a group to compare candidates.`);
 }
 function tileTitle(g) {

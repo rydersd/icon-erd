@@ -33,7 +33,7 @@ if len(sys.argv)>1:
             item['reason']='High image match; original authoring paths remain unknown.' if good else f"Approximation needs review (IoU {item['iou384']:.3f}; width variation {item['widthVariation']:.2f}; topology {'matches' if topology else 'differs'})."
         else:item['status']='needs-review'
         passed+=item['status']=='candidate';existing+=item['status']=='existing'
-    report={'format':'glyph-workbench-reconstruction','version':1,'method':'skeleton thinning, distance-based width, fitted paths; independent raster comparison','entries':entries,'summary':{'total':len(entries),'candidates':passed,'existingCenterlines':existing,'needsReview':len(entries)-passed-existing}}
+    report={'format':'glyph-workbench-reconstruction','version':1,'sourceProject':'eds-icons','method':'skeleton thinning, distance-based width, fitted paths; independent raster comparison','entries':entries,'summary':{'total':len(entries),'candidates':passed,'existingCenterlines':existing,'needsReview':len(entries)-passed-existing}}
     (ROOT/'eds-centerline-review.json').write_text(json.dumps(report,separators=(',',':')))
     print(json.dumps(report['summary']));sys.exit()
 sources=json.loads((ROOT/'sources.json').read_text());output=[]
