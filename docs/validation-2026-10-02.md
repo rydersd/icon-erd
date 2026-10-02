@@ -43,3 +43,5 @@ This update supersedes the combined corner/end-cap rounding behavior recorded ab
 - View grid spacing is independent of Snap and persists locally.
 - Use as cutter is a checked toggle in the context menu, Layers toolbar and inspector. Toggle off restores normal geometry; when other cutters remain, their subtraction stays grouped separately.
 - `npm test`: 23 passed. Static build passed. Local Chromium suite: 17 passed, including private-pack round trips, independent radii, actual SVG raster-pixel checks, anchor tags/selection/undo/reload, grid spacing and cutter toggling. Desktop/mobile and dark-theme screenshots were inspected.
+
+Application source commit: `ee002d3`. Cloudflare version: `4c04abb3-d3bc-4508-b671-7656100a8193`. Six targeted hosted Chromium tests passed: grid spacing, joined/isolated rounding, source-anchor selection/tags, runtime/baked raster pixels, independent corner/end radii and cutter toggles. Live HTML and all nine linked Next.js assets matched the tested local build byte for byte.
