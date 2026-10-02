@@ -6,7 +6,7 @@ import { LibraryPanel } from './LibraryPanel';
 export function WorkbenchShell() {
   return <>
 <header className="bar">
-  <h1>Glyph Workbench</h1><a className="lbl credits-link" href="/third-party-notices.txt" target="_blank" rel="noreferrer">Credits</a>
+  <h1>ICONERD</h1><a className="lbl credits-link" href="/third-party-notices.txt" target="_blank" rel="noreferrer">Credits</a>
   <span className="glyph-name mono" id="hdrName"></span>
   <span className="glyph-tag" id="hdrProv"></span><span className="glyph-tag edited" id="hdrEdited" hidden>edited</span>
   <span className="spacer"></span>
@@ -82,7 +82,7 @@ export function WorkbenchShell() {
         <div className="row"><span className="lbl">Snap</span>
           <div className="seg" role="group" aria-label="Snap step" id="snapSeg">
             <Button className="btn sm" data-snap="0.1">0.1</Button><Button className="btn sm" data-snap="0.3">0.3</Button><Button className="btn sm" data-snap="0.5">0.5</Button><Button className="btn sm" data-snap="0">off</Button>
-          </div></div>
+          </div><Button className="btn sm" id="proximityMergeBtn" aria-pressed="false" data-control-tooltip="Proximity merge: merge neighboring anchors within 8 screen pixels on release; retain outer handle directions and lengths">Proximity merge</Button></div>
         <div className="row"><span className="lbl">Symmetry</span><select id="symScope" aria-label="Symmetry scope"><option value="glyph">Whole icon</option><option value="group">Selected group</option></select><span className="lbl">Mirror</span>
           <div className="seg" role="group" aria-label="Mirror symmetry">
             <Button className="btn sm" data-mirror="x" title="Mirror across vertical axis">X</Button><Button className="btn sm" data-mirror="y" title="Mirror across horizontal axis">Y</Button>

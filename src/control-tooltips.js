@@ -31,5 +31,7 @@ export function mountControlTooltips(root, listen) {
   listen(tooltip, 'mouseleave', scheduleHide);
   listen(document, 'keydown', event => { if(event.key==='Escape' && !tooltip.hidden){hide();event.stopPropagation();} }, {capture:true});
   listen(window, 'resize', hide);
-  listen(document, 'scroll', hide, {capture:true});
+  // Keyboard focus can scroll the toolbar into view after its focus event.
+  // Keep that tooltip attached to the focused control at its new position.
+  listen(document, 'scroll', () => { if(owner === document.activeElement)show(owner);else hide(); }, {capture:true});
 }

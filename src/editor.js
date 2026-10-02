@@ -1,4 +1,4 @@
-import { formsIn, findSharedForms, linkSharedForms, publishSharedForms, remapSharedForms } from './shared-forms.js';
+import { formsIn, findSharedForms, linkSharedForms, publishSharedForms, remapSharedForms, collectComponents, projectComponents, makeComponent } from './shared-forms.js';
 import { mountControlTooltips } from './control-tooltips.js';
 import { createGlyphCore } from './glyph-core.js';
 import { LIBRARY } from './starter-library.js';
@@ -13,6 +13,8 @@ import paper from 'paper/dist/paper-core.js';
 import { downloadBlob, svgToPNG } from './downloads.js';
 import { TEMPLATES, DEFAULT_SHAPES, PRIMARY_TOOLS, MORE_TOOLS } from './templates.js';
 import { ID, mul, ap, apv, inv } from './affine.js';
+import { regularEllipse } from './regular-shape.js';
+import { mergeNearbyAnchors } from './anchor-merge.js';
 import { anchorMarker } from './anchor-marker.js';
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, setShortcut, shortcutFromEvent } from './shortcuts.js';
 import { inspectGeometry } from './geometry-inspection.js';
@@ -49,6 +51,7 @@ const S = {
   lib: LIBRARY.slice(), cur: 0, glyph: null,
   sel: [], // [{l, p:null|[...]}]
   snap: 0.1, view: { x: -1, y: -1, s: 26 },
+  components: new Map(), proximityMerge: false,
   gridStep: null,
   show: { grid: true, safe: true, artboard: true, guides: true, keylines: true, forms: false, original: false, cutters: false, points: true },
   iso: null, // isolated object {l, p:null|[...]}; everything else dims and stops taking clicks
@@ -144,6 +147,8 @@ async function loadSaved() {
     EDITS.set(r.name, r);
   }
 
+  try { const definitions = await DB.run('readonly', store=>store.get('component-definitions'), 'snapshots'); if (definitions?.components) { S.components = new Map(definitions.components.map(c=>[c.id,c])); projectComponents(S.lib,S.components,core); } } catch {}
+  try { const saved = await DB.run('readonly', store=>store.get('edit-history'), 'snapshots'); if (saved) { S.undo = saved.undo || []; S.redo = saved.redo || []; } } catch {}
   try { libraryTrash = (await DB.run('readonly', store=>store.get('library-trash'), 'snapshots'))?.entries || []; syncLibrarySelection(); } catch {}
   try { organizationBackup = await DB.run('readonly', store=>store.get('library-organization'), 'snapshots'); $('undoOrganizationBtn').disabled = !organizationBackup; } catch {}
   try { libraryResetBackup = await DB.run('readonly', store => store.get('library-reset'), 'snapshots'); $('undoLibraryResetBtn').disabled = !libraryResetBackup; } catch {}
@@ -154,6 +159,12 @@ listen(document, 'visibilitychange', () => { if (document.visibilityState === 'h
 
 // ---------- history ----------
 let lastSnap = null;
+function saveHistory() {
+  if (!DB.db) return;
+  S.components = collectComponents(S.lib,core); renderComponents();
+  const snapshot = { id: 'edit-history', undo: clone(S.undo), redo: clone(S.redo) };
+  DB.run('readwrite', (store)=>{ store.put({id:'component-definitions',components:[...S.components.values()].map(clone)}); return store.put(snapshot); }, 'snapshots').catch(error=>status(`Undo history could not be saved: ${error.message}`,true));
+}
 function commit(peerHistory = []) {
   ensureLayerNames(S.glyph);
   if (JSON.stringify(S.glyph) === lastSnap && !peerHistory.length) return;
@@ -161,11 +172,11 @@ function commit(peerHistory = []) {
   // Peers are immutable library slots outside this publication boundary.
   const peers = publishSharedForms(S.glyph, before, S.lib.filter((_,i)=>i!==S.cur), core);
   const history = new Map([...peers,...peerHistory].map(g=>[g.name,g]));
-  if (lastSnap) { S.undo.push({glyph:lastSnap, peers:[...history.values()]}); if (S.undo.length > 300) S.undo.shift(); }
+  if (lastSnap) { S.undo.push({name:S.glyph.name,glyph:lastSnap, peers:[...history.values()]}); if (S.undo.length > 300) S.undo.shift(); }
   S.redo = []; lastSnap = JSON.stringify(S.glyph); storeCurrent();
   for(const name of history.keys()){queueSave(name);updateLibItem(name);}
   journalSharedChanges([...history.keys()]);
-  updateHistoryBtns();
+  saveHistory(); updateHistoryBtns();
 }
 function journalSharedChanges(names) {
   if(!names.length)return;
@@ -191,15 +202,19 @@ function storeCurrent() {
 function restoreHistory(from,to) {
   if(!from.length)return;
   penDraft=null;
-  const entry=from.pop();
-  to.push({glyph:lastSnap,peers:entry.peers.map(g=>S.lib[idx(g.name)]).filter(Boolean).map(clone)});
+  const entry=from[from.length-1];
+  const target = idx(entry.name || JSON.parse(entry.glyph).name);
+  if (target < 0) { status('This edit belongs to an icon outside the current library. Restore its checkpoint first.',true); return; }
+  from.pop();
+  if (S.cur !== target) loadGlyph(target);
+  to.push({name:JSON.parse(entry.glyph).name,glyph:lastSnap,peers:entry.peers.map(g=>S.lib[idx(g.name)]).filter(Boolean).map(clone)});
   for(const peer of entry.peers){const at=idx(peer.name);if(at>=0){S.lib[at]=clone(peer);queueSave(peer.name);updateLibItem(peer.name);}}
   const oldWeight=S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
   lastSnap=entry.glyph;S.glyph=JSON.parse(lastSnap);storeCurrent();
   const restoredWeight=S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
   if(oldWeight!==restoredWeight)S.rt.weight=restoredWeight;
   journalSharedChanges(entry.peers.map(g=>g.name));
-  pruneSel();renderAll();updateHistoryBtns();
+  pruneSel();renderAll();markCurrent();saveHistory();updateHistoryBtns();
 }
 function undo() {restoreHistory(S.undo,S.redo);}
 function redo() {restoreHistory(S.redo,S.undo);}
@@ -209,9 +224,67 @@ function revert() {
   penDraft = null; S.glyph = clone(o); S.sel = []; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
   commit(); renderAll(); status('Reset to the imported original. Undo brings your edit back.');
 }
+function currentLibraryVersion(name) {
+  return { id: `version-${crypto.randomUUID()}`, name, createdAt: Date.now(), current: S.glyph.name,
+    document: libraryDocument(S.lib,'all',ORIG,collectComponents(S.lib,core)) };
+}
+async function saveLibraryVersion(name) {
+  if (!DB.db) throw new Error('Browser storage is unavailable; export a ZIP instead.');
+  if (penDraft) finishPen();
+  const version = currentLibraryVersion(name);
+  await DB.run('readwrite', store=>store.put(version),'snapshots');
+  return version;
+}
+async function showLibraryVersions() {
+  const list = $('libraryVersionsList'); list.replaceChildren();
+  const versions = await DB.run('readonly', store=>store.getAll(),'snapshots');
+  for (const version of versions.filter(v=>v.id.startsWith('version-')).sort((a,b)=>b.createdAt-a.createdAt)) {
+    const row = document.createElement('div'); row.className = 'version-row';
+    const label = document.createElement('span'); label.textContent = `${version.name} · ${new Date(version.createdAt).toLocaleString()} · ${version.document.glyphs.length} icons`;row.appendChild(label);
+    row.appendChild(smallBtn('Restore',async()=>{
+      try { await restoreLibraryVersion(version); await showLibraryVersions(); } catch(error) { status(`Restore failed: ${error.message}`,true); }
+    },`Restore ${version.name}`));
+    row.appendChild(smallBtn('Download ZIP',async()=>{
+      try { const bytes = await libraryZIP(version.document,g=>core.toSVG(g,{mode:'baked'}));downloadBlob(`iconerd-${version.name.replace(/[^a-z0-9-]/gi,'-')}.zip`,new Blob([bytes],{type:'application/zip'})); }
+      catch(error) { status(`Version export failed: ${error.message}`,true); }
+    },`Download ${version.name}`));
+    list.appendChild(row);
+  }
+}
+async function restoreLibraryVersion(version) {
+  if (penDraft) finishPen();
+  await flushSaves();
+  const archive = version.document.glyphs.length ? parseLibraryArchive(JSON.stringify(version.document)) : {glyphs:[],originals:new Map(),components:new Map()};
+  projectComponents(archive.glyphs,archive.components,core);
+  for (const glyph of archive.glyphs) if (core.resolve(glyph).some(layer=>layer.error)) throw new Error(`Invalid geometry in ${glyph.name}`);
+  const safety = currentLibraryVersion(`Before restoring ${version.name}`);
+  const names = new Set(archive.glyphs.map(g=>g.name));
+  const records = archive.glyphs.map(g=>({name:g.name,glyph:clone(g),original:archive.originals.get(g.name) || clone(g),savedAt:Date.now()}));
+  for (const name of SHIPPED.keys()) if (!names.has(name)) records.push({name,deleted:true,savedAt:Date.now()});
+  await DB.run('readwrite',(store,tx)=>{
+    store.clear();records.forEach(record=>store.put(record));
+    const snapshots=tx.objectStore('snapshots');snapshots.put(safety);
+    snapshots.put({id:'edit-history',undo:[],redo:[]});snapshots.put({id:'component-definitions',components:[...archive.components.values()]});
+    snapshots.put({id:'library-trash',entries:[]}); snapshots.delete('library-reset'); snapshots.delete('library-organization');
+  },'edits',['snapshots']);
+  S.lib = archive.glyphs; ORIG.clear();for(const record of records)if(record.original)ORIG.set(record.name,clone(record.original));
+  EDITS.clear();records.forEach(record=>EDITS.set(record.name,record));deletedIcons.clear();records.filter(r=>r.deleted).forEach(r=>deletedIcons.add(r.name));
+  S.undo=[];S.redo=[];libraryTrash=[];libraryResetBackup=null;organizationBackup=null;librarySelection.clear();
+  $('undoLibraryResetBtn').disabled=true;$('undoOrganizationBtn').disabled=true;
+  try { localStorage.removeItem('gw-open-pending-glyph');localStorage.removeItem('gw-open-pending-components'); } catch {}
+  renderLibrary();loadGlyph(Math.max(0,idx(version.current)));setSaveState('saved');
+  status(`Restored ${version.name}. The previous library is retained as a safety checkpoint.`);
+}
+$('libraryVersionsBtn').onclick = async()=>{try { await showLibraryVersions();$('libraryVersionsDialog').showModal(); }catch(error){status(error.message,true);} };
+$('saveLibraryVersionBtn').onclick = async()=>{
+  const name=$('versionName').value.trim();if(!name){$('versionName').focus();return;}
+  try { await saveLibraryVersion(name);$('versionName').value='';await showLibraryVersions();status(`Saved checkpoint: ${name}.`); }catch(error){status(error.message,true);}
+};
+$('closeLibraryVersionsBtn').onclick = ()=>$('libraryVersionsDialog').close();
 async function resetLibrary() {
   if (penDraft) finishPen();
   if (!DB.db) { status('Reset needs browser storage so your edits can be restored.', true); return; }
+  try { await saveLibraryVersion('Before resetting library'); } catch(error) { status(error.message,true);return; }
   const current = S.glyph.name;
   const snapshot = { id: 'library-reset', glyphs: clone(S.lib), originals: [...ORIG.values()].map(clone), current };
   try { await DB.run('readwrite', store => store.put(snapshot), 'snapshots'); }
@@ -265,8 +338,9 @@ function status(msg, err) { const el = $('status'); el.textContent = msg || ''; 
 // ---------- load ----------
 function loadGlyph(i) {
   closeGroupReview();
-  S.cur = i; S.glyph = clone(S.lib[i] || TEMPLATES.blank()); S.sel = []; S.undo = []; S.redo = []; lastSnap = JSON.stringify(S.glyph); penDraft = null; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
+  S.cur = i; S.glyph = clone(S.lib[i] || TEMPLATES.blank()); S.sel = []; lastSnap = JSON.stringify(S.glyph); penDraft = null; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
   ensureLayerNames(S.glyph); lastSnap = JSON.stringify(S.glyph);
+  S.components = collectComponents(S.lib,core); renderComponents();
   S.rt.weight = S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
   renderAll(); markCurrent(); updateHistoryBtns(); updateGlyphTags(); status('');
   try { localStorage.setItem('gw-current', S.glyph.name); } catch (e) {}
@@ -659,6 +733,24 @@ function renderGuides() {
   }
 }
 let activeHandles = [];
+let handlePointer = null;
+function handleAt(pos) {
+  const tolerance = 8 / pxPerUnit();
+  return activeHandles.find(h => Math.hypot(h.x-pos.x, h.y-pos.y) <= tolerance)
+    || axisHandles.find(h => Math.hypot(h.x-pos.x, h.y-pos.y) <= tolerance);
+}
+function renderHandleHover() {
+  let overlay = $('gHandleHover');
+  if (!overlay) overlay = el('g', { id: 'gHandleHover', 'pointer-events': 'none', 'aria-hidden': 'true' }, cv);
+  overlay.replaceChildren();
+  const hit = handlePointer && !drag && !penDraft ? handleAt(handlePointer) : null;
+  cv.removeAttribute('data-handle-hover');
+  if (!hit) return;
+  cv.setAttribute('data-handle-hover', hit.kind);
+  const attrs = { cx: hit.x, cy: hit.y, r: 9 / pxPerUnit(), fill: 'none', ...NS };
+  el('circle', { ...attrs, stroke: 'var(--canvas-bg)', 'stroke-width': 5 }, overlay);
+  el('circle', { ...attrs, stroke: 'var(--sel)', 'stroke-width': 2 }, overlay);
+}
 let penHover = null;
 let insertHover = null; // pen tool over an outline: where a click would add an anchor
 /** selection-dependent overlays: forms, symmetry ghosts, axes, isolation bar */
@@ -832,6 +924,7 @@ function renderSelection() {
       if (penHover) { const last = ap(M, pn.pts[pn.pts.length - 1]); el('path', Object.assign({ d: `M${last.x} ${last.y}L${penHover.x} ${penHover.y}`, stroke: 'var(--sel)', 'stroke-width': 1, 'stroke-dasharray': '3 3' }, NS), gS); }
     }
   }
+  renderHandleHover();
 }
 function toUnits(ev) { const pt = cv.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const q = pt.matrixTransform(cv.getScreenCTM().inverse()); return { x: q.x, y: q.y }; }
 function hitForm(pos) {
@@ -963,14 +1056,16 @@ let drag = null;
 function restore(n, snap) { Object.keys(n).forEach(k => delete n[k]); Object.assign(n, clone(snap)); }
 listen(cv, 'pointerdown', ev => {
   if(ev.button === 2)return;
+  handlePointer = null; renderHandleHover();
   if (ev.button === 1 || ev.altKey && S.tool === 'select' && !activeHandles.length) { drag = { pan: true, x: ev.clientX, y: ev.clientY, v: Object.assign({}, S.view) }; cv.classList.add('panning'); cv.setPointerCapture(ev.pointerId); return; }
   const pos = toUnits(ev); const px = 1 / pxPerUnit();
   cv.focus({ preventScroll: true });
   const now = performance.now();
   if (S.tool === 'select' && ev.button === 0 && !ev.altKey && lastDown && now - lastDown.t < 400 && Math.hypot(ev.clientX - lastDown.x, ev.clientY - lastDown.y) < 5) { lastDown = null; drag = null; onDoubleClick(ev); return; }
   lastDown = { t: now, x: ev.clientX, y: ev.clientY };
-  const hit = activeHandles.find(h => Math.hypot(h.x - pos.x, h.y - pos.y) <= 8 * px);
-  const axh = !hit && axisHandles.find(h => Math.hypot(h.x - pos.x, h.y - pos.y) <= 8 * px);
+  const candidate = handleAt(pos);
+  const hit = candidate && activeHandles.includes(candidate) ? candidate : null;
+  const axh = !hit && candidate;
   if (axh) {
     const sym = symObj(axh.sc); const a = core.axisOf(sym);
     drag = { kind: axh.kind, sc: axh.sc, sym, start: a, Mi: inv(axh.sc.M), from: pos, moved: false };
@@ -1042,6 +1137,7 @@ listen(cv, 'pointerdown', ev => {
 });
 listen(cv, 'pointermove', ev => {
   const pos = toUnits(ev);
+  handlePointer = pos; renderHandleHover();
   if (!drag) {
     if (S.tool === 'pen' && penDraft) { penHover = snapPt(pos); renderSelection(); }
     else if (S.tool === 'pen') { const o = hitOutline(pos); const had = !!insertHover; insertHover = o ? { x: o.x, y: o.y } : null; cv.classList.toggle('insert', !!o); if (o || had) renderSelection(); }
@@ -1102,6 +1198,24 @@ listen(cv, 'pointermove', ev => {
     drag.moved = true; refresh(false);
   }
 });
+function mergeDraggedAnchors() {
+  if (!S.proximityMerge || !drag.moved) return 0;
+  const anchors = drag.kind === 'anchors' ? drag.starts.map(a => ({ selection: a.selection, index: a.index }))
+    : drag.kind === 'handle' && drag.h.kind === 'pt' && drag.h.ai != null ? [{ selection: drag.s, index: drag.h.ai }] : [];
+  let merged = 0;
+  const selections = anchors.map(a => a.selection).filter((s,i,all) => all.findIndex(other => same(s,other)) === i);
+  for (const selection of selections) {
+    const node = getNode(selection);
+    const result = mergeNearbyAnchors(node, anchors.filter(a => same(a.selection,selection)).map(a => a.index), fullMatrix(selection), 8/pxPerUnit());
+    if (!result.merged) continue;
+    merged += result.merged;
+    S.selectedAnchors = S.selectedAnchors.map(a => same(a.selection,selection) ? { ...a, index: result.indexMap[a.index] } : a)
+      .filter((a,i,all) => all.findIndex(other => same(a.selection,other.selection) && a.index === other.index) === i);
+    if (same(primarySel(),selection) && S.anchor != null) S.anchor = result.indexMap[S.anchor];
+    S.sourceAnchor = null;
+  }
+  return merged;
+}
 function endDrag(ev) {
   if (!drag) return; cv.classList.remove('panning');
   if (drag.kind === 'pen') { penUp(); drag = null; return; }
@@ -1112,11 +1226,12 @@ function endDrag(ev) {
     if (!S.glyph.guides.length) delete S.glyph.guides;
     commit(); renderGuides(); renderRulers(); drag = null; return;
   }
-  if (drag.moved) { commit(); renderInspector(); renderTree(); }
+  if (drag.moved) { const merged = mergeDraggedAnchors(); commit(); refresh(true); if (merged) status(`Merged ${merged} neighboring anchor pair${merged === 1 ? '' : 's'} at their average position.`); }
   drag = null;
 }
-listen(cv, 'pointerup', endDrag); listen(cv, 'pointercancel', endDrag);
-listen(cv, 'pointerleave', () => { if (penHover || insertHover) { penHover = null; insertHover = null; renderSelection(); } });
+listen(cv, 'pointerup', ev => { endDrag(ev); handlePointer = toUnits(ev); renderHandleHover(); });
+listen(cv, 'pointercancel', ev => { endDrag(ev); handlePointer = null; renderHandleHover(); });
+listen(cv, 'pointerleave', () => { handlePointer = null; renderHandleHover(); if (penHover || insertHover) { penHover = null; insertHover = null; renderSelection(); } });
 // double-click is detected from pointerdowns: the canvas re-renders between the two clicks, so the native
 // dblclick (which needs both clicks on the same element) is unreliable here
 let lastDown = null;
@@ -1176,7 +1291,11 @@ function penDrag(pos) {
   if (Math.hypot(v[0], v[1]) < 0.15) { delete a.out; delete a.in; } else { a.out = v; a.in = [-v[0], -v[1]]; }
   drag.moved = true; refresh(false);
 }
-function penUp() { commit(); refresh(true); }
+function penUp() {
+  const node = penDraft && getNode(penDraft.s);
+  if (S.proximityMerge && node) mergeNearbyAnchors(node, [node.pts.length-1], fullMatrix(penDraft.s), 8/pxPerUnit(), 1);
+  commit(); refresh(true);
+}
 function finishPen(msg) {
   if (!penDraft) return;
   const n = getNode(penDraft.s);
@@ -1329,6 +1448,15 @@ function groupMenu(selection, node) {
     $('symScope').value = 'group'; S.sel = [selection]; commit(); refresh(true);
   }, node.symmetry?.rotate === 6 && !node.symmetry?.mirror);
 }
+function regularizeSelections(selections = S.sel) {
+  const replacements = selections.filter(s=>s.p!==null).map(selection=>({selection,node:regularEllipse(getNode(selection),core)})).filter(item=>item.node);
+  if (!replacements.length) return;
+  for (const {selection,node} of replacements) {
+    if(selection.p.length)getParent(selection).children[selection.p.at(-1)]=node;else layerOf(selection).node=node;
+  }
+  S.anchor=null;S.selectedAnchors=[];S.sourceAnchor=null;
+  commit();refresh(true);status(`Converted ${replacements.length} object${replacements.length===1?'':'s'} to regular circle/ellipse shapes with four anchors. Undo restores the original contours.`);
+}
 function snapSelectedAnchors() {
   if(!S.snap)return;
   const selected=S.selectedAnchors.length ? S.selectedAnchors : S.anchor!=null && primarySel()?.p!==null ? [{selection:primarySel(),index:S.anchor}] : [];
@@ -1377,6 +1505,7 @@ function openCanvasMenu(event) {
     if(S.sel.length>1)for(const op of ['union','subtract','intersect','exclude'])menuAction(op[0].toUpperCase()+op.slice(1),op,()=>group(op));
     if(node?.component)menuAction('Detach shared instance','ungroup',()=>{delete node.component;commit();refresh(true);});
   } else menuAction('Select all objects','select',()=>{S.sel=S.glyph.layers.map((_,l)=>({l,p:[]}));refresh(true);});
+  if(S.sel.some(s=>s.p!==null && regularEllipse(getNode(s),core)))menuAction('Convert to circle/ellipse (4 anchors)','circle',()=>regularizeSelections());
   const bounds=cv.getBoundingClientRect();
   openPopup(itemMenu,cv,keyboard?bounds.left+bounds.width/2:event.clientX,keyboard?bounds.top+bounds.height/2:event.clientY,()=>cv);
 }
@@ -1400,6 +1529,7 @@ function openTreeMenu(selection, event) {
       layer.paint = paint; commit(); refresh(true);
     }, (layer.paint || 'stroke') === paint);
   }
+  if (node && regularEllipse(node,core)) menuAction('Convert to circle/ellipse (4 anchors)','circle',()=>regularizeSelections([selection]));
   if (node) menuAction('Use as cutter', 'cutter', cutterAction, !!selection.p.length && getParent(selection).op === 'subtract' && selection.p.at(-1) > 0, !selection.p.length || getParent(selection).children.length < 2);
   const row = treeRow(selection), bounds = row.getBoundingClientRect();
   openPopup(itemMenu, row, event.type === 'contextmenu' ? event.clientX : bounds.left, event.type === 'contextmenu' ? event.clientY : bounds.bottom, () => treeRow(selection));
@@ -1608,9 +1738,12 @@ function move(dir) {
 }
 function duplicate() {
   const s = primarySel(); if (!s) return;
+  const node = s.p === null ? layerOf(s).node : getNode(s);
+  const enclosing = formsIn(S.glyph).some(f=>f.node.component && f.l===s.l && f.p.length < (s.p?.length || 0) && prefixOf(f.p,s.p));
+  if (!enclosing && !formsIn({layers:[{node}]}).some(f=>f.p.length && f.node.component)) makeComponent(node,node.name || node.shape || 'Component',core,crypto.randomUUID());
   if (s.p === null || s.p.length === 0) { const L = clone(layerOf(s)); L.id = L.id + '-copy'; L.name = (L.name || L.id) + ' copy'; S.glyph.layers.splice(s.l + 1, 0, L); S.sel = [{ l: s.l + 1, p: s.p }]; }
   else { const par = getParent(s); const i = s.p[s.p.length - 1]; par.children.splice(i + 1, 0, clone(par.children[i])); S.sel = [{ l: s.l, p: s.p.slice(0, -1).concat(i + 1) }]; }
-  commit(); refresh(true); status('Duplicated in place — nudge with the arrow keys.');
+  commit(); refresh(true); status('Duplicated in place as an instance. Geometry edits update linked instances; movement and transforms stay local.');
 }
 function del() {
   if (!S.sel.length) return;
@@ -1768,6 +1901,21 @@ function renderInspectorTransformOnly() {
   const set = (k, v) => { const i = box.querySelector(`[data-key="${k}"]`); if (i && document.activeElement !== i) i.value = v; };
   set('ox', r4(t.origin[0])); set('oy', r4(t.origin[1])); set('rot', t.rotate || 0); set('sx', r4((t.scaleX || 1) * 100)); set('sy', r4((t.scaleY || 1) * 100));
 }
+function renderComponents() {
+  const list = $('componentList'); list.replaceChildren();
+  for (const component of S.components.values()) {
+    const instances = S.lib.flatMap(formsIn).filter(f=>f.node.component?.id === component.id);
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'btn sm';
+    button.textContent = `${component.name} · ${instances.length}`;
+    button.setAttribute('aria-label', `Edit component ${component.name}, ${instances.length} instances`);
+    button.onclick = () => {
+      const first = instances[0]; if (!first) return;
+      loadGlyph(idx(first.glyph.name)); S.sel = [{l:first.l,p:first.p}]; refresh(true);
+    };
+    list.appendChild(button);
+  }
+  if (!list.children.length) list.textContent = 'Duplicate a shape to create its component.';
+}
 let sharedCandidates = [];
 function linkFormGroup(candidate,name) {
   if(!candidate?.members.length)return;
@@ -1776,6 +1924,8 @@ function linkFormGroup(candidate,name) {
   const library=S.lib.map((g,i)=>i===S.cur?S.glyph:g);
   const fresh=findSharedForms(library,core).find(group=>group.members.some(f=>f.glyph.name===candidate.members[0].glyph.name && f.l===candidate.members[0].l && JSON.stringify(f.p)===JSON.stringify(candidate.members[0].p)));
   if(!fresh){status('These forms changed. Scan again before linking.',true);return;}
+  const source=fresh.members.find(f=>f.glyph.name===current && S.sel.some(s=>s.l===f.l && JSON.stringify(s.p)===JSON.stringify(f.p)));
+  if(source)fresh.members=[source,...fresh.members.filter(f=>f!==source)];
   const peers=[...new Set(fresh.members.map(f=>f.glyph))].filter(g=>g.name!==current).map(clone);
   linkSharedForms(fresh,name || fresh.name,core,crypto.randomUUID());
   commit(peers);refresh(true);
@@ -1803,7 +1953,7 @@ function openSharedForms(selection) {
 function renderSharedCandidates() {
   const list=$('sharedFormsList');list.replaceChildren();const query=$('sharedFormsSearch').value.toLowerCase();
   const groups=sharedCandidates.filter(group=>[group.name,...group.members.map(f=>f.glyph.name)].join(' ').toLowerCase().includes(query));
-  $('sharedFormsSummary').textContent=`${groups.length} repeated forms${groups.length>50 ? " (showing first 50; filter to narrow)" : ""}. Exact matches retain geometry. Near matches adopt the first instance’s geometry (maximum difference 0.03 units). Links are saved and included in ZIP exports.`;
+  $('sharedFormsSummary').textContent=`${groups.length} repeated forms${groups.length>50 ? " (showing first 50; filter to narrow)" : ""}. Exact matches retain geometry. Near matches adopt the first instance’s geometry (within 0.6% of form size; each instance retains its own scale). Links are saved and included in ZIP exports.`;
   for(const group of groups.slice(0,50)) {
     const card=document.createElement('section');card.className='shared-form-card';
     const heading=document.createElement('strong');heading.textContent=`${group.approximate?'Near match':'Exact repeat'} · ${group.members.length} instances`;card.appendChild(heading);
@@ -2238,6 +2388,7 @@ function symmetryTarget() {
   return node?.children ? node : null;
 }
 function syncToggles() {
+  $('proximityMergeBtn').setAttribute('aria-pressed', String(!!S.proximityMerge));
   const selection = primarySel();
   const cutter = !!selection?.p?.length && getParent(selection)?.op === 'subtract' && selection.p.at(-1) > 0;
   $('makeCutterBtn').setAttribute('aria-pressed', String(cutter));
@@ -2277,6 +2428,12 @@ try {
     saved.slots.forEach((value, index) => { snapButtons[index].dataset.snap = value; snapButtons[index].textContent = value ? String(value) : 'off'; }); S.snap = saved.active;
   }
 } catch {}
+try { S.proximityMerge = localStorage.getItem('gw-proximity-merge') === 'true'; } catch {}
+$('proximityMergeBtn').onclick = () => {
+  S.proximityMerge = !S.proximityMerge;
+  try { localStorage.setItem('gw-proximity-merge', String(S.proximityMerge)); } catch {}
+  syncToggles();
+};
 const saveSnap = () => { try { localStorage.setItem('gw-snap-preferences', JSON.stringify({ slots: snapButtons.map(button => +button.dataset.snap), active: S.snap })); } catch {} };
 snapButtons.forEach(button => button.onclick = event => {
   if (!event.altKey) { S.snap = +button.dataset.snap; saveSnap(); syncToggles(); renderInspector(); return; }
@@ -2340,7 +2497,7 @@ for (const id of ['exportStructure','exportRoot','exportSVGs']) {
   $(id).onchange=()=>{try{localStorage.setItem(`gw-${id}`,id==='exportSVGs'?String($(id).checked):$(id).value);}catch{}};
 }
 const io = $('ioText');
-$('expJson').onclick = () => { if (penDraft) finishPen(); io.value = JSON.stringify(libraryDocument([S.glyph], 'one', ORIG), null, 2); status('Editable JSON and reset original in the box — Copy, or edit and Import.'); };
+$('expJson').onclick = () => { if (penDraft) finishPen(); io.value = JSON.stringify(libraryDocument([S.glyph], 'one', ORIG, S.components), null, 2); status('Editable JSON and reset original in the box — Copy, or edit and Import.'); };
 $('expSvg').onclick = () => { io.value = core.toSVG(S.glyph); status('Runtime SVG: weight, caps, joins and role colours come from CSS vars.'); };
 $('expBaked').onclick = () => { io.value = core.toSVG(S.glyph, { mode: 'baked', weight: S.rt.weight, cap: S.rt.cap, join: S.rt.join }); status('Baked SVG at the current runtime settings.'); };
 $('copyBtn').onclick = async () => {
@@ -2363,7 +2520,7 @@ async function exportLibrary(scope) {
   if (!glyphs.length) { status('No glyphs to export.', true); return; }
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
   try {
-    const data = await libraryZIP(libraryDocument(glyphs, scope, ORIG), glyph => core.toSVG(glyph, { mode: 'baked', weight: glyph.setStyle?.thickness ?? glyph.weight ?? 1.2 }), { structure: $('exportStructure').value, root: $('exportRoot').value, includeSVG: $('exportSVGs').checked });
+    const data = await libraryZIP(libraryDocument(glyphs, scope, ORIG, S.components), glyph => core.toSVG(glyph, { mode: 'baked', weight: glyph.setStyle?.thickness ?? glyph.weight ?? 1.2 }), { structure: $('exportStructure').value, root: $('exportRoot').value, includeSVG: $('exportSVGs').checked });
     downloadBlob(`glyph-library-${scope}-${stamp}.zip`, new Blob([data], { type: 'application/zip' }));
   } catch (error) { status(`Export: ${error.message}`, true); return; }
   status(`Exported ${glyphs.length} glyph${glyphs.length === 1 ? '' : 's'}.`);
@@ -2414,13 +2571,16 @@ async function importLibraryText(text, fileName, mode = 'add') {
       if (errors.length) throw new Error(`${glyph.name}: ${errors[0].error}`);
     }
     if (penDraft) finishPen();
+    if (archive.components.size) projectComponents(glyphs,archive.components,core);
     const ids=remapSharedForms(glyphs,()=>crypto.randomUUID());
     for(const original of archive.originals.values())for(const {node} of formsIn(original))if(node.component && ids.has(node.component.id))node.component.id=ids.get(node.component.id);
     result = mergeLibrary(S.lib, glyphs, mode);
   } catch (error) { status(`Import: ${error.message}`, true); return null; }
   if (penDraft) finishPen();
   const current = S.glyph.name;
+  try { await saveLibraryVersion(`Before importing ${fileName || 'icons'}`); } catch(error) { status(error.message,true); return null; }
   S.lib = result.library;
+  S.undo=[];S.redo=[];saveHistory();
   result.names.forEach((name, index) => { const source = archive.glyphs[index]; ORIG.set(name, { ...clone(archive.originals.get(source.name) || source), name }); });
   for (const name of result.names) queueSave(name);
   await flushSaves();
@@ -2488,6 +2648,9 @@ const ready = (async () => {
   let last = null; try { last = localStorage.getItem('gw-current'); } catch (e) {}
   const at = last ? idx(last) : -1;
   loadGlyph(at >= 0 ? at : 0);
+  if (DB.db) {
+    try { const snapshots=await DB.run('readonly',store=>store.getAll(),'snapshots'); if(!snapshots.some(v=>v.id.startsWith('version-')))await saveLibraryVersion('Initial library checkpoint'); }catch(error){status(error.message,true);}
+  }
   window.__gw.ready = true; window.__gw.readyAt = performance.now();
 })();
 return {

@@ -31,7 +31,7 @@ test('file import add/overwrite, atomic rejection, and single/all downloads', as
   await page.locator('#impFile').setInputFiles({ name: 'replace.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(source)) });
   await page.locator('#importReplace').check();await page.locator('#confirmImportBtn').click();
   await expect(page.locator('.lib-item')).toHaveCount(5);
-  expect(await page.evaluate(() => window.__gw.S.lib[0].description)).toBe('Updated');
+  await expect.poll(()=>page.evaluate(() => window.__gw.S.lib[0].description)).toBe('Updated');
   await page.locator('#ioText').fill(JSON.stringify([source, { name: 'invalid', layers: [{}] }])); await page.locator('#importBtn').click();
   await expect(page.locator('#status')).toContainText('Import:'); await expect(page.locator('.lib-item')).toHaveCount(5);
   for (const [id, count] of [['expOne', 1], ['expAll', 5]]) {

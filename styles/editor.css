@@ -306,3 +306,12 @@ textarea { height: auto; padding: 6px; width: 100%; resize: vertical; font-famil
 .tree-tools [data-group] { width: 28px; height: 28px; }
 
 .item-menu button:disabled { opacity: .45; cursor: default; }
+
+#canvas[data-handle-hover] { cursor: grab; }
+#canvas[data-handle-hover="tscale"] { cursor: nwse-resize; }
+#canvas[data-handle-hover="torigin"] { cursor: move; }
+
+.component-library { padding: 8px; }
+#componentList { display: flex; flex-wrap: wrap; gap: 4px; }
+.version-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.version-row > span { flex: 1; }

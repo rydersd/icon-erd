@@ -36,6 +36,7 @@ export function normalizeGlyph(input) {
       const c=node.component;
       if(!c || typeof c.id!=='string' || !c.id || c.id.length>128 || typeof c.name!=='string' || c.name.length>256 || !Array.isArray(c.origin) || c.origin.length!==2 || !c.origin.every(Number.isFinite))throw new Error(`${glyph.name}: invalid shared form instance`);
     }
+    if (node.component?.scale != null && (!Number.isFinite(node.component.scale) || node.component.scale <= 0)) throw new Error(`${glyph.name}: invalid shared form scale`);
     if (node.roundingAnchors != null && (!Array.isArray(node.roundingAnchors) || !node.roundingAnchors.every(index => Number.isInteger(index) && index >= 0))) throw new Error(`${glyph.name}: invalid rounding anchor tags`);
     if (node.cap != null && !['', 'round', 'butt', 'square'].includes(node.cap)) throw new Error(`${glyph.name}: invalid line cap`);
     if (node.deform != null) {
@@ -118,7 +119,20 @@ export function parseLibraryArchive(text) {
       originals.set(glyph.name, glyph);
     }
   }
-  return { glyphs, originals };
+  const components = new Map();
+  if (data?.components != null) {
+    if (!Array.isArray(data.components) || data.components.length > 10000) throw new Error('Invalid components archive');
+    for (const component of data.components) {
+      if (!component || typeof component.id !== 'string' || !component.id || typeof component.name !== 'string' || components.has(component.id)) throw new Error('Invalid component definition');
+      const checked = normalizeGlyph({ name: 'component-validation', layers: [{ id: 'component', node: component.node }] });
+      const hasLink = node => node.component || (node.children || []).some(hasLink);
+      if (hasLink(checked.layers[0].node)) throw new Error('Component definitions cannot contain nested references');
+      components.set(component.id, { id: component.id, name: component.name, node: checked.layers[0].node });
+    }
+    const check = node => { if (node.component && !components.has(node.component.id)) throw new Error('Missing component definition'); (node.children || []).forEach(check); };
+    glyphs.forEach(g=>g.layers.forEach(l=>check(l.node)));
+  }
+  return { glyphs, originals, components };
 }
 
 export function mergeLibrary(existing, incoming, mode = 'add') {
@@ -145,7 +159,11 @@ export function mergeLibrary(existing, incoming, mode = 'add') {
   return { library, names, added, replaced, renamed };
 }
 
-export function libraryDocument(glyphs, scope = 'all', originals) {
+export function libraryDocument(glyphs, scope = 'all', originals, components) {
   const baselines = originals ? glyphs.map(glyph => originals.get(glyph.name)).filter(Boolean).map(clone) : null;
-  return { ...(baselines ? { originals: baselines } : {}), format: 'glyph-workbench-library', version: 1, scope, exportedAt: new Date().toISOString(), count: glyphs.length, glyphs: glyphs.map(clone) };
+  const used = new Set();
+  const walk = node => { if (node.component) used.add(node.component.id); (node.children || []).forEach(walk); };
+  glyphs.forEach(g=>g.layers.forEach(l=>walk(l.node)));
+  const definitions = components ? [...components.values()].filter(c=>used.has(c.id)).map(clone) : null;
+  return { ...(definitions ? { components: definitions } : {}), ...(baselines ? { originals: baselines } : {}), format: 'glyph-workbench-library', version: 1, scope, exportedAt: new Date().toISOString(), count: glyphs.length, glyphs: glyphs.map(clone) };
 }

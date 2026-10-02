@@ -26,6 +26,26 @@ export function shiftForm(node, dx, dy, translateD) {
   };
   walk(n); return n;
 }
+export function scaleForm(node, scale, core) {
+  const result = clone(node);
+  const walk = n => {
+    for (const key of ['x','y','cx','cy','x1','y1','x2','y2','w','h','r','rx','ry','fillet']) {
+      if (typeof n[key] === 'number') n[key] = n[key]*scale;
+      else if (key === 'r' && Array.isArray(n.r)) n.r = n.r.map(v=>v*scale);
+    }
+    if (n.pts) n.pts = n.pts.map(p => Array.isArray(p) ? p.map(v=>v*scale) : {
+      ...p, x: p.x*scale, y: p.y*scale,
+      ...(p.in ? { in: p.in.map(v=>v*scale) } : {}),
+      ...(p.out ? { out: p.out.map(v=>v*scale) } : {}),
+      ...(p.r != null ? { r: p.r*scale } : {})
+    });
+    if (n.star?.inner != null) n.star.inner = n.star.inner*scale;
+    if (n.transform?.origin) n.transform.origin = n.transform.origin.map(v=>v*scale);
+    if (n.d && scale !== 1) n.d = core.scaleD(n.d,scale);
+    (n.children || []).forEach(walk);
+  };
+  walk(result); return result;
+}
 function definition(node, core) {
   const n = clone(node);
   const origin = n.component?.origin || [0, 0];
@@ -33,12 +53,12 @@ function definition(node, core) {
   // Names are instance annotations, including child names inside a shared group.
   const strip = n => { delete n.name; delete n.from; (n.children || []).forEach(strip); };
   strip(n);
-  return shiftForm(n, -origin[0], -origin[1], core.translateD);
+  return scaleForm(shiftForm(n, -origin[0], -origin[1], core.translateD), 1/(node.component?.scale || 1), core);
 }
 const stable = value => JSON.stringify(value, (key, item) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map(k => [k, item[k]])) : item);
 function replaceInstance(target, source, core) {
   const origin = target.component.origin;
-  const next = shiftForm(source, origin[0], origin[1], core.translateD);
+  const next = shiftForm(scaleForm(source,target.component.scale || 1,core), origin[0], origin[1], core.translateD);
   const names = (a,b) => { if (a.name) b.name = a.name; (b.children || []).forEach((c,i) => { if (a.children?.[i]) names(a.children[i],c); }); };
   names(target, next);
   for (const key of LOCAL) if (target[key] != null) next[key] = clone(target[key]);
@@ -71,18 +91,29 @@ export function publishSharedForms(glyph, before, library, core) {
   return changed;
 }
 function matchData(form, core) {
-  if (form.linkedAncestor || formsIn({layers:[{node:form.node}]}).some(f => f.node.component)) return null;
+  if (form.linkedAncestor || formsIn({layers:[{node:form.node}]}).some(f => f.p.length && f.node.component)) return null;
   // Symmetry with implicit origins is deliberately excluded from translated matching.
   if (formsIn({layers:[{node:form.node}]}).some(f => f.node.symmetry || f.node.deform?.length)) return null;
   const bounds = core.rawBounds(form.node); if (!bounds || !bounds.every(Number.isFinite) || Math.max(bounds[2],bounds[3]) < 0.001) return null;
   const origin = bounds.slice(0,2).map(round);
-  const node = clone(form.node); node.component = {origin};
+  const scale = Math.max(bounds[2],bounds[3]);
+  const node = clone(form.node); node.component = {origin,scale};
   let def = definition(node,core);
   // Closed paths may start at any anchor; sort cyclic rotations without reversing winding.
   const canonical = n => {
     if (n.shape === 'pen') {
       n.closed = !!n.closed;
       n.pts = n.pts.map(p => ({x:p.x,y:p.y,in:p.in || [0,0],out:p.out || [0,0],r:p.r || 0}));
+      if (n.closed && n.pts.length > 3 && !n.roundingAnchors?.length) {
+        // Font outlines often repeat their closing anchor, at a different seam.
+        // Ignore that representational difference for matching, keeping external handles.
+        for (let i=n.pts.length-1; i>=0 && n.pts.length>3; i--) {
+          const j=(i+1)%n.pts.length, a=n.pts[i], b=n.pts[j];
+          if (Math.hypot(a.x-b.x,a.y-b.y)>0.0006) continue;
+          const q={...a,x:(a.x+b.x)/2,y:(a.y+b.y)/2,out:b.out};
+          if(j===0){n.pts[0]=q;n.pts.splice(i,1);}else{n.pts[i]=q;n.pts.splice(j,1);}
+        }
+      }
       if (n.closed && n.pts.length && !n.roundingAnchors?.length) {
         let at = 0; for(let i=1;i<n.pts.length;i++) if(n.pts[i].x < n.pts[at].x || n.pts[i].x===n.pts[at].x && n.pts[i].y<n.pts[at].y)at=i;
         n.pts=[...n.pts.slice(at),...n.pts.slice(0,at)];
@@ -92,7 +123,7 @@ function matchData(form, core) {
   };
   canonical(def);
   const topology = stable(def).replace(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/g,'#');
-  return {...form,origin,def,topology};
+  return {...form,origin,scale,def,topology};
 }
 function difference(a,b) {
   if (typeof a === 'number' && typeof b === 'number') return Math.abs(a-b);
@@ -115,9 +146,11 @@ export function findSharedForms(library, core) {
       const source=remaining.shift(), members=[source]; let maxDelta=0;
       for(let i=remaining.length-1;i>=0;i--) {
         const delta=difference(source.def,remaining[i].def);
-        if(delta<=0.03001){maxDelta=Math.max(maxDelta,delta);members.push(remaining.splice(i,1)[0]);}
+        if(delta<=0.00601){maxDelta=Math.max(maxDelta,delta);members.push(remaining.splice(i,1)[0]);}
       }
-      if(members.length>1)groups.push({members,approximate:maxDelta>0.0001,maxDelta,name:source.node.name || source.node.shape || 'Shared group'});
+      const ids = new Set(members.map(m=>m.node.component?.id).filter(Boolean));
+      const complete = [...ids].every(id => library.flatMap(formsIn).filter(f=>f.node.component?.id===id).every(f=>members.some(m=>m.node===f.node)));
+      if(members.length>1 && ids.size<=1 && complete && members.some(m=>!m.node.component))groups.push({members,approximate:maxDelta>0.0001,maxDelta,name:members.find(m=>m.node.component)?.node.component.name || source.node.name || source.node.shape || 'Shared group'});
     }
   }
   // Prefer reusable groups over linking their children independently.
@@ -126,10 +159,11 @@ export function findSharedForms(library, core) {
 }
 export function linkSharedForms(group, name, core, id) {
   const members=group.members;
-  const source=clone(members[0].node); source.component={origin:members[0].origin};
+  const source=clone(members[0].node); source.component={origin:members[0].origin,scale:members[0].scale};
   const def=definition(source,core);
+  id = members.find(m=>m.node.component)?.node.component.id || id;
   for(const member of members) {
-    member.node.component={id,name,origin:member.origin};
+    member.node.component={id,name,origin:member.origin,scale:member.scale};
     replaceInstance(member.node,def,core);
   }
   return id;
@@ -140,4 +174,23 @@ export function remapSharedForms(glyphs, newId) {
     const old=node.component.id; if(!ids.has(old))ids.set(old,newId());node.component.id=ids.get(old);
   }
   return ids;
+}
+
+// Definitions are stored separately; node geometry is an editable/renderable
+// projection for the existing evaluator, never a second independent master.
+export function collectComponents(library, core) {
+  const result = new Map();
+  for (const { node } of library.flatMap(formsIn)) if (node.component && !result.has(node.component.id)) {
+    result.set(node.component.id, { id: node.component.id, name: node.component.name, node: definition(node, core) });
+  }
+  return result;
+}
+export function projectComponents(library, components, core) {
+  for (const { node } of library.flatMap(formsIn)) if (node.component && components.has(node.component.id)) replaceInstance(node, components.get(node.component.id).node, core);
+}
+export function makeComponent(node, name, core, id) {
+  if (node.component) return node.component.id;
+  const bounds = core.rawBounds(node);
+  node.component = { id, name, origin: bounds ? bounds.slice(0,2) : [0,0], scale: 1 };
+  return id;
 }

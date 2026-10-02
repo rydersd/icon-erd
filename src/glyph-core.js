@@ -75,8 +75,11 @@ export function createGlyphCore(paper) {
           { p: P(x, y), r: r[0] }, { p: P(x + w, y), r: r[1] },
           { p: P(x + w, y + h), r: r[2] }, { p: P(x, y + h), r: r[3] }], true)];
       }
-      case 'circle':
-        return [new paper.Path.Circle({ center: [num(n.cx, C), num(n.cy, C)], radius: Math.abs(num(n.r, 1)) })];
+      case 'circle': {
+        const p = new paper.Path.Circle({ center: [num(n.cx, C), num(n.cy, C)], radius: Math.abs(num(n.r, 1)) });
+        if (n.clockwise === false) p.reverse();
+        return [p];
+      }
       case 'triangle': {
         // isosceles in its box, apex at top centre; optional uniform corner radius r
         let x = num(n.x), y = num(n.y), w = num(n.w, 1), h = num(n.h, 1);
@@ -95,8 +98,11 @@ export function createGlyphCore(paper) {
         if (n.cap) p.data.cap = n.cap;
         return [p];
       }
-      case 'ellipse':
-        return [new paper.Path.Ellipse({ center: [num(n.cx, C), num(n.cy, C)], radius: [Math.abs(num(n.rx, 1)), Math.abs(num(n.ry, num(n.rx, 1)))] })];
+      case 'ellipse': {
+        const p = new paper.Path.Ellipse({ center: [num(n.cx, C), num(n.cy, C)], radius: [Math.abs(num(n.rx, 1)), Math.abs(num(n.ry, num(n.rx, 1)))] });
+        if (n.clockwise === false) p.reverse();
+        return [p];
+      }
       case 'line': {
         const p = new paper.Path({ segments: [[num(n.x1), num(n.y1)], [num(n.x2), num(n.y2)]], closed: false });
         if (n.cap) p.data.cap = n.cap;
@@ -759,7 +765,8 @@ export function createGlyphCore(paper) {
     }
     return { closed: r.closed, open: r.open, d: itemD(r.closed) + r.open.map(itemD).join('') };
   }
+  function scaleD(d, scale) { const cp = new paper.CompoundPath(d); cp.scale(scale, P(0,0)); return itemD(cp); }
   function translateD(d, dx, dy) { const cp = new paper.CompoundPath(d); cp.translate(P(dx, dy)); return itemD(cp); }
 
-  return { resolve, toSVG, strokeStyle, strokeTipsSVG, form, translateD, nodeMatrix, rawBounds, hasTransform, hintD, symmetryGroup, symmetryMatrices, axisOf, toPen, insertPoint, evalNode, stats, ROLE_VARS, ROLE_DEFAULTS, itemD, shapeItems, version: 1 };
+  return { resolve, toSVG, strokeStyle, strokeTipsSVG, form, translateD, scaleD, nodeMatrix, rawBounds, hasTransform, hintD, symmetryGroup, symmetryMatrices, axisOf, toPen, insertPoint, evalNode, stats, ROLE_VARS, ROLE_DEFAULTS, itemD, shapeItems, version: 1 };
 }
