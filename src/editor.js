@@ -1662,7 +1662,10 @@ function renderShortcuts() {
     };
     label.appendChild(input); list.appendChild(label);
   }
-  root.querySelectorAll('[data-tool]').forEach(button => { const action = button.dataset.tool; button.title = `${SHORTCUT_ACTIONS[action].label} (${shortcuts[action]})`; button.setAttribute('aria-keyshortcuts', shortcuts[action].replace('Mod', 'Meta')); });
+  root.querySelectorAll('[data-tool]').forEach(button => {
+    const action=button.dataset.tool;button.dataset.controlTooltip=`${SHORTCUT_ACTIONS[action].label} (${shortcuts[action]})`;button.removeAttribute('title');
+    button.setAttribute('aria-keyshortcuts',shortcuts[action].includes('Mod') ? `${shortcuts[action].replace('Mod','Meta')} ${shortcuts[action].replace('Mod','Control')}` : shortcuts[action]);
+  });
 }
 $('resetShortcuts').onclick = () => { shortcuts = { ...DEFAULT_SHORTCUTS }; try { localStorage.removeItem('gw-shortcuts'); } catch {} renderShortcuts(); status('Default shortcuts restored.'); };
 renderShortcuts();
