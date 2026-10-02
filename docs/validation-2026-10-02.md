@@ -91,3 +91,10 @@ Final handoff and deployment: application source `e64a40f`, Cloudflare version `
 - EDS browser regression detects one cloud silhouette across nine icons as a near match; an actual anchor inspector edit updates all nine and Undo restores their geometry. Private artwork is absent from public source/build.
 - Verified: 33 unit tests, 33 local production-browser tests, static build, and diff whitespace checks pass. Local screenshots: `artifacts/shared-cloud-review.png` and `artifacts/shared-cloud-linked.png` (ignored).
 - Deliberate boundary: compatible tree/path structure matching with translation normalization, not semantic image similarity. Near matches require adopting a shared source; symmetry/deformer-bearing candidates are excluded from detection. Component-bearing trees cannot be nested by import or tree dragging.
+
+### Hosted shared-form verification
+
+- Published source commit `cc88131`; Cloudflare version `704bfc91-5336-442d-86be-05f40f3bc8cf`.
+- Hosted shared-form tests: 3 passed, covering the actual EDS nine-cloud inspector edit, peer-aware undo/redo, instance movement/detach, reload and import ID isolation. Live HTML plus all nine linked assets byte-match the locally tested build.
+- The owner's saved 584-icon browser library was refreshed without losing edits. The reviewed nine-cloud proposal was linked as `Cloud silhouette`; the live inspector reports nine instances in nine icons and browser storage reports Saved. Screenshot: `artifacts/owner-shared-cloud.jpg` (ignored).
+- Refreshed ignored `eds-icons-current.zip` from owner export `glyph-library-all-20261002-2023.zip`: 580 EDS icons, 580 originals, 580 SVG files, nine linked cloud instances sharing one component ID. Existing reconstruction statuses remain 164 existing centerlines and 416 needing review.
