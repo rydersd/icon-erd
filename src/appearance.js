@@ -3,7 +3,7 @@ export const APPEARANCE_SECTIONS = [
   ['Surfaces', [['bg','Page'],['panel','Panels'],['panel-2','Inset panels'],['canvas-bg','Artboard'],['canvas-out','Outside artboard'],['border','Borders'],['border-strong','Strong borders']]],
   ['Text & accents', [['text','Primary text'],['text-2','Secondary text'],['text-3','Muted text'],['accent','Accent'],['accent-weak','Accent background'],['accent-text','Accent text']]],
   ['Grid', [['grid-minor','Minor grid'],['grid-lattice','Snap lattice'],['grid-major','Major grid'],['grid-unit2','Two-unit grid']]],
-  ['Guides & overlays', [['guide','Guides'],['keyline','Keylines'],['safe','Safe area'],['live','Live geometry'],['form','Source forms'],['orig','Original overlay']]],
+  ['Guides & overlays', [['guide','Guides'],['keyline','Keylines'],['safe','Safe area'],['live','Live geometry'],['form','Source forms'],['component','Shared forms'],['orig','Original overlay']]],
   ['Selection & cutters', [['sel','Selection'],['cutter','Cutter outline'],['cutter-fill','Cutter fill']]],
   ['Rulers', [['ruler-bg','Ruler background'],['ruler-tick','Ruler ticks'],['ruler-text','Ruler labels']]],
   ['Status', [['warn','Warning text'],['warn-bg','Warning background'],['danger','Error / delete']]],

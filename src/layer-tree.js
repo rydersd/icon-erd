@@ -33,6 +33,11 @@ export function canMoveTreeItem(glyph, source, target, position) {
   const node = nodeAt(glyph, source);
   const destination = target.p === null ? glyph.layers[target.l].node : nodeAt(glyph, target);
   if (contains(node, destination)) return false;
+  const hasComponent = n => !!n.component || (n.children || []).some(hasComponent);
+  if(hasComponent(node)) {
+    const parentPath=position==='inside' && destination.children ? (target.p || []) : target.p?.length ? target.p.slice(0,-1) : null;
+    if(parentPath)for(let i=0;i<=parentPath.length;i++)if(nodeAt(glyph,{l:target.l,p:parentPath.slice(0,i)}).component)return false;
+  }
   if (target.p === null) return position === 'inside';
   return position !== 'inside' || Array.isArray(destination.children);
 }
@@ -84,6 +89,7 @@ export function useAsCutter(glyph, selection) {
     else {
       const remaining = parent.children.filter((_, i) => i !== index);
       const subject = { ...parent, children: remaining };
+      delete subject.component; // The outer group retains the shared identity.
       parent.op = 'union'; parent.children = [subject, cutter]; delete parent.fillet;
       return { l: selection.l, p: [...selection.p.slice(0, -1), 1] };
     }

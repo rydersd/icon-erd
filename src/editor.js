@@ -1,3 +1,4 @@
+import { formsIn, findSharedForms, linkSharedForms, publishSharedForms, remapSharedForms } from './shared-forms.js';
 import { createGlyphCore } from './glyph-core.js';
 import { LIBRARY } from './starter-library.js';
 import { uiSVG } from './ui-icons.js';
@@ -121,7 +122,7 @@ async function flushSaves() {
     await DB.run('readwrite', st => { let last; for (const r of recs) last = r.del ? st.delete(r.name) : st.put(r); return last; });
     if (disposed) { DB.db?.close(); return; }
   for (const r of recs) { if (r.del) EDITS.delete(r.name); else EDITS.set(r.name, r); }
-    if (!pendingSave.size) { try { localStorage.removeItem('gw-open-pending-glyph'); localStorage.removeItem('gw-open-pending-set-style'); } catch {} }
+    if (!pendingSave.size) { try { localStorage.removeItem('gw-open-pending-glyph'); localStorage.removeItem('gw-open-pending-components'); localStorage.removeItem('gw-open-pending-set-style'); } catch {} }
     setSaveState(pendingSave.size ? 'unsaved' : 'saved');
   } catch (e) { names.forEach(n => pendingSave.add(n)); setSaveState('error', e); }
   names.forEach(updateLibItem); updateGlyphTags();
@@ -151,13 +152,27 @@ listen(document, 'visibilitychange', () => { if (document.visibilityState === 'h
 
 // ---------- history ----------
 let lastSnap = null;
-function commit() {
+function commit(peerHistory = []) {
   ensureLayerNames(S.glyph);
-  const snap = JSON.stringify(S.glyph);
-  if (snap === lastSnap) return;
-  if (lastSnap) { S.undo.push(lastSnap); if (S.undo.length > 300) S.undo.shift(); }
-  S.redo = []; lastSnap = snap; storeCurrent();
+  if (JSON.stringify(S.glyph) === lastSnap && !peerHistory.length) return;
+  const before = lastSnap ? JSON.parse(lastSnap) : clone(S.glyph);
+  // Peers are immutable library slots outside this publication boundary.
+  const peers = publishSharedForms(S.glyph, before, S.lib.filter((_,i)=>i!==S.cur), core);
+  const history = new Map([...peers,...peerHistory].map(g=>[g.name,g]));
+  if (lastSnap) { S.undo.push({glyph:lastSnap, peers:[...history.values()]}); if (S.undo.length > 300) S.undo.shift(); }
+  S.redo = []; lastSnap = JSON.stringify(S.glyph); storeCurrent();
+  for(const name of history.keys()){queueSave(name);updateLibItem(name);}
+  journalSharedChanges([...history.keys()]);
   updateHistoryBtns();
+}
+function journalSharedChanges(names) {
+  if(!names.length)return;
+  try {
+    const old=JSON.parse(localStorage.getItem('gw-open-pending-components') || '[]');
+    const journal=new Map(old.map(g=>[g.name,g]));
+    for(const name of [...names,S.glyph.name]){const g=S.lib[idx(name)];if(g)journal.set(name,g);}
+    localStorage.setItem('gw-open-pending-components',JSON.stringify([...journal.values()]));
+  } catch {}
 }
 /** write the working glyph back into its library slot and autosave it (a rename also clears the old name's record) */
 function storeCurrent() {
@@ -171,8 +186,18 @@ function storeCurrent() {
   if (!prev) renderLibrary();
   queueSave(S.glyph.name);
 }
-function undo() { if (!S.undo.length) return; penDraft = null; S.redo.push(lastSnap); lastSnap = S.undo.pop(); S.glyph = JSON.parse(lastSnap); storeCurrent(); pruneSel(); renderAll(); updateHistoryBtns(); }
-function redo() { if (!S.redo.length) return; penDraft = null; S.undo.push(lastSnap); lastSnap = S.redo.pop(); S.glyph = JSON.parse(lastSnap); storeCurrent(); pruneSel(); renderAll(); updateHistoryBtns(); }
+function restoreHistory(from,to) {
+  if(!from.length)return;
+  penDraft=null;
+  const entry=from.pop();
+  to.push({glyph:lastSnap,peers:entry.peers.map(g=>S.lib[idx(g.name)]).filter(Boolean).map(clone)});
+  for(const peer of entry.peers){const at=idx(peer.name);if(at>=0){S.lib[at]=clone(peer);queueSave(peer.name);updateLibItem(peer.name);}}
+  lastSnap=entry.glyph;S.glyph=JSON.parse(lastSnap);storeCurrent();
+  journalSharedChanges(entry.peers.map(g=>g.name));
+  pruneSel();renderAll();updateHistoryBtns();
+}
+function undo() {restoreHistory(S.undo,S.redo);}
+function redo() {restoreHistory(S.redo,S.undo);}
 function revert() {
   const o = ORIG.get(S.glyph.name);
   if (!o || !isEdited(S.glyph)) return;
@@ -257,6 +282,7 @@ function snapPt(p) {
   return out;
 }
 function translateNode(n, dx, dy) {
+  if(n?.component) n.component.origin = [r4(n.component.origin[0]+dx),r4(n.component.origin[1]+dy)];
   if (!n) return;
   if (n.transform && Array.isArray(n.transform.origin)) n.transform.origin = [r4(n.transform.origin[0] + dx), r4(n.transform.origin[1] + dy)];
   if (symOn(n.symmetry)) { const a = core.axisOf(n.symmetry); n.symmetry.axis = { x: r4(a.x + dx), y: r4(a.y + dy), angle: a.angle }; }
@@ -633,6 +659,11 @@ let insertHover = null; // pen tool over an outline: where a click would add an 
 /** selection-dependent overlays: forms, symmetry ghosts, axes, isolation bar */
 function renderOverlays() {
   const gF = $('gForms'); gF.innerHTML = '';
+  for(const f of formsIn(S.glyph)) {
+    if(!f.node.component || f.node.hidden || f.ancestors.some(n=>n.hidden) || S.glyph.layers[f.l].visible===false || S.iso && !inIso(f.l,f.p))continue;
+    const selection={l:f.l,p:f.p};
+    try {const fm=core.form(f.node,ancestorsOf(selection));if(fm.d)el('path',Object.assign({d:fm.d,fill:'none',stroke:'var(--component)','stroke-width':1.5,'stroke-dasharray':'10 4','data-component':f.node.component.id},NS),gF);}catch {}
+  }
   // noise control: outside isolation only the selected object's forms are outlined (Forms toggle = show all);
   // inside isolation, every form of the isolated object and nothing else
   const gG = $('gGhost'); gG.innerHTML = '';
@@ -640,7 +671,7 @@ function renderOverlays() {
   for (const f of formCache) {
     if (!f.fm || !f.fm.d || f.n.hidden || S.glyph.layers[f.l].visible === false) continue;
     if (!(S.iso ? inIso(f.l, f.p) : (S.show.forms || selCovers(f.l, f.p)))) continue;
-    el('path', Object.assign({ d: f.fm.d, fill: 'none', stroke: 'var(--form)', 'stroke-width': 1, 'stroke-dasharray': '4 3', 'data-form': f.l + ':' + f.p.join('.') }, NS), gF);
+    if(!f.n.component) el('path', Object.assign({ d: f.fm.d, fill: 'none', stroke: 'var(--form)', 'stroke-width': 1, 'stroke-dasharray': '4 3', 'data-form': f.l + ':' + f.p.join('.') }, NS), gF);
     // the mirrored / rotated images: live, dashed, never hit-tested (pointer-events: none on the group)
     for (const m of ghostMatrices(scopes, f.l, f.p)) el('path', Object.assign({ d: tfD(f.fm.d, m), fill: 'none', stroke: 'var(--accent)', 'stroke-width': 1, 'stroke-dasharray': '1.5 2.5', opacity: .65, 'data-ghost': f.l + ':' + f.p.join('.') }, NS), gG);
   }
@@ -739,7 +770,7 @@ function renderSelection() {
     if (s.p === null) continue;
     const n = getNode(s); if (!n) continue;
     let fm = null; try { fm = core.form(n, ancestorsOf(s)); } catch (e) {}
-    if (fm && fm.d) el('path', Object.assign({ d: fm.d, fill: 'none', stroke: 'var(--sel)', 'stroke-width': 1.5 }, NS), gS);
+    if (fm && fm.d) el('path', Object.assign({ d: fm.d, fill: 'none', stroke: n.component ? 'var(--component)' : 'var(--sel)', 'stroke-width': 1.5, ...(n.component ? {'stroke-dasharray':'10 4','data-component':n.component.id} : {}) }, NS), gS);
   }
   const ps = primarySel(); const n = ps && ps.p !== null && getNode(ps);
   const sz = 4.5 * px;
@@ -1384,7 +1415,7 @@ function wireTreeDrag(row, selection) {
 
 // ---------- tree ----------
 const kindIcon = n => uiIcon(n.shape ? (n.shape === 'polygon' && n.star ? 'star' : n.shape) : n.op === 'compound' ? 'exclude' : (n.op || 'union'));
-function nodeLabel(n) { if (n.shape) return (n.name || (n.shape === 'polygon' && n.star ? 'star' : n.shape)); return n.name || n.op || 'union'; }
+function nodeLabel(n) { if(n.component)return '◇ ' + (n.name || n.component.name); if (n.shape) return (n.name || (n.shape === 'polygon' && n.star ? 'star' : n.shape)); return n.name || n.op || 'union'; }
 function nodeMeta(n) {
   let m = '';
   if (n.shape === 'rect' || n.shape === 'triangle') m = `${n.w}×${n.h}`; else if (n.shape === 'ellipse') m = `r ${n.rx}${n.ry !== n.rx ? '/' + n.ry : ''}`;
@@ -1674,6 +1705,63 @@ function renderInspectorTransformOnly() {
   const set = (k, v) => { const i = box.querySelector(`[data-key="${k}"]`); if (i && document.activeElement !== i) i.value = v; };
   set('ox', r4(t.origin[0])); set('oy', r4(t.origin[1])); set('rot', t.rotate || 0); set('sx', r4((t.scaleX || 1) * 100)); set('sy', r4((t.scaleY || 1) * 100));
 }
+let sharedCandidates = [];
+function linkFormGroup(candidate,name) {
+  if(!candidate?.members.length)return;
+  // Resolve fresh nodes: a scan is only a proposal, never authority over stale geometry.
+  const current=S.glyph.name;
+  const library=S.lib.map((g,i)=>i===S.cur?S.glyph:g);
+  const fresh=findSharedForms(library,core).find(group=>group.members.some(f=>f.glyph.name===candidate.members[0].glyph.name && f.l===candidate.members[0].l && JSON.stringify(f.p)===JSON.stringify(candidate.members[0].p)));
+  if(!fresh){status('These forms changed. Scan again before linking.',true);return;}
+  const peers=[...new Set(fresh.members.map(f=>f.glyph))].filter(g=>g.name!==current).map(clone);
+  linkSharedForms(fresh,name || fresh.name,core,crypto.randomUUID());
+  commit(peers);refresh(true);
+  status(`Linked ${fresh.members.length} instances of ${name || fresh.name}. Geometry edits update all; placement and layer styling stay local. Undo reverses the whole link.`);
+}
+function sharedFormInspector(g,s,n) {
+  sub(g,'Shared form');
+  const p=document.createElement('div');p.className='wide lbl';g.appendChild(p);
+  const enclosing=formsIn(S.glyph).find(f=>f.node.component && f.l===s.l && prefixOf(f.p,s.p));
+  if(enclosing) {
+    const component=enclosing.node.component;
+    const uses=S.lib.flatMap(formsIn).filter(f=>f.node.component?.id===component.id);
+    p.textContent=`◇ ${component.name} · ${uses.length} instances in ${new Set(uses.map(f=>f.glyph.name)).size} icons. Geometry edits update all instances. Long purple dashes mark shared forms.`;
+    const detach=smallBtn('Detach instance',()=>{delete enclosing.node.component;commit();refresh(true);status('Detached. This instance now edits independently.');});g.appendChild(detach);
+  } else {
+    p.textContent='Find repeated geometry across the library and link it as a reusable form.';
+    g.appendChild(smallBtn('Find matching forms',()=>openSharedForms({glyph:S.glyph.name,l:s.l,p:s.p})));
+  }
+}
+function openSharedForms(selection) {
+  sharedCandidates=findSharedForms(S.lib.map((g,i)=>i===S.cur?S.glyph:g),core);
+  if(selection)sharedCandidates=sharedCandidates.filter(group=>group.members.some(f=>f.glyph.name===selection.glyph && f.l===selection.l && JSON.stringify(f.p)===JSON.stringify(selection.p)));
+  $('sharedFormsSearch').value='';renderSharedCandidates();$('sharedFormsDialog').showModal();
+}
+function renderSharedCandidates() {
+  const list=$('sharedFormsList');list.replaceChildren();const query=$('sharedFormsSearch').value.toLowerCase();
+  const groups=sharedCandidates.filter(group=>[group.name,...group.members.map(f=>f.glyph.name)].join(' ').toLowerCase().includes(query));
+  $('sharedFormsSummary').textContent=`${groups.length} repeated forms${groups.length>50 ? " (showing first 50; filter to narrow)" : ""}. Exact matches retain geometry. Near matches adopt the first instance’s geometry (maximum difference 0.03 units). Links are saved and included in ZIP exports.`;
+  for(const group of groups.slice(0,50)) {
+    const card=document.createElement('section');card.className='shared-form-card';
+    const heading=document.createElement('strong');heading.textContent=`${group.approximate?'Near match':'Exact repeat'} · ${group.members.length} instances`;card.appendChild(heading);
+    const preview=document.createElement('div');preview.className='shared-form-preview';
+    for(const member of group.members.slice(0,6)) {
+      const item=document.createElement('div');
+      const fm=core.form(member.node,member.ancestors);
+      const svg=core.toSVG(member.glyph,{size:48});
+      item.innerHTML=svg.replace('</svg>',`<path d="${fm.d}" fill="none" stroke="var(--component)" stroke-width="0.35" stroke-dasharray="1.5 0.5" /></svg>`);
+      const label=document.createElement('span');label.textContent=member.glyph.name;item.appendChild(label);preview.appendChild(item);
+    }
+    card.appendChild(preview);
+    const uses=document.createElement('p');uses.textContent=group.members.map(f=>`${f.glyph.name} / ${f.node.name || f.node.shape || 'group'}`).join(', ');card.appendChild(uses);
+    const input=document.createElement('input');input.value=group.name;input.setAttribute('aria-label','Shared form name');card.appendChild(input);
+    card.appendChild(smallBtn(group.approximate?'Adopt shared shape and link':'Link repeated form',()=>{linkFormGroup(group,input.value.trim());$('sharedFormsDialog').close();}));
+    list.appendChild(card);
+  }
+}
+$('findSharedFormsBtn').onclick=()=>openSharedForms();
+$('sharedFormsSearch').oninput=renderSharedCandidates;
+$('closeSharedFormsBtn').onclick=()=>$('sharedFormsDialog').close();
 function renderInspector() {
   const box = $('insp'); box.innerHTML = '';
   const g = document.createElement('div'); g.className = 'insp'; box.appendChild(g);
@@ -1705,6 +1793,7 @@ function renderInspector() {
     return;
   }
   const n = getNode(s); if (!n) return;
+  sharedFormInspector(g,s,n);
   field(g, 'name', n.name || '', v => { if (v) n.name = v; else delete n.name; }, { text: true });
   if (n.children) {
     field(g, 'boolean', n.op || 'union', v => { n.op = v; }, { options: ['union', 'subtract', 'intersect', 'exclude', 'compound'] });
@@ -2260,6 +2349,8 @@ async function importLibraryText(text, fileName, mode = 'add') {
       if (errors.length) throw new Error(`${glyph.name}: ${errors[0].error}`);
     }
     if (penDraft) finishPen();
+    const ids=remapSharedForms(glyphs,()=>crypto.randomUUID());
+    for(const original of archive.originals.values())for(const {node} of formsIn(original))if(node.component && ids.has(node.component.id))node.component.id=ids.get(node.component.id);
     result = mergeLibrary(S.lib, glyphs, mode);
   } catch (error) { status(`Import: ${error.message}`, true); return null; }
   if (penDraft) finishPen();
@@ -2316,11 +2407,12 @@ resizeObserver.observe(cv);
 
 // ---------- boot: saved edits applied, then the last-open glyph (or camera) loaded ----------
 window.__gw = { S, core, refresh, group, addShape, commit, setTool, setOrigin, getNode, fullMatrix, loadGlyph, idx, paintUI, isoEnter, isoExit,
-  revert, flushSaves, exportLibrary, importLibraryText, isEdited, EDITS, ORIG, ready: false };
+  revert, flushSaves, linkFormGroup, findSharedForms:()=>findSharedForms(S.lib,core), exportLibrary, importLibraryText, isEdited, EDITS, ORIG, ready: false };
 const ready = (async () => {
   await loadSaved();
   if (disposed) return;
   try {
+    for(const g of JSON.parse(localStorage.getItem('gw-open-pending-components') || '[]')) { const glyph=normalizeGlyph(g);if(deletedIcons.has(glyph.name))continue;const at=idx(glyph.name);if(at>=0){S.lib[at]=glyph;queueSave(glyph.name);} }
     const journal = localStorage.getItem('gw-open-pending-glyph');
     if (journal) { const glyph = normalizeGlyph(JSON.parse(journal)); if(deletedIcons.has(glyph.name))throw new Error('Deleted icon journal'); const at = idx(glyph.name); if (at >= 0) S.lib[at] = glyph; else S.lib.push(glyph); queueSave(glyph.name); }
   } catch {}

@@ -28,9 +28,14 @@ export function normalizeGlyph(input) {
   }
   if (glyph.setStyle?.endRounding != null && (!Number.isFinite(glyph.setStyle.endRounding) || glyph.setStyle.endRounding < 0 || glyph.setStyle.endRounding > 6)) throw new Error(`${glyph.name}: invalid line-end rounding`);
   let count = 0;
-  const walk = (node, depth = 0) => {
+  const walk = (node, depth = 0, linkedAncestor = false) => {
     if (!node || typeof node !== 'object' || depth > 32 || ++count > 10000) throw new Error(`${glyph.name}: invalid or oversized form tree`);
     validateSymmetry(node.symmetry);
+    if(node.component != null) {
+      if(linkedAncestor)throw new Error(`${glyph.name}: nested shared forms are unsupported`);
+      const c=node.component;
+      if(!c || typeof c.id!=='string' || !c.id || c.id.length>128 || typeof c.name!=='string' || c.name.length>256 || !Array.isArray(c.origin) || c.origin.length!==2 || !c.origin.every(Number.isFinite))throw new Error(`${glyph.name}: invalid shared form instance`);
+    }
     if (node.roundingAnchors != null && (!Array.isArray(node.roundingAnchors) || !node.roundingAnchors.every(index => Number.isInteger(index) && index >= 0))) throw new Error(`${glyph.name}: invalid rounding anchor tags`);
     if (node.cap != null && !['', 'round', 'butt', 'square'].includes(node.cap)) throw new Error(`${glyph.name}: invalid line cap`);
     if (node.deform != null) {
@@ -65,7 +70,7 @@ export function normalizeGlyph(input) {
       if (node.sides != null && (!Number.isInteger(node.sides) || node.sides < 3 || node.sides > 512)) throw new Error(`${glyph.name}: polygon sides must be 3–512`);
     } else {
       if (!OPS.has(node.op || 'union') || !Array.isArray(node.children)) throw new Error(`${glyph.name}: invalid boolean group`);
-      node.children.forEach(child => walk(child, depth + 1));
+      node.children.forEach(child => walk(child, depth + 1, linkedAncestor || !!node.component));
     }
   };
   validateSymmetry(glyph.symmetry);

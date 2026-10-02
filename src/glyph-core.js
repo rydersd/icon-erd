@@ -511,7 +511,7 @@ export function createGlyphCore(paper) {
     if (!n || !n.shape) return null;
     if (n.shape === 'pen' && !(n.deform?.length) && !(n.pts || []).some(point => point.r > 0)) return JSON.parse(JSON.stringify(n));
     const keep = {};
-    for (const key of ['name', 'transform', 'symmetry', 'edge', 'cap', 'hidden', 'fillRule', 'roundingAnchors']) if (n[key] != null) keep[key] = JSON.parse(JSON.stringify(n[key]));
+    for (const key of ['name', 'transform', 'symmetry', 'edge', 'cap', 'hidden', 'fillRule', 'roundingAnchors', 'component']) if (n[key] != null) keep[key] = JSON.parse(JSON.stringify(n[key]));
     // Bake the visible local geometry once; deformers and parametric radii must not run again afterward.
     let items = shapeItems(n);
     for (const deformer of n.deform || []) if (DEFORMERS[deformer.type]) items = DEFORMERS[deformer.type](items, deformer);
