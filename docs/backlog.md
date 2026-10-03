@@ -1,6 +1,6 @@
 # ICONERD backlog
 
-Owner-requested additions, 2026-10-02. These are planned work, not shipped capabilities. Existing app-icon mode provides a 24-unit vector canvas, colored background/artwork layers and 1024px export; it does not yet provide the complete workflow below.
+Owner-requested additions, 2026-10-02. Larger artboards and gradients remain planned work. Library output profiles now provide menu bar template assets, Mac app raster catalogs and PC app PNG sizes; see [library output](library-output.md). Existing app-icon mode provides a 24-unit vector canvas, colored background/artwork layers and 1024px export; it does not yet provide the complete workflow below.
 
 | ID | Work | Acceptance outline | Dependencies |
 |---|---|---|---|

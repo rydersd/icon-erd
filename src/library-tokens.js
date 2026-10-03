@@ -1,3 +1,4 @@
+import {validateOutput} from './library-output.js';
 export const TOKEN_FIELDS = {
   thickness:{label:'Thickness',min:0.1,max:8,match:/thickness|stroke.?width/i},
   rounding:{label:'Corner radius',min:0,max:6,match:/corner|rounding/i},
@@ -39,6 +40,7 @@ export function validateLibraryProperties(input) {
   if(input==null)return null;
   if(typeof input!=='object' || Array.isArray(input) || !input.values || typeof input.values!=='object' || Array.isArray(input.values))throw new Error('Invalid library properties');
   const properties=structuredClone(input);
+  if(properties.output!=null)properties.output=validateOutput(properties.output);
   if(properties.source && (typeof properties.source.name!=='string' || properties.source.name.length>256))throw new Error('Invalid tokens filename');
   if(properties.bindings && (typeof properties.bindings!=='object' || Array.isArray(properties.bindings)))throw new Error('Invalid token bindings');
   for(const key of Object.keys(TOKEN_FIELDS))if(properties.bindings?.[key]!=null && typeof properties.bindings[key]!=='string')throw new Error('Invalid token binding');
@@ -51,5 +53,5 @@ export function linkedLibraryProperties(document,name,current) {
     if(previous && !Object.hasOwn(tokens,previous))throw new Error(`Updated tokens file is missing ${previous}. Disconnect it before choosing different bindings.`);
     bindings[key]=previous && Object.hasOwn(tokens,previous) ? previous : Object.keys(tokens).find(path=>field.match.test(path) && (key!=='rounding' || !TOKEN_FIELDS.endRounding.match.test(path))) || '';
   }
-  return validateLibraryProperties({values:current?.values || {thickness:null,rounding:0,endRounding:0},source:{name,document},bindings});
+  return validateLibraryProperties({...current,values:current?.values || {thickness:null,rounding:0,endRounding:0},source:{name,document},bindings});
 }

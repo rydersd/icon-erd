@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import paper from 'paper/dist/paper-core.js';
+import paper from 'paper';
 import { pathEnclosedBy } from '../src/selection-region.js';
 new paper.Project();
 const region = new paper.Path.Rectangle({ from: [0, 0], to: [10, 10], insert: false });

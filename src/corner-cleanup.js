@@ -1,4 +1,4 @@
-import paper from 'paper/dist/paper-core.js';
+import paper from 'paper';
 import { mergeAnchorCorners } from './anchor-corner.js';
 import { cleanupAnchors } from './anchor-cleanup.js';
 

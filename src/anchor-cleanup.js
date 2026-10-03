@@ -1,4 +1,4 @@
-import paper from 'paper/dist/paper-core.js';
+import paper from 'paper';
 import { ap, apv, inv } from './affine.js';
 
 // Fit redundant selected anchors conservatively in drawing-plane units.

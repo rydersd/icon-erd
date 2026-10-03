@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import paper from 'paper/dist/paper-core.js';
+import paper from 'paper';
 import {createGlyphCore} from '../src/glyph-core.js';
 import {cleanupDrawingAnchors} from '../src/corner-cleanup.js';
 new paper.Project();const core=createGlyphCore(paper),identity=[1,0,0,1,0,0];

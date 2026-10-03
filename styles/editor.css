@@ -331,3 +331,5 @@ textarea { height: auto; padding: 6px; width: 100%; resize: vertical; font-famil
 .history-palette output { display: block; font-size: 12px; overflow-wrap: anywhere; }
 .history-palette .history-note { margin: 12px 0 0; }
 button.glyph-tag { background: transparent; cursor: pointer; }
+
+.library-output-fields{border:1px solid var(--border);border-radius:6px;margin:10px 0;padding:8px}.library-output-fields legend{font-size:12px;padding:0 4px}.group-problems[aria-pressed="true"]{color:var(--accent);outline:1px solid currentColor}.library-output-fields input[type="color"]{width:48px;height:26px}
