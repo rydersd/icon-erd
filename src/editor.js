@@ -885,7 +885,7 @@ function applyAreaSelection(points, state) {
 }
 function finishAreaPolygon() { if(!areaPolygon)return;const pending=areaPolygon;areaPolygon=null;applyAreaSelection(pending.points,pending); }
 function pointMarker(point, size, kind, selected, parent, attrs = {}) {
-  const common = { fill: selected ? 'var(--sel)' : 'var(--canvas-bg)', stroke: 'var(--sel)', 'stroke-width': 1.5 / pxPerUnit(), 'data-point-kind': kind, 'data-selected': String(selected), ...attrs };
+  const common = { fill: selected ? 'var(--sel)' : 'var(--canvas-bg)', stroke: selected ? 'var(--sel)' : 'var(--anchor-idle)', 'stroke-width': 1.5 / pxPerUnit(), 'data-point-kind': kind, 'data-selected': String(selected), ...attrs };
   if (kind === 'circle') return el('circle', { ...common, cx: point.x, cy: point.y, r: size }, parent);
   if (kind === 'diamond') return el('path', { ...common, d: `M${point.x} ${point.y-size*1.3}L${point.x+size*1.3} ${point.y}L${point.x} ${point.y+size*1.3}L${point.x-size*1.3} ${point.y}Z` }, parent);
   return el('rect', { ...common, x: point.x-size, y: point.y-size, width: size*2, height: size*2 }, parent);

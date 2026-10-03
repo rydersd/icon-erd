@@ -7,7 +7,7 @@
   --canvas-bg: #ffffff; --canvas-out: #eef0f3;
   --grid-minor: rgba(29,36,48,.05); --grid-lattice: rgba(2,103,224,.12); --grid-major: rgba(29,36,48,.13); --grid-unit2: rgba(29,36,48,.22);
   --keyline: rgba(214,51,132,.55); --live: rgba(214,51,132,.8);
-  --form: rgba(2,103,224,.45); --sel: #0267e0; --orig: rgba(230,70,40,.22);
+  --form: rgba(2,103,224,.45); --sel: #0267e0; --anchor-idle: #68717d; --orig: rgba(230,70,40,.22);
   --warn: #9a5b00; --warn-bg: #fff4e0; --danger: #c62828;
   --icon-color-secondary: #7a8494; --icon-color-accent: #0267e0;
   --tile-light-bg: #ffffff; --tile-light-fg: #1d2430; --tile-dark-bg: #161b22; --tile-dark-fg: #e6eaf0;
@@ -24,7 +24,7 @@
     --canvas-bg: #12161b; --canvas-out: #0c0f13;
     --grid-minor: rgba(230,234,240,.05); --grid-lattice: rgba(75,148,240,.16); --grid-major: rgba(230,234,240,.12); --grid-unit2: rgba(230,234,240,.2);
     --keyline: rgba(240,110,170,.5); --live: rgba(240,110,170,.8);
-    --form: rgba(75,148,240,.55); --sel: #4b94f0; --orig: rgba(255,110,80,.25);
+    --form: rgba(75,148,240,.55); --sel: #4b94f0; --anchor-idle: #a9b2bd; --orig: rgba(255,110,80,.25);
     --warn: #f0b45a; --warn-bg: #2d2412; --danger: #ef6b6b;
     --icon-color-secondary: #8f9aa8; --icon-color-accent: #4b94f0;
     --guide: #ff5fa8; --ruler-bg: #171b21; --ruler-tick: #5d6773; --safe: rgba(60,200,130,.7);
@@ -39,7 +39,7 @@
   --canvas-bg: #12161b; --canvas-out: #0c0f13;
   --grid-minor: rgba(230,234,240,.05); --grid-lattice: rgba(75,148,240,.16); --grid-major: rgba(230,234,240,.12); --grid-unit2: rgba(230,234,240,.2);
   --keyline: rgba(240,110,170,.5); --live: rgba(240,110,170,.8);
-  --form: rgba(75,148,240,.55); --sel: #4b94f0; --orig: rgba(255,110,80,.25);
+  --form: rgba(75,148,240,.55); --sel: #4b94f0; --anchor-idle: #a9b2bd; --orig: rgba(255,110,80,.25);
   --warn: #f0b45a; --warn-bg: #2d2412; --danger: #ef6b6b;
   --icon-color-secondary: #8f9aa8; --icon-color-accent: #4b94f0;
     --guide: #ff5fa8; --ruler-bg: #171b21; --ruler-tick: #5d6773; --safe: rgba(60,200,130,.7);
