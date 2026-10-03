@@ -862,6 +862,7 @@ function renderOverlays() {
   }
   renderAxes(scopes);
   renderGeometryInspection();
+  renderMeasurements();
   renderIsoBar();
 }
 // Editable anchors are independent of evaluated rounding and boolean output.
@@ -964,6 +965,100 @@ function renderGeometryInspection() {
     list.appendChild(button);
   }
 }
+let measurementCache = { key: null, bounds: null };
+function measurementAnchors() {
+  return S.selectedAnchors.map(anchor => {
+    const point = getNode(anchor.selection)?.pts?.[anchor.index];
+    if (!point) return null;
+    const matrix = fullMatrix(anchor.selection);
+    return { ...anchor, point, matrix, world: ap(matrix, point) };
+  }).filter(Boolean);
+}
+function measurementExportSize() {
+  const output = S.libraryProperties?.output;
+  return output ? (output.profile === 'custom' ? output.sizes.at(-1) : OUTPUT_PROFILES[output.profile].size) : S.glyph.exportSize || (S.glyph.kind === 'app-icon' ? 1024 : 24);
+}
+function measurementObjectBounds() {
+  const opts = { mode: 'baked', weight: S.rt.weight, cap: S.rt.cap, join: S.rt.join };
+  const key = JSON.stringify([S.glyph, S.sel, opts]);
+  if (measurementCache.key === key) return measurementCache.bounds;
+  const selections = S.sel.filter(s => !S.sel.some(other => other !== s && other.l === s.l && (other.p === null || s.p !== null && prefixOf(other.p, s.p))));
+  const layers = selections.map(selection => {
+    const layer = layerOf(selection);
+    if (selection.p === null) return layer;
+    let node = getNode(selection);
+    for (const ancestor of ancestorsOf(selection).slice().reverse()) {
+      let transform = ancestor.transform;
+      // An implicit pivot belongs to the complete ancestor, not just this selected child.
+      if (transform && !transform.origin) {
+        const geometry = core.evalNode({ ...ancestor, transform: undefined });
+        const items = [...(geometry.closed ? [geometry.closed] : []), ...geometry.open];
+        const bounds = items.reduce((bounds, item) => bounds ? bounds.unite(item.bounds) : item.bounds.clone(), null);
+        if (bounds) transform = { ...transform, origin: [bounds.center.x, bounds.center.y] };
+      }
+      node = { op: 'union', children: [node], transform, symmetry: ancestor.symmetry, deform: ancestor.deform, hidden: ancestor.hidden };
+    }
+    return { ...layer, node };
+  });
+  const glyph = { ...S.glyph, layers };
+  let bounds = null;
+  const svg = new DOMParser().parseFromString(core.toSVG(glyph, opts), 'image/svg+xml');
+  for (const path of svg.querySelectorAll('path')) {
+    if (!path.getAttribute('d') || path.getAttribute('opacity') === '0') continue;
+    const item = new paper.CompoundPath({ pathData: path.getAttribute('d'), insert: false });
+    const stroke = path.getAttribute('stroke');
+    if (stroke && stroke !== 'none') {
+      item.strokeColor = '#000'; item.strokeWidth = +path.getAttribute('stroke-width');
+      item.strokeCap = path.getAttribute('stroke-linecap') || 'butt'; item.strokeJoin = path.getAttribute('stroke-linejoin') || 'miter'; item.miterLimit = 4;
+    }
+    const b = stroke && stroke !== 'none' ? item.strokeBounds : item.bounds;
+    bounds = bounds ? bounds.unite(b) : b.clone(); item.remove();
+  }
+  measurementCache = { key, bounds };
+  return bounds;
+}
+function renderMeasurements() {
+  const details = $('measurementDetails'); details.replaceChildren();
+  const anchors = measurementAnchors();
+  const row = (name, value) => {
+    const label = document.createElement('span'); label.textContent = name;
+    const output = document.createElement('output'); output.textContent = `${r4(value)} units`; output.dataset.measurement = name;
+    details.append(label, output);
+  };
+  let distance = 0;
+  if (anchors.length) {
+    const xs = anchors.map(a => a.world.x), ys = anchors.map(a => a.world.y);
+    row('Width', Math.max(...xs) - Math.min(...xs)); row('Height', Math.max(...ys) - Math.min(...ys));
+    if (anchors.length >= 2) {
+      const start = anchors[0].world, end = anchors.at(-1).world;
+      row('ΔX', end.x - start.x); row('ΔY', end.y - start.y);
+      distance = Math.hypot(end.x - start.x, end.y - start.y); row('Distance', distance);
+    }
+  } else if (S.sel.length) {
+    try { const bounds = measurementObjectBounds(); if (bounds) { row('Width', bounds.width); row('Height', bounds.height); } } catch { /* Invalid geometry is already reported by refresh. */ }
+  }
+  $('measurementActions').hidden = anchors.length < 2;
+  $('roundDistancePixel').disabled = !distance;
+  $('roundDistancePixel').title = `Nearest positive pixel distance at ${measurementExportSize()} px output; keeps the first anchor fixed.`;
+  $('roundDistanceSnap').disabled = !distance || !S.snap;
+  $('roundDistanceSnap').title = S.snap ? `Nearest positive multiple of ${S.snap} units; keeps the first anchor fixed.` : 'Choose a Snap spacing first.';
+  $('measurementHint').textContent = anchors.length >= 2 ? `${anchors.length} anchors · first-to-last straight-line distance in selection order. Rounding keeps the first fixed and scales the selected points and handles. Pixel = 24 / ${measurementExportSize()} units.` : anchors.length ? 'Select another anchor to measure distance.' : S.sel.length ? 'Visible bounds, including stroke. Values use drawing-plane units.' : 'Select an object or two or more anchors.';
+}
+function roundMeasuredDistance(step) {
+  const anchors = measurementAnchors(); if (anchors.length < 2 || !step) return;
+  if (anchors.some(a => Math.abs(a.matrix[0] * a.matrix[3] - a.matrix[1] * a.matrix[2]) < 1e-9)) { status('Cannot resize anchors in an object with zero scale.', true); return; }
+  const start = anchors[0].world, end = anchors.at(-1).world, distance = Math.hypot(end.x - start.x, end.y - start.y);
+  if (!distance) return;
+  const target = Math.max(step, Math.round(distance / step) * step), scale = target / distance;
+  for (const { point, matrix, world } of anchors) {
+    const local = ap(inv(matrix), { x: start.x + (world.x - start.x) * scale, y: start.y + (world.y - start.y) * scale });
+    point.x = r4(local.x); point.y = r4(local.y);
+    for (const handle of ['in', 'out']) if (point[handle]) point[handle] = point[handle].map(v => r4(v * scale));
+  }
+  commit(); refresh(true); status(`Rounded selected distance from ${r4(distance)} to ${r4(target)} units. First anchor retained. Undo restores the original.`);
+}
+$('roundDistancePixel').onclick = () => roundMeasuredDistance(24 / measurementExportSize());
+$('roundDistanceSnap').onclick = () => roundMeasuredDistance(S.snap);
 function anchorSelected(selection, index) { return S.selectedAnchors.some(anchor => same(anchor.selection, selection) && anchor.index === index); }
 function selectAnchor(selection, index, extend = false) {
   if (!extend) S.selectedAnchors = [];
@@ -1716,6 +1811,31 @@ function snapSelectedAnchors() {
   }
   commit();refresh(true);status(`Snapped ${selected.length} anchor${selected.length===1?'':'s'} to the nearest ${S.snap}-unit grid intersection.`);
 }
+function selectedAnchorAlignment() {
+  if (S.selectedAnchors.length < 2) return null;
+  const points = S.selectedAnchors.map(anchor => {
+    const point = getNode(anchor.selection)?.pts?.[anchor.index];
+    if (!point) return null;
+    const matrix = fullMatrix(anchor.selection);
+    if (Math.abs(matrix[0] * matrix[3] - matrix[1] * matrix[2]) < 1e-9) return null;
+    return { point, matrix, world: ap(matrix, point) };
+  });
+  if (points.some(point => !point)) return null;
+  const mean = points.reduce((sum, { world }) => ({ x: sum.x + world.x / points.length, y: sum.y + world.y / points.length }), { x: 0, y: 0 });
+  const movement = points.reduce((sum, { world }) => ({ x: sum.x + (world.x - mean.x) ** 2, y: sum.y + (world.y - mean.y) ** 2 }), { x: 0, y: 0 });
+  return { points, mean, axis: movement.x <= movement.y ? 'x' : 'y' };
+}
+function alignSelectedAnchors() {
+  const alignment = selectedAnchorAlignment();
+  if (!alignment) return;
+  const { points, mean, axis } = alignment;
+  for (const { point, matrix, world } of points) {
+    const local = ap(inv(matrix), { ...world, [axis]: mean[axis] });
+    point.x = r4(local.x); point.y = r4(local.y);
+  }
+  commit(); refresh(true);
+  status(`Aligned ${points.length} anchors ${axis === 'x' ? 'vertically' : 'horizontally'} at ${axis.toUpperCase()} = ${r4(mean[axis])}. Undo restores their positions.`);
+}
 function retractSelectedHandles(converted = false) {
   const anchors=S.selectedAnchors.length ? S.selectedAnchors : S.anchor!=null && primarySel()?.p!==null ? [{selection:primarySel(),index:S.anchor}] : [];
   let changed=0;
@@ -1795,6 +1915,8 @@ function openCanvasMenu(event) {
   if(anchors) {
     menuHeading(S.snap ? `Snap spacing: ${S.snap}` : 'Snap is off');
     menuAction('Snap to nearest','grid',snapSelectedAnchors,null,!S.snap);
+    const alignment = selectedAnchorAlignment();
+    if (alignment) menuAction(`Align points ${alignment.axis === 'x' ? 'vertically (X)' : 'horizontally (Y)'}`, 'anchor', alignSelectedAnchors);
     menuAction('Cleanup','anchor',cleanupSelectedAnchors);
     menuAction('Retract handles','anchor',()=>retractSelectedHandles());
     menuAction('Merge to corner','anchor',mergeSelectedCorners,null,anchors<2);
@@ -2813,14 +2935,14 @@ $('proximityMergeBtn').onclick = () => {
 };
 const saveSnap = () => { try { localStorage.setItem('gw-snap-preferences', JSON.stringify({ slots: snapButtons.map(button => +button.dataset.snap), active: S.snap })); } catch {} };
 snapButtons.forEach(button => button.onclick = event => {
-  if (!event.altKey) { S.snap = +button.dataset.snap; saveSnap(); syncToggles(); renderInspector(); return; }
+  if (!event.altKey) { S.snap = +button.dataset.snap; saveSnap(); syncToggles(); renderInspector(); renderMeasurements(); return; }
   itemMenu.replaceChildren(); menuHeading('Define snap spacing');
   const label = document.createElement('label'); label.textContent = 'Snap spacing (units)';
   const input = document.createElement('input'); input.type = 'number'; input.min = '0'; input.max = '24'; input.step = 'any'; input.value = button.dataset.snap; input.setAttribute('aria-label', 'Custom snap spacing'); label.appendChild(input); itemMenu.appendChild(label);
   menuAction('Save snap spacing', 'anchor', () => {
     const value = +input.value;
     if (!Number.isFinite(value) || value < 0 || value > 24) { status('Snap spacing must be between 0 and 24 units.', true); return; }
-    button.dataset.snap = value; button.textContent = value ? String(value) : 'off'; S.snap = value; saveSnap(); syncToggles(); renderInspector(); status('Snap preference saved.');
+    button.dataset.snap = value; button.textContent = value ? String(value) : 'off'; S.snap = value; saveSnap(); syncToggles(); renderInspector(); renderMeasurements(); status('Snap preference saved.');
   });
   const bounds = button.getBoundingClientRect(); openPopup(itemMenu, button, bounds.left, bounds.bottom, () => button); input.focus(); input.select();
 });
@@ -2862,6 +2984,8 @@ function renderLibraryTokens() {
   const properties=S.libraryProperties, source=properties?.source;
   const output=properties?.output || DEFAULT_OUTPUT;
   for(const [id,key] of [['libraryVariant','variant'],['libraryColorMode','colorMode'],['libraryFillColor','fillColor'],['libraryStrokeColor','strokeColor'],['libraryOutputProfile','profile']])$(id).value=output[key];
+  $('fillPaintPreview').style.setProperty('--paint-preview',output.fillColor);
+  $('strokePaintPreview').style.setProperty('--paint-preview',output.strokeColor);
   $('libraryFamilyView').checked=output.familyView;$('libraryOutputSizes').value=output.sizes.join(', ');
   $('libraryOutputHint').textContent=output.profile==='menu-bar'?'Black template artwork, transparent background. Editable 18 / 36 px preset.': 'Vector artwork scales from the 24-unit drawing plane. PNG sizes are pixels.';
   $('libraryTokensTitle').textContent=source ? `Library tokens · ${source.name}` : 'Library tokens';

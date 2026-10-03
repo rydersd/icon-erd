@@ -96,3 +96,9 @@ The local `wiki/product-spec/` holds the product spec and canonical backlog for 
 [Library output and reviewed solid variants](docs/library-output.md) — group problem filters, EDS family display, colors, scalable target sizes and Apple raster asset sets.
 
 Selecting an anchor filters the source-anchor list immediately; extending the selection adds its rows, and clearing it restores the full list. The panel keeps its height. View controls separately toggle anchor numbers and coordinates; these label preferences persist without hiding the anchors.
+
+The editor shell stays within the browser window. Sidebars and inspector/metadata scroll independently; the canvas retains wheel panning and modifier-wheel zoom. At compact widths, **Library**, **Details** and **Output** open collapsible panes, and secondary Boolean/Snap/Symmetry controls sit behind **Drawing controls**. Disclosure markers are 12px.
+
+Right-click two or more selected anchors for **Align points**. The menu names the inferred vertical/X or horizontal/Y direction, choosing the least total movement to the selected coordinate average. It operates in drawing-plane coordinates across transformed objects, preserving handles and unselected anchors.
+
+**Measurements**, below Points & overlaps, shows painted object dimensions including strokes, or selected-anchor extents and first-to-last straight-line distance in selection order. **Round to pixel** uses the configured export size; **Round to snap** uses current Snap spacing and disables when snapping is off. Both keep the first selected point fixed, scale other selected points and their handles, and support Undo. Distances round to a positive spacing rather than collapsing a short selection. Fill and Stroke share a row with live filled/outlined color previews.
