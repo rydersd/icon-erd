@@ -1,9 +1,30 @@
 'use client';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@base-ui/react/button';
 import { LibraryPanel } from './LibraryPanel';
 
 // React owns the shell. The editor controller owns children of its empty canvas/tree/inspector slots.
 export function WorkbenchShell() {
+  const [openPane, setOpenPane] = useState(null);
+  const [drawingControls, setDrawingControls] = useState(false);
+  const paneTrigger = useRef(null);
+  function closePane() { setOpenPane(null); paneTrigger.current?.focus({ preventScroll: true }); }
+  useEffect(() => {
+    const compact = window.matchMedia('(max-width: 1180px)');
+    const resize = () => { if (!compact.matches) setOpenPane(null); };
+    compact.addEventListener('change', resize);
+    return () => compact.removeEventListener('change', resize);
+  }, []);
+  useEffect(() => {
+    if (!openPane) return;
+    document.querySelector(`#pane-${openPane} .pane-close`)?.focus({ preventScroll: true });
+    const escape = event => {
+      if (event.key !== 'Escape' || document.querySelector('dialog[open], .floating-panel:not([hidden])')) return;
+      event.preventDefault(); event.stopImmediatePropagation(); closePane();
+    };
+    document.addEventListener('keydown', escape, true);
+    return () => document.removeEventListener('keydown', escape, true);
+  }, [openPane]);
   return <>
 <header className="bar">
   <h1>ICONERD</h1><a className="lbl credits-link" href="/third-party-notices.txt" target="_blank" rel="noreferrer">Credits</a>
@@ -16,6 +37,9 @@ export function WorkbenchShell() {
     <div className="history-ends"><span>Oldest retained</span><span>Latest</span></div>
     <output id="historyPosition" htmlFor="historyScrubber"></output>
     <p className="history-note">Stopping keeps this state. A new edit replaces later states for this icon.</p>
+  </div>
+  <div className="responsive-pane-controls" role="group" aria-label="Editor panes">
+    {[['left', 'Library'], ['details', 'Details'], ['right', 'Output']].map(([pane, label]) => <Button key={pane} className="btn sm" aria-controls={`pane-${pane}`} aria-expanded={openPane === pane} onClick={event => { paneTrigger.current = event.currentTarget; setOpenPane(openPane === pane ? null : pane); }}>{label}</Button>)}
   </div>
   <span className="spacer"></span>
   <label className="lbl" htmlFor="drawingMode">Drawing mode</label><select id="drawingMode" defaultValue="interface"><option value="interface">Interface icons</option><option value="app-icon">App icons</option></select>
@@ -38,9 +62,11 @@ export function WorkbenchShell() {
   </div>
 </header>
 
-<main className="app">
+<main className="app" data-open-pane={openPane || undefined}>
+  <Button className="btn pane-backdrop" aria-label="Close editor pane" onClick={closePane} />
   {/* LEFT: library, shapes, layer / boolean tree */}
-  <div className="col-left">
+  <div className="col-left" id="pane-left">
+    <Button className="btn sm pane-close" onClick={closePane}>Close pane</Button>
     <LibraryPanel />
     <details className="panel set-settings" aria-label="Library properties" open>
       <summary id="libraryTokensTitle">Library tokens</summary>
@@ -66,8 +92,10 @@ export function WorkbenchShell() {
           <label>Output variant <select id="libraryVariant" defaultValue="source"><option value="source">As drawn</option><option value="outline">Outline</option><option value="solid">Generated solid</option><option value="both">Outline + solid files</option><option value="fill-stroke">Filled with stroke</option></select></label>
           <label><input id="libraryFamilyView" type="checkbox" /> One icon per EDS family</label>
           <label>Colors <select id="libraryColorMode" defaultValue="original"><option value="original">Keep layer colors</option><option value="single">Single color</option><option value="multicolor">Separate fill / stroke</option></select></label>
-          <label>Fill color <input id="libraryFillColor" type="color" defaultValue="#0267e0" /></label>
-          <label>Stroke color <input id="libraryStrokeColor" type="color" defaultValue="#1d2430" /></label>
+          <div className="library-paint-row">
+            <label><span className="paint-preview filled" id="fillPaintPreview" aria-hidden="true" />Fill <input id="libraryFillColor" aria-label="Fill" type="color" defaultValue="#0267e0" /></label>
+            <label><span className="paint-preview outlined" id="strokePaintPreview" aria-hidden="true" />Stroke <input id="libraryStrokeColor" aria-label="Stroke" type="color" defaultValue="#1d2430" /></label>
+          </div>
           <Button className="btn sm" id="testSolidVariantsBtn">Test solid variants</Button><span className="lbl" id="solidTestProgress" role="status" aria-live="polite"></span>
         </fieldset>
         <fieldset className="library-output-fields"><legend>Output target</legend>
@@ -110,6 +138,9 @@ export function WorkbenchShell() {
           <div id="areaSelectionMenu" className="floating-panel item-menu" role="menu" aria-label="Area selection tools" hidden><Button className="menu-item" role="menuitemradio" data-area-choice="marquee" aria-checked="true" data-icon-ui="marquee">Marquee</Button><Button className="menu-item" role="menuitemradio" data-area-choice="lasso" aria-checked="false" data-icon-ui="lasso">Lasso</Button><Button className="menu-item" role="menuitemradio" data-area-choice="polygon" aria-checked="false" data-icon-ui="polygon-lasso">Polygon lasso</Button></div>
           <span className="lbl">Handles</span>
           <div className="seg" role="group" aria-label="Handle mode"><Button className="btn sm" data-hmode="shape" title="Edit the form's own parameters" data-icon-ui="path">Shape</Button><Button className="btn sm" data-hmode="transform" title="Rotate / scale about the anchor point (T)" data-icon-ui="transform">Transform</Button></div></div>
+        <div className="canvas-options" data-expanded={drawingControls}>
+        <Button className="btn sm canvas-options-toggle" aria-expanded={drawingControls} aria-controls="canvasOptions" onClick={() => setDrawingControls(!drawingControls)}><span className="disclosure-arrow" aria-hidden="true">▾</span>Drawing controls</Button>
+        <div id="canvasOptions" className="canvas-options-content">
         <div className="row"><span className="lbl">Boolean</span>
           <div className="seg" role="group" aria-label="Boolean on selection"><Button className="btn sm icon" data-group="union" aria-label="Union" data-control-tooltip="Union: combine selected shapes" title="Union selection (⌘G)" data-icon-ui="union"></Button><Button className="btn sm icon" data-group="subtract" aria-label="Subtract" data-control-tooltip="Subtract: first shape minus the rest" title="First minus the rest: later children become cutters" data-icon-ui="subtract"></Button><Button className="btn sm icon" data-group="intersect" aria-label="Intersect" data-control-tooltip="Intersect: keep only the overlap" data-icon-ui="intersect"></Button><Button className="btn sm icon" data-group="exclude" aria-label="Exclude" data-control-tooltip="Exclude: remove the overlap" data-icon-ui="exclude"></Button></div></div>
         <div className="row"><span className="lbl">Snap</span>
@@ -125,6 +156,7 @@ export function WorkbenchShell() {
             <Button className="btn sm" data-rot="1">1</Button><Button className="btn sm" data-rot="2">2</Button><Button className="btn sm" data-rot="4">4</Button><Button className="btn sm" data-rot="6">6</Button><Button className="btn sm" data-rot="8">8</Button><Button className="btn sm" data-rot="12">12</Button>
           </div></div>
 
+        </div></div>
       </div>
       <div className="iso-bar" id="isoBar" role="status" hidden><span className="lbl">Isolated</span><span className="crumbs" id="isoCrumbs"></span><Button className="btn sm" id="isoExit" title="Exit isolation (Esc)">Exit</Button></div>
       <div className="canvas-wrap"><div className="stage">
@@ -163,6 +195,8 @@ export function WorkbenchShell() {
       <div className="status" id="status" role="status" aria-live="polite"></div>
       <div className="hint-line">Double-click an object to isolate it (Esc exits) · Pen on an outline adds an anchor (primitives convert to vectors); Alt-click an anchor removes it; double-click an anchor for corner / smooth, ⌫ deletes it · drag the mirror axis by its square, turn it by its circle (snaps 0 / 45 / 90°) · Drag a form to move · Select a subtract group to see its cutters (dashed orange); click a cutter to drag it or pull its radius handle · Shape handles resize, round corners (inner dot), taper (◆) · Transform handles: corners scale, ○ rotates, ⊕ is the anchor point · Pen: click / drag anchors, click the first to close, Enter ends · drag from a ruler for a guide, back onto it to delete · arrows nudge (⇧ ×10) · ⌘Z ⇧⌘Z ⌘D ⌫ · ⌘-scroll zooms</div>
     </section>
+    <div className="canvas-details" id="pane-details">
+    <Button className="btn sm pane-close" onClick={closePane}>Close pane</Button>
     <section className="panel" aria-labelledby="inspH">
       <h2 id="inspH">Inspector <span className="h-actions mono" id="inspPath"></span></h2>
       <div id="insp"></div>
@@ -176,15 +210,24 @@ export function WorkbenchShell() {
         <label htmlFor="iconAliases">Search terms (comma separated)</label><input id="iconAliases" type="text" placeholder="suggestion, vote, ballot" />
       </div>
     </section>
-
+    </div>
   </div>
 
   {/* RIGHT: previews, runtime controls, context, export */}
-  <div className="col-right">
+  <div className="col-right" id="pane-right">
+    <Button className="btn sm pane-close" onClick={closePane}>Close pane</Button>
     <section className="panel" aria-labelledby="geometryH">
       <h2 id="geometryH">Points &amp; overlaps</h2>
       <div className="pad"><p className="lbl" id="geometrySummary" role="status"></p><div id="overlapList"></div>
         <details open><summary>Source anchors · canvas coordinates (24 × 24)</summary><div className="point-table-wrap"><table className="point-table"><thead><tr><th>Object</th><th>Point</th><th>X</th><th>Y</th><th>Round</th></tr></thead><tbody id="pointRows"></tbody></table></div></details>
+      </div>
+    </section>
+    <section className="panel" aria-labelledby="measureH">
+      <h2 id="measureH">Measurements</h2>
+      <div className="pad"><div id="measurementDetails" className="measurement-details"></div>
+        <div className="row measurement-actions" id="measurementActions" hidden>
+          <Button className="btn sm" id="roundDistancePixel">Round to pixel</Button><Button className="btn sm" id="roundDistanceSnap">Round to snap</Button>
+        </div><p className="lbl" id="measurementHint">Select an object or two or more anchors.</p>
       </div>
     </section>
     <section className="panel" aria-labelledby="pvH">

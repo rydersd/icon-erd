@@ -18,5 +18,5 @@ export default function GlyphWorkbench() {
     });
     return () => { cancelled = true; editor?.dispose(); };
   }, []);
-  return <div ref={root}><WorkbenchShell /></div>;
+  return <div ref={root} className="workbench"><WorkbenchShell /></div>;
 }
