@@ -2651,9 +2651,9 @@ function refresh(full) {
   const style = S.libraryProperties ? tokenStyle(S.libraryProperties) : S.glyph.setStyle || {};
   $('setThicknessEnabled').checked = style.thickness != null; $('setRoundingEnabled').checked = !!style.rounding;
   $('setEndRoundingEnabled').checked = !!(style.endRounding ?? style.rounding);
-  if (document.activeElement !== $('setEndRounding')) $('setEndRounding').value = (style.endRounding ?? style.rounding) || 0.5;
+  if (document.activeElement !== $('setEndRounding')) $('setEndRounding').value = S.libraryProperties?.bindings?.endRounding ? style.endRounding : (style.endRounding ?? style.rounding) || 0.5;
   if (document.activeElement !== $('setThickness')) $('setThickness').value = style.thickness ?? 1.6;
-  if (document.activeElement !== $('setRounding')) $('setRounding').value = style.rounding || 0.5;
+  if (document.activeElement !== $('setRounding')) $('setRounding').value = S.libraryProperties?.bindings?.rounding ? style.rounding : style.rounding || 0.5;
   renderLibraryTokens();
   $('drawingMode').value = S.glyph.kind === 'app-icon' ? 'app-icon' : 'interface';
   $('exportSize').value = S.glyph.exportSize || (S.glyph.kind === 'app-icon' ? 1024 : 24);

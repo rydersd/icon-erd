@@ -15,6 +15,7 @@ test('local library tokens survive reload and linking binds names/values, while 
   await page.locator('#libraryPropertiesMenuBtn').click();await page.getByRole('menuitem',{name:'Disconnect tokens file',exact:true}).click();await expect(page.locator('#setThickness')).toBeEnabled();await expect(page.locator('#setThickness')).toHaveValue('2');
   await page.locator('#undoBtn').click();await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens · design.tokens.json');await expect(page.locator('#setThickness')).toBeDisabled();
   await link(page,document(2.5));await expect(page.locator('#setThickness')).toHaveValue('2.5');
+  const zero=document(2.5);zero.icon.cornerRadius.$value=0;zero.icon.endRadius.$value=0;await link(page,zero);await expect(page.locator('#setRounding')).toHaveValue('0');await expect(page.locator('#setEndRounding')).toHaveValue('0');
   await link(page,{bad:{$type:'number',$value:99}});await expect(page.locator('#status')).toContainText('Updated tokens file is missing');await expect(page.locator('#setThickness')).toHaveValue('2.5');
 });
 test('library token import is explicit and invalid token archives are atomic',async({page})=>{
