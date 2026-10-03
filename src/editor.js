@@ -1103,7 +1103,13 @@ function applyAreaSelection(points, state) {
   S.anchor=S.selectedAnchors.find(a=>same(a.selection,primarySel()))?.index ?? null;S.sourceAnchor=null;refresh(true);
   status(`Selected ${values.length} ${state.scope}. Shift adds; Option/Alt subtracts.`);
 }
-function finishAreaPolygon() { if(!areaPolygon)return;const pending=areaPolygon;areaPolygon=null;applyAreaSelection(pending.points,{...pending,mode:'polygon'}); }
+function finishAreaPolygon() {
+  if(!areaPolygon)return;
+  const pending=areaPolygon;areaPolygon=null;
+  const points=[...pending.points],last=points.at(-1);
+  if(pending.cursor && last && Math.hypot(pending.cursor.x-last.x,pending.cursor.y-last.y)>1e-7)points.push(pending.cursor);
+  applyAreaSelection(points,{...pending,mode:'polygon'});
+}
 function pointMarker(point, size, kind, selected, parent, px, attrs = {}) {
   const common = { fill: selected ? 'var(--sel)' : 'var(--canvas-bg)', stroke: selected ? 'var(--sel)' : 'var(--anchor-idle)', 'stroke-width': 1.5 * px, 'data-point-kind': kind, 'data-selected': String(selected), ...attrs };
   if (kind === 'circle') return el('circle', { ...common, cx: point.x, cy: point.y, r: size }, parent);
@@ -1326,9 +1332,16 @@ listen(cv, 'pointerdown', ev => {
   cv.focus({ preventScroll: true });
   if(S.tool==='area') {
     if(S.areaMode==='polygon') {
+      // SVG targets can differ between clicks; native dblclick is insufficient.
+      const previous=areaPolygon?.lastDown,now=performance.now();
+      if(previous && now-previous.t<500 && Math.hypot(ev.clientX-previous.x,ev.clientY-previous.y)<5){
+        areaPolygon.cursor=pos;finishAreaPolygon();return;
+      }
       if(areaPolygon?.points.length>=3 && Math.hypot(pos.x-areaPolygon.points[0].x,pos.y-areaPolygon.points[0].y)<8/pxPerUnit()){finishAreaPolygon();return;}
       if(!areaPolygon)areaPolygon={...areaBase(ev,S.areaScope),points:[]};
-      areaPolygon.points.push(pos);renderArea(areaPolygon.points);return;
+      areaPolygon.points.push(pos);areaPolygon.cursor=pos;
+      areaPolygon.lastDown={t:now,x:ev.clientX,y:ev.clientY};
+      renderArea(areaPolygon.points);return;
     }
     drag={kind:'area-selection',mode:S.areaMode,...areaBase(ev,S.areaScope),from:pos,to:pos,points:[pos]};cv.setPointerCapture(ev.pointerId);return;
   }
@@ -1426,7 +1439,7 @@ listen(cv, 'pointermove', ev => {
   const pos = toUnits(ev);
   handlePointer = pos; renderHandleHover();
   if (!drag) {
-    if(areaPolygon){renderArea([...areaPolygon.points,pos]);return;}
+    if(areaPolygon){areaPolygon.cursor=pos;renderArea([...areaPolygon.points,pos]);return;}
     if (S.tool === 'pen' && penDraft) { penHover = snapPt(pos); renderSelection(); }
     else if (S.tool === 'pen') { const o = hitOutline(pos); const had = !!insertHover; insertHover = o ? { x: o.x, y: o.y } : null; cv.classList.toggle('insert', !!o); if (o || had) renderSelection(); }
     return;
