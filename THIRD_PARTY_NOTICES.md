@@ -7,3 +7,5 @@
 - **fflate** — Arjun Barrett; MIT. [License](licenses/fflate.txt), [project](https://github.com/101arrowz/fflate). Used for editable ZIP library imports and exports.
 
 These licenses remain applicable independently of the application's MIT license. Local extracted project libraries are excluded from source publication and deployment; their inclusion in a local import file grants no additional rights. Illmater's local pack contains Lucide ISC artwork; SF Symbol and extracted design-system artwork retain their own terms.
+
+- **paperjs-offset 2.2.1** — Glen Zhu; MIT. https://github.com/glenzli/paperjs-offset — license: licenses/paperjs-offset.txt. Used for reviewed solid boundary generation.

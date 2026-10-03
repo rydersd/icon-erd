@@ -62,6 +62,19 @@ export function WorkbenchShell() {
         <label htmlFor="setEndRounding">End radius <input id="setEndRounding" type="number" min="0" max="6" step="0.1" defaultValue="0.5" /></label>
         <label id="endRoundingTokenRow" hidden>End radius token <select id="endRoundingToken" /></label>
         <span className="lbl">Applies to the whole library. Source shapes remain editable.</span>
+        <fieldset className="library-output-fields"><legend>Variants &amp; colors</legend>
+          <label>Output variant <select id="libraryVariant" defaultValue="source"><option value="source">As drawn</option><option value="outline">Outline</option><option value="solid">Generated solid</option><option value="both">Outline + solid files</option><option value="fill-stroke">Filled with stroke</option></select></label>
+          <label><input id="libraryFamilyView" type="checkbox" /> One icon per EDS family</label>
+          <label>Colors <select id="libraryColorMode" defaultValue="original"><option value="original">Keep layer colors</option><option value="single">Single color</option><option value="multicolor">Separate fill / stroke</option></select></label>
+          <label>Fill color <input id="libraryFillColor" type="color" defaultValue="#0267e0" /></label>
+          <label>Stroke color <input id="libraryStrokeColor" type="color" defaultValue="#1d2430" /></label>
+          <Button className="btn sm" id="testSolidVariantsBtn">Test solid variants</Button><span className="lbl" id="solidTestProgress" role="status" aria-live="polite"></span>
+        </fieldset>
+        <fieldset className="library-output-fields"><legend>Output target</legend>
+          <label>Profile <select id="libraryOutputProfile" defaultValue="interface"><option value="interface">Interface icons</option><option value="menu-bar">macOS menu bar</option><option value="mac-app">Mac app icon</option><option value="pc-app">PC app icon</option><option value="custom">Custom</option></select></label>
+          <label>Export sizes (px) <input id="libraryOutputSizes" type="text" defaultValue="24" /></label>
+          <p className="lbl" id="libraryOutputHint">Vector artwork stays editable. Output scales to these pixel sizes.</p>
+        </fieldset>
       </div>
     </details>
     <details className="panel shortcut-settings"><summary>Keyboard shortcuts</summary><div className="pad"><p className="lbl">Click a field and press a key combination. Mod means Cmd on Mac or Ctrl on Windows.</p><div id="shortcutFields"></div><Button className="btn sm" id="resetShortcuts">Restore defaults</Button></div></details>

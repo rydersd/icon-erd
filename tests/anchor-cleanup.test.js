@@ -1,4 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import paper from 'paper/dist/paper-core.js';
+import test from 'node:test';import assert from 'node:assert/strict';import paper from 'paper';
 import {cleanupAnchors} from '../src/anchor-cleanup.js';import {mergeAnchorCorners} from '../src/anchor-corner.js';
 new paper.Project();const identity=[1,0,0,1,0,0];
 test('cleanup removes selected redundant anchors, retaining endpoints, unselected points and sharp corners',()=>{

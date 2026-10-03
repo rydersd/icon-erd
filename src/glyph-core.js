@@ -1,3 +1,4 @@
+import {paintColors} from './library-output.js';
 /* Shared Paper.js geometry evaluator for the editor and headless tests. */
 export function createGlyphCore(paper) {
   'use strict';
@@ -660,7 +661,7 @@ export function createGlyphCore(paper) {
       for (const p of r.open) if (p.data.cap) (byCap[p.data.cap] = byCap[p.data.cap] || []).push(itemD(p));
       for (const cap in byCap) parts.push({ d: byCap[cap].join(''), cap });
       return {
-        id: layer.id, name: layer.name, role: layer.role || 'primary', paint: layer.paint || 'stroke', color: layer.color || null,
+        id: layer.id, name: layer.name, role: layer.role || 'primary', paint: layer.paint || 'stroke', color: layer.color || null, fillColor:layer.fillColor || null,strokeColor:layer.strokeColor || null,
         opacity: layer.opacity == null ? 1 : layer.opacity, visible: layer.visible !== false,
         d: parts.map(p => p.d).join(''), parts, error: r.error || null,
       };
@@ -725,14 +726,15 @@ export function createGlyphCore(paper) {
     for (const [layerIndex, L] of layers.entries()) {
       if (!L.visible || !L.d) continue;
       const col = L.color || (mode === 'baked' ? (opts.mono ? '#000' : colours[L.role] || '#000') : ROLE_VARS[L.role] || 'currentColor');
+      const paint=paintColors(L,glyph,{mode,mono:opts.mono,colors:mode==='baked'?colours:ROLE_VARS,fallback:col});
       for (const part of L.parts) {
         const stroke = L.paint === 'stroke' || L.paint === 'both';
         const fill = L.paint === 'fill' || L.paint === 'both';
         const a = [`d="${part.d}"`];
-        a.push(`fill="${fill ? col : 'none'}"`);
+        a.push(`fill="${fill ? esc(paint.fill) : 'none'}"`);
         if (fill) a.push('fill-rule="nonzero"');
         if (stroke) {
-          a.push(`stroke="${col}"`);
+          a.push(`stroke="${esc(paint.stroke)}"`);
           const style = strokeStyle(glyph, opts, part.cap);
           if (mode === 'baked') a.push(`stroke-width="${weight}" stroke-linecap="${style.cap}" stroke-linejoin="${style.join}"`);
           else a.push(`style="stroke-width:var(--icon-stroke-width,${glyph.setStyle?.thickness ?? glyph.weight ?? 1.2});stroke-linecap:${style.runtimeCap};stroke-linejoin:${style.runtimeJoin}"`);
@@ -740,7 +742,7 @@ export function createGlyphCore(paper) {
         if (L.opacity !== 1) a.push(`opacity="${L.opacity}"`);
         if (mode === 'runtime') a.push(`data-layer="${esc(L.id)}" data-role="${L.role}"`);
         body.push(`<path ${a.join(' ')}/>`);
-        if (stroke) body.push(strokeTipsSVG(glyph, part.d, { mode, weight, color: col, opacity: L.opacity, layerIndex }));
+        if (stroke) body.push(strokeTipsSVG(glyph, part.d, { mode, weight, color: paint.stroke, opacity: L.opacity, layerIndex }));
       }
     }
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${opts.size || glyph.exportSize || 24}" height="${opts.size || glyph.exportSize || 24}"${glyph.name ? ` data-icon="${esc(glyph.name)}"` : ''}>${body.join('')}</svg>`;

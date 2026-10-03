@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import paper from 'paper/dist/paper-core.js';
+import paper from 'paper';
 import {createGlyphCore} from '../src/glyph-core.js';
 import {findSharedForms,linkSharedForms,publishSharedForms,remapSharedForms,collectComponents,projectComponents} from '../src/shared-forms.js';
 import {libraryDocument,parseLibraryArchive} from '../src/library-io.js';

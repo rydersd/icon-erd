@@ -16,7 +16,7 @@ export function LibraryPanel() {
       <div className="lib-tools">
         <label className="lib-search"><span className="sr">Search glyphs</span><span id="libSearchIcon"></span><input type="search" id="libSearch" placeholder="Search" autoComplete="off" spellCheck="false" /></label>
         <select id="libFilter" aria-label="Filter by provenance">
-          <option value="all">Everything</option><option value="hand-built">Hand-built</option><option value="converted-stroke">Converted stroke</option><option value="imported-fill">Imported fill</option><option value="imported-stroke">Imported stroke</option><option value="edited">Edited</option>
+          <option value="all">Everything</option><option value="hand-built">Hand-built</option><option value="converted-stroke">Converted stroke</option><option value="imported-fill">Imported fill</option><option value="imported-stroke">Imported stroke</option><option value="edited">Edited</option><option value="problems">Problems</option>
         </select>
       </div>
       <div className="lib-meta"><span id="libCount" aria-live="polite"></span><span className="legend" aria-hidden="true"><span><i className="prov-dot" data-p="hand-built"></i>hand</span><span><i className="prov-dot" data-p="converted-stroke"></i>stroke</span><span><i className="prov-dot" data-p="imported-fill"></i>fill</span></span></div>
@@ -44,6 +44,7 @@ export function LibraryPanel() {
             <label htmlFor="exportStructure">Folder structure</label><select id="exportStructure"><option value="group">By primary group</option><option value="flat">Flat — all icons together</option></select>
             <label htmlFor="exportRoot">Root folder (optional)</label><input id="exportRoot" type="text" placeholder="icons" />
             <label className="row"><input id="exportSVGs" type="checkbox" defaultChecked /> Include SVG files</label>
+            <label className="row"><input id="exportPNGs" type="checkbox" /> Include PNG sizes / Apple assets</label>
             <p>Unassigned icons go in Ungrouped. Editable JSON and organization metadata are always included.</p>
             <Button className="btn sm" id="expOne" data-icon-ui="export">Export icon ZIP</Button>
             <Button className="btn sm" id="expEdited" data-icon-ui="export">Export edited ZIP</Button>
@@ -55,7 +56,7 @@ export function LibraryPanel() {
           <h2 id="importHeading">Import icons</h2>
           <p id="importSummary"></p>
           <label className="row"><input type="checkbox" id="importReplace" /> Replace matching icons</label>
-          <label className="row" id="importTokensRow" hidden><input type="checkbox" id="importLibraryTokens" /> Use imported library tokens</label>
+          <label className="row" id="importTokensRow" hidden><input type="checkbox" id="importLibraryTokens" /> Use imported library properties / tokens</label>
           <p>Replace keeps other icons in your library. Add renames incoming icons when a name is already in use.</p>
           <div className="row"><Button className="btn" id="cancelImportBtn">Cancel</Button><Button className="btn" id="confirmImportBtn">Add icons</Button></div>
         </dialog>
