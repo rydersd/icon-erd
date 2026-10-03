@@ -332,7 +332,14 @@ $('undoOrganizationBtn').onclick=async()=>{
   S.lib=S.lib.map(glyph=>{const before=previous.get(glyph.name);if(!before)return glyph;const copy={...glyph};for(const key of ['group','groupSource']){if(before[key]==null)delete copy[key];else copy[key]=before[key];}return copy;});
   for(const glyph of S.lib)queueSave(glyph.name);await flushSaves();renderLibrary();loadGlyph(Math.max(0,idx(current)));status('Previous grouping restored; artwork edits retained.');
 };
-function updateHistoryBtns() { $('undoBtn').disabled = !S.undo.length; $('redoBtn').disabled = !S.redo.length; }
+function updateHistoryBtns() {
+  $('undoBtn').disabled = !S.undo.length; $('redoBtn').disabled = !S.redo.length;
+  const total = S.undo.length + S.redo.length, position = S.undo.length;
+  const slider = $('historyScrubber');
+  slider.max = total; slider.value = position; slider.disabled = !total;
+  const description = `${position} of ${total} · ${S.glyph?.name || ''}${position === total ? ' · latest' : ''}`;
+  slider.setAttribute('aria-valuetext', description); $('historyPosition').textContent = description;
+}
 function pruneSel() {
   S.sel = S.sel.filter(s => { try { return s.l < S.glyph.layers.length && (s.p === null || getNode(s)); } catch (e) { return false; } });
   if (S.iso && !(S.iso.l < S.glyph.layers.length && (S.iso.p === null || getNode(S.iso)))) S.iso = null;
@@ -1428,6 +1435,22 @@ function openPopup(panel, trigger, x, y, focus) {
   popup = { panel, trigger, focus };
   panel.querySelector('button:not(:disabled), input:not(:disabled), select')?.focus();
 }
+$('hdrEdited').onclick = () => {
+  if (popup?.panel === $('historyPalette')) { closePopup(true); return; }
+  if (penDraft) finishPen();
+  updateHistoryBtns();
+  const button = $('hdrEdited'), bounds = button.getBoundingClientRect();
+  openPopup($('historyPalette'), button, bounds.left, bounds.bottom + 6, () => button);
+};
+listen($('historyScrubber'), 'input', event => {
+  const target = Number(event.target.value);
+  while (S.undo.length !== target) {
+    const before = S.undo.length;
+    if (before > target) undo(); else redo();
+    if (S.undo.length === before) break; // unavailable/deleted icons cannot be restored
+  }
+  updateHistoryBtns();
+});
 listen(document, 'pointerdown', event => {
   if (popup && !popup.panel.contains(event.target) && !popup.trigger?.contains(event.target)) closePopup();
 }, { capture: true });
@@ -2451,7 +2474,8 @@ function updateGlyphTags() {
   const g = S.glyph, p = PROV_LABEL[g.provenance] || g.provenance || 'new glyph';
   $('hdrProv').textContent = p;
   const edited = ORIG.has(g.name) && isEdited(g);
-  $('hdrEdited').hidden = !edited;
+  $('hdrEdited').hidden = !edited && !S.undo.length && !S.redo.length;
+  $('hdrEdited').textContent = edited ? 'edited' : 'history';
   $('revertBtn').disabled = !edited;
   $('revertBtn').title = ORIG.has(g.name) ? 'Put this glyph back to its library original (undo brings your edit back)' : 'Not in the library: nothing to revert to';
 }

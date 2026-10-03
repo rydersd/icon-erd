@@ -316,3 +316,12 @@ textarea { height: auto; padding: 6px; width: 100%; resize: vertical; font-famil
 #componentList { display: flex; flex-wrap: wrap; gap: 4px; }
 .version-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .version-row > span { flex: 1; }
+
+.history-palette { width: min(360px, calc(100vw - 16px)); padding: 16px; }
+.history-palette h2 { margin: 0 0 8px; font-size: 14px; }
+.history-palette p { margin: 0 0 12px; color: var(--text-2); font-size: 12px; }
+.history-palette input { width: 100%; accent-color: var(--sel); cursor: ew-resize; }
+.history-ends { display: flex; justify-content: space-between; color: var(--text-3); font-size: 11px; margin: 4px 0 12px; }
+.history-palette output { display: block; font-size: 12px; overflow-wrap: anywhere; }
+.history-palette .history-note { margin: 12px 0 0; }
+button.glyph-tag { background: transparent; cursor: pointer; }

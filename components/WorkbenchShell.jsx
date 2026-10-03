@@ -8,7 +8,15 @@ export function WorkbenchShell() {
 <header className="bar">
   <h1>ICONERD</h1><a className="lbl credits-link" href="/third-party-notices.txt" target="_blank" rel="noreferrer">Credits</a>
   <span className="glyph-name mono" id="hdrName"></span>
-  <span className="glyph-tag" id="hdrProv"></span><span className="glyph-tag edited" id="hdrEdited" hidden>edited</span>
+  <span className="glyph-tag" id="hdrProv"></span><Button className="glyph-tag edited" id="hdrEdited" hidden aria-label="Scrub edit history" aria-haspopup="dialog" aria-controls="historyPalette" aria-expanded="false">edited</Button>
+  <div id="historyPalette" className="floating-panel history-palette" role="dialog" aria-label="Edit history" hidden>
+    <h2>Edit history</h2><p>Library-wide undo history · drag left to go back.</p>
+    <label className="lbl" htmlFor="historyScrubber">History position</label>
+    <input id="historyScrubber" type="range" min="0" max="0" step="1" defaultValue="0" />
+    <div className="history-ends"><span>Oldest retained</span><span>Latest</span></div>
+    <output id="historyPosition" htmlFor="historyScrubber"></output>
+    <p className="history-note">Stopping keeps this state. A new edit replaces the redo branch.</p>
+  </div>
   <span className="spacer"></span>
   <label className="lbl" htmlFor="drawingMode">Drawing mode</label><select id="drawingMode" defaultValue="interface"><option value="interface">Interface icons</option><option value="app-icon">App icons</option></select>
   <label className="lbl" htmlFor="exportSize">Export px</label><input id="exportSize" type="number" min="16" max="4096" step="1" defaultValue="24" />
