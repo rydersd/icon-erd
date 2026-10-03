@@ -172,8 +172,8 @@ let scrubbingIcon = false;
 function iconTimeline(name = S.glyph?.name, current = lastSnap || JSON.stringify(S.glyph)) {
   if (!name) return { states: [], position: 0 };
   if (!Object.hasOwn(S.iconHistories,name)) {
-    const previous = S.undo.filter(entry => (entry.name || JSON.parse(entry.glyph).name) === name).map(entry => entry.glyph);
-    const later = S.redo.slice().reverse().filter(entry => (entry.name || JSON.parse(entry.glyph).name) === name).map(entry => entry.glyph);
+    const previous = S.undo.filter(entry => entry.glyph && (entry.name || JSON.parse(entry.glyph).name) === name).map(entry => entry.glyph);
+    const later = S.redo.slice().reverse().filter(entry => entry.glyph && (entry.name || JSON.parse(entry.glyph).name) === name).map(entry => entry.glyph);
     const past = [...previous, current].filter((state,i,all) => i === 0 || state !== all[i-1]);
     const states = [...past, ...later].filter((state,i,all) => i === 0 || state !== all[i-1]);
     Object.defineProperty(S.iconHistories,name,{value:{states,position:past.length-1},writable:true,enumerable:true,configurable:true});
@@ -258,6 +258,14 @@ function restoreHistory(from,to) {
   if(!from.length)return;
   penDraft=null;
   const entry=from[from.length-1];
+  if(entry.kind==='library-properties') {
+    from.pop();to.push({kind:'library-properties',libraryProperties:clone(S.libraryProperties)});
+    S.libraryProperties=clone(entry.libraryProperties);saveLibraryProperties();
+    const style=S.libraryProperties ? tokenStyle(S.libraryProperties) : {thickness:null,rounding:0,endRounding:0};
+    for(const glyph of S.lib){glyph.setStyle=clone(style);queueSave(glyph.name);}
+    S.glyph.setStyle=clone(style);lastSnap=JSON.stringify(S.glyph);S.rt.weight=style.thickness ?? S.glyph.weight ?? 1.2;
+    renderAll();renderLibrary();saveHistory();updateHistoryBtns();return;
+  }
   const target = idx(entry.name || JSON.parse(entry.glyph).name);
   if (target < 0) { status('This edit belongs to an icon outside the current library. Restore its checkpoint first.',true); return; }
   from.pop();
@@ -310,7 +318,7 @@ async function showLibraryVersions() {
 async function restoreLibraryVersion(version) {
   if (penDraft) finishPen();
   await flushSaves();
-  const archive = version.document.glyphs.length ? parseLibraryArchive(JSON.stringify(version.document)) : {glyphs:[],originals:new Map(),components:new Map()};
+  const archive = version.document.glyphs.length ? parseLibraryArchive(JSON.stringify(version.document)) : {glyphs:[],originals:new Map(),components:new Map(),libraryProperties:validateLibraryProperties(version.document.libraryProperties)};
   projectComponents(archive.glyphs,archive.components,core);
   for (const glyph of archive.glyphs) if (core.resolve(glyph).some(layer=>layer.error)) throw new Error(`Invalid geometry in ${glyph.name}`);
   const safety = currentLibraryVersion(`Before restoring ${version.name}`);
@@ -2768,7 +2776,7 @@ $('exportSize').onchange = () => { S.glyph.exportSize = Math.max(16, Math.min(40
 $('newBtn').onclick = () => {
   const g = TEMPLATES[$('tplSel').value](); let name = $('tplSel').value === 'blank' ? 'untitled' : g.name + '-copy'; let k = 1;
   while (idx(name) >= 0) name = name.replace(/-\d+$/, '') + '-' + (++k);
-  g.name = name; g.provenance = 'hand-built'; ensureLayerNames(g); ORIG.set(name, clone(g)); S.lib.push(g); renderLibrary(); loadGlyph(S.lib.length - 1); queueSave(name); status(`New glyph from ${$('tplSel').value} template.`);
+  g.name = name; g.provenance = 'hand-built'; ensureLayerNames(g); ORIG.set(name, clone(g)); S.lib.push(g); renderLibrary(); loadGlyph(S.lib.length - 1); storeCurrent(); status(`New glyph from ${$('tplSel').value} template.`);
 };
 function saveLibraryProperties() {
   try {localStorage.setItem('gw-library-properties',JSON.stringify(S.libraryProperties));}catch(error){status(`Library properties could not be saved: ${error.message}`,true);}
@@ -2798,7 +2806,11 @@ function applyLibraryProperties(input) {
   S.libraryProperties=properties;saveLibraryProperties();
   const peers=S.lib.filter((glyph,i)=>i!==S.cur && JSON.stringify(glyph.setStyle)!==JSON.stringify(style)).map(clone);
   S.glyph.setStyle=clone(style);S.lib=S.lib.map((glyph,i)=>i===S.cur?glyph:({...glyph,setStyle:clone(style)}));
-  commit(peers,before);
+  if(S.lib.length)commit(peers,before);
+  else {
+    S.undo.push({kind:'library-properties',libraryProperties:before});if(S.undo.length>300)S.undo.shift();
+    S.redo=[];lastSnap=JSON.stringify(S.glyph);saveHistory();updateHistoryBtns();
+  }
   for(const glyph of S.lib)queueSave(glyph.name);
   S.rt.weight=style.thickness ?? S.glyph.weight ?? 1.2;
   refresh(true);renderLibrary();status(`Library tokens applied to ${S.lib.length} icons.`);

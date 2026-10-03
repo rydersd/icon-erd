@@ -2,6 +2,31 @@ import {test,expect} from '@playwright/test';
 const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
 const document=(width=2)=>({icon:{$type:'number',thickness:{$value:width},cornerRadius:{$value:0.4},endRadius:{$value:0.7}}});
 const link=async(page,doc=document())=>page.locator('#tokensFile').setInputFiles({name:'design.tokens.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(doc))});
+const emptyLibrary=async page=>{await page.locator('#selectShownIconsBtn').click();await page.locator('#deleteIconsBtn').click();await expect(page.locator('.lib-item')).toHaveCount(0);};
+test('empty libraries retain token edits and their Undo history without creating an icon',async({page})=>{
+  await ready(page);await emptyLibrary(page);await link(page);
+  await expect(page.locator('.lib-item')).toHaveCount(0);
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);
+  await expect(page.locator('.lib-item')).toHaveCount(0);
+  await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens · design.tokens.json');
+  await page.locator('#undoBtn').click();await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens');
+  await page.locator('#redoBtn').click();await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens · design.tokens.json');
+  await expect(page.locator('.lib-item')).toHaveCount(0);
+  await page.locator('#newBtn').click();await expect(page.locator('.lib-item')).toHaveCount(1);
+  await page.locator('#undoBtn').click();await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens');
+  await page.locator('#redoBtn').click();await expect(page.locator('#setThickness')).toHaveValue('2');
+  expect(await page.evaluate(()=>window.__gw.S.lib[0].setStyle.thickness)).toBe(2);
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('.lib-item')).toHaveCount(1);await expect(page.locator('#setThickness')).toHaveValue('2');
+});
+test('restoring an empty checkpoint restores its linked library tokens',async({page})=>{
+  await ready(page);await link(page);await emptyLibrary(page);
+  await page.locator('#libraryVersionsBtn').click();await page.locator('#versionName').fill('Empty linked library');await page.locator('#saveLibraryVersionBtn').click();
+  await expect(page.locator('#libraryVersionsList')).toContainText('Empty linked library');await page.locator('#closeLibraryVersionsBtn').click();
+  await page.locator('#libraryPropertiesMenuBtn').click();await page.getByRole('menuitem',{name:'Disconnect tokens file',exact:true}).click();
+  await page.locator('#libraryVersionsBtn').click();await page.locator('.version-row').filter({hasText:'Empty linked library'}).getByRole('button',{name:'Restore',exact:true}).click();
+  await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens · design.tokens.json');await expect(page.locator('.lib-item')).toHaveCount(0);
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('#setThickness')).toHaveValue('2');await expect(page.locator('.lib-item')).toHaveCount(0);
+});
 test('local library tokens survive reload and linking binds names/values, while disconnect and Undo retain ownership',async({page})=>{
   await ready(page);await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens');
   await expect(page.locator('#thicknessTokenRow')).toBeHidden();
