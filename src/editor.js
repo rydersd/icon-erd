@@ -945,7 +945,7 @@ function renderGeometryInspection() {
       const active = anchorSelected(point.selection, point.index);
       if (!S.show.points && !active) continue;
       if (active) el('circle', { cx: point.x, cy: point.y, r: 7 * px, fill: 'none', stroke: 'var(--sel)', 'stroke-width': 2 * px, 'data-selected-source-point': 'true' }, overlay);
-      pointMarker(point, 2.5*px, anchorMarker(point.node, point.index, S.glyph.setStyle), active, overlay);
+      pointMarker(point, 2.5*px, anchorMarker(point.node, point.index, S.glyph.setStyle), active, overlay, px);
       const parts = [];
       if (S.show.anchorNumbers) parts.push(`#${point.index + 1}`);
       if (S.show.anchorValues) parts.push(`${r4(point.x)}, ${r4(point.y)}`);
@@ -1009,8 +1009,8 @@ function applyAreaSelection(points, state) {
   status(`Selected ${values.length} ${state.scope}. Shift adds; Option/Alt subtracts.`);
 }
 function finishAreaPolygon() { if(!areaPolygon)return;const pending=areaPolygon;areaPolygon=null;applyAreaSelection(pending.points,{...pending,mode:'polygon'}); }
-function pointMarker(point, size, kind, selected, parent, attrs = {}) {
-  const common = { fill: selected ? 'var(--sel)' : 'var(--canvas-bg)', stroke: selected ? 'var(--sel)' : 'var(--anchor-idle)', 'stroke-width': 1.5 / pxPerUnit(), 'data-point-kind': kind, 'data-selected': String(selected), ...attrs };
+function pointMarker(point, size, kind, selected, parent, px, attrs = {}) {
+  const common = { fill: selected ? 'var(--sel)' : 'var(--canvas-bg)', stroke: selected ? 'var(--sel)' : 'var(--anchor-idle)', 'stroke-width': 1.5 * px, 'data-point-kind': kind, 'data-selected': String(selected), ...attrs };
   if (kind === 'circle') return el('circle', { ...common, cx: point.x, cy: point.y, r: size }, parent);
   if (kind === 'diamond') return el('path', { ...common, d: `M${point.x} ${point.y-size*1.3}L${point.x+size*1.3} ${point.y}L${point.x} ${point.y+size*1.3}L${point.x-size*1.3} ${point.y}Z` }, parent);
   return el('rect', { ...common, x: point.x-size, y: point.y-size, width: size*2, height: size*2 }, parent);
@@ -1045,7 +1045,7 @@ function renderSelection() {
       const d = ap(M, h), H = { ...h, x: d.x, y: d.y, M, Mi, s: selection };
       activeHandles.push(H);
       if (h.kind === 'ctrl') { const a = ap(M, { x: h.anchor[0], y: h.anchor[1] }); el('path', Object.assign({ d: `M${a.x} ${a.y}L${d.x} ${d.y}`, stroke: 'var(--sel)', 'stroke-width': 1 }, NS), gS); }
-      if (H.kind === 'pt') pointMarker(H, sz, H.ai != null ? anchorMarker(node, H.ai, S.glyph.setStyle) : 'square', H.ai != null && (anchorSelected(selection, H.ai) || (!S.selectedAnchors.length && same(selection, ps) && H.ai === S.anchor)), gS, { 'data-anchor': H.ai ?? '', 'data-anchor-object': treeKey(selection) });
+      if (H.kind === 'pt') pointMarker(H, sz, H.ai != null ? anchorMarker(node, H.ai, S.glyph.setStyle) : 'square', H.ai != null && (anchorSelected(selection, H.ai) || (!S.selectedAnchors.length && same(selection, ps) && H.ai === S.anchor)), gS, px, { 'data-anchor': H.ai ?? '', 'data-anchor-object': treeKey(selection) });
       else if (H.kind === 'radius' || H.kind === 'ctrl') el('circle', Object.assign({ cx: H.x, cy: H.y, r: sz*.85, fill: H.kind === 'ctrl' ? 'var(--canvas-bg)' : 'var(--sel)', stroke: 'var(--sel)', 'stroke-width': 1.2, ...(H.cornerIndex!=null ? {'data-radius-anchor':H.cornerIndex} : {}) }, NS), gS);
       else el('path', Object.assign({ d: `M${H.x} ${H.y-sz*1.2}L${H.x+sz*1.2} ${H.y}L${H.x} ${H.y+sz*1.2}L${H.x-sz*1.2} ${H.y}Z`, fill: 'var(--sel)', stroke: 'var(--sel)', 'stroke-width': 1 }, NS), gS);
       if (H.kind === 'radius' && H.rounded && H.corner) {
