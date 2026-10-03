@@ -18,3 +18,5 @@ Supported interchange is the numeric subset of the [DTCG 2025.10 format](https:/
 A link stores the filename, embedded file contents and explicit bindings with the working library. Browser file selection does not continuously watch the disk: reselect the file to update. The embedded snapshot works after reload and transfer. Missing bound names, cyclic references and out-of-range drawing values reject before changing the library. Unbound properties remain locally defined.
 
 JSON/ZIP libraries and named checkpoints retain `libraryProperties`. Import has an explicit Use imported library tokens checkbox, off by default; otherwise the destination library retains its token ownership. Tokens apply to all icons including subsequent imports, and geometry Reset preserves library tokens. Changes and disconnect participate in chronological Undo/Redo. Per-icon history restores geometry under the current library tokens.
+
+An empty library can still define or link tokens. These edits have library-only Undo/Redo entries and never create placeholder icons. Empty checkpoints retain token values and file bindings when restored.
