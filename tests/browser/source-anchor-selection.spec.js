@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test';
+import {readFile,access} from 'node:fs/promises';
 const screen=async(page,x,y)=>page.evaluate(({x,y})=>{const c=document.querySelector('#canvas'),p=c.createSVGPoint();p.x=x;p.y=y;const q=p.matrixTransform(c.getScreenCTM());return {x:q.x,y:q.y};},{x,y});
 const setup=async(page,node)=>{
   await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);
@@ -48,15 +49,11 @@ test('rounded source anchors remain selectable outside the evaluated outline, wi
   expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[0].r)).toBe(3);
 });
 test('the comment outline previews a nearby broken-handle merge before release',async({page})=>{
-  await setup(page,{name:'Comment outline',shape:'pen',closed:true,pts:[
-    {x:2.4,y:4.8,out:[0,-1.32]},{x:4.8,y:2.4,in:[-1.32,0]},
-    {x:19.2,y:2.4,out:[1.32,0]},{x:21.6,y:4.8,in:[0,-1.32]},
-    {x:21.6,y:15.6,out:[0,1.32]},{x:19.2,y:18,in:[1.32,0]},
-    {x:14,y:18},{x:9.36,y:21.48,out:[-0.18,0.14]},
-    {x:8.73,y:21.54,in:[0.21,0.1],out:[-0.21,-0.1]},
-    {x:8.4,y:21,in:[0,0.23]},{x:8.4,y:18},
-    {x:4.8,y:18,out:[-1.32,0]},{x:2.4,y:15.6,in:[0,1.32]},
-  ]});
+  const file='imports/eds-icons-named.json';
+  test.skip(!await access(file).then(()=>true,()=>false),'Private EDS artwork is not published');
+  const pack=JSON.parse(await readFile(file,'utf8'));
+  const outline=pack.glyphs.find(g=>g.name==='comment-exclamation').layers[0].node.children[0];
+  await setup(page,outline);
   await page.locator('[data-snap="0"]').click();await page.locator('#proximityMergeBtn').click();
   const from=await screen(page,8.73,21.54),to=await screen(page,8.45,21.03);
   await page.mouse.move(from.x,from.y);await page.mouse.down();await page.mouse.move(to.x,to.y);
