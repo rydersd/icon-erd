@@ -336,6 +336,7 @@ test('rounded, square and disconnected anchors have circle, square and diamond m
   await expect(page.locator('#gSel [data-anchor="0"]')).toHaveAttribute('data-point-kind','square');
   await expect(page.locator('#gSel [data-anchor="1"]')).toHaveAttribute('data-point-kind','circle');
   await expect(page.locator('#gSel [data-anchor="2"]')).toHaveAttribute('data-point-kind','diamond');
+  const corner = await screenPoint(page,12,4);await page.mouse.click(corner.x,corner.y);
   await page.getByRole('checkbox',{name:'Round Markers anchor 2',exact:true}).uncheck();
   await expect(page.locator('#gSel [data-anchor="1"]')).toHaveAttribute('data-point-kind','square');
 });
@@ -417,7 +418,7 @@ test('library selection deletes ranges durably and restores edited icons with or
  await ready(page);await page.locator('#iconDescription').fill('Keep my artwork notes');await page.locator('#iconDescription').press('Tab');
  const tiles=page.locator('.lib-item');await tiles.nth(0).click();await tiles.nth(2).click({modifiers:['Shift']});await expect(page.locator('#librarySelectionCount')).toHaveText('3 selected');
  await expect(page.locator('.lib-item[aria-pressed=true]')).toHaveCount(3);await page.keyboard.press('Delete');await expect(tiles).toHaveCount(1);await expect(page.locator('#restoreIconsBtn')).toHaveText('Restore deleted (3)');
- await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(tiles).toHaveCount(1);await page.locator('#restoreIconsBtn').click();await expect(tiles).toHaveCount(4);
+ await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(tiles).toHaveCount(1);await page.locator('#restoreIconsBtn').click();await page.locator('#selectAllDeletedBtn').click();await page.locator('#restoreSelectedIconsBtn').click();await expect(tiles).toHaveCount(4);
  await tiles.filter({hasText:'arrow-right'}).click();await expect(page.locator('#iconDescription')).toHaveValue('Keep my artwork notes');await page.locator('#revertBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');
  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(tiles).toHaveCount(4);await expect(page.locator('#restoreIconsBtn')).toBeDisabled();
 });
@@ -425,14 +426,14 @@ test('library toggle selection and shown selection respect search; canvas Delete
  await ready(page);const tiles=page.locator('.lib-item');await tiles.nth(0).click();await tiles.nth(2).click({modifiers:['Meta']});await expect(page.locator('#librarySelectionCount')).toHaveText('2 selected');await tiles.nth(0).locator('.library-pick').click();await expect(page.locator('#librarySelectionCount')).toHaveText('1 selected');
  await page.locator('#clearIconSelectionBtn').click();await page.locator('#libSearch').fill('arrow-up');await page.locator('#selectShownIconsBtn').click();await expect(page.locator('#librarySelectionCount')).toHaveText('1 selected');await page.locator('#deleteIconsBtn').click();await page.locator('#libSearch').fill('');await expect(tiles).toHaveCount(3);
  await tiles.first().click({button:'right'});await page.getByRole('menuitem',{name:'Delete icon',exact:true}).click();await expect(tiles).toHaveCount(2);
- await page.locator('#restoreIconsBtn').click();await expect(tiles).toHaveCount(4);
+ await page.locator('#restoreIconsBtn').click();await page.locator('#selectAllDeletedBtn').click();await page.locator('#restoreSelectedIconsBtn').click();await expect(tiles).toHaveCount(4);
  await page.locator('[data-tree-key="0:0"] .name').click();await page.keyboard.press('Delete');await expect(tiles).toHaveCount(4);
 });
 test('empty library stays empty across reload; restoring deleted collisions keeps newer imports',async({page})=>{
  await ready(page);const original=await page.evaluate(()=>structuredClone(window.__gw.S.lib[0]));await page.locator('#selectShownIconsBtn').click();await page.locator('#deleteIconsBtn').click();await expect(page.locator('.lib-item')).toHaveCount(0);
  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('.lib-item')).toHaveCount(0);await expect(page.locator('#restoreIconsBtn')).toBeEnabled();
  original.description='Newer imported version';await page.locator('#ioText').fill(JSON.stringify(original));await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();await expect(page.locator('.lib-item')).toHaveCount(1);
- await page.locator('#restoreIconsBtn').click();await expect(page.locator('.lib-item')).toHaveCount(5);expect(await page.evaluate(()=>window.__gw.S.lib.find(icon=>icon.name==='arrow-right').description)).toBe('Newer imported version');expect(await page.evaluate(()=>window.__gw.S.lib.find(icon=>icon.name==='arrow-right-2').description)).toBeUndefined();
+ await page.locator('#restoreIconsBtn').click();await page.locator('#selectAllDeletedBtn').click();await page.locator('#restoreSelectedIconsBtn').click();await expect(page.locator('.lib-item')).toHaveCount(5);expect(await page.evaluate(()=>window.__gw.S.lib.find(icon=>icon.name==='arrow-right').description)).toBe('Newer imported version');expect(await page.evaluate(()=>window.__gw.S.lib.find(icon=>icon.name==='arrow-right-2').description)).toBeUndefined();
  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('.lib-item')).toHaveCount(5);
 });
 

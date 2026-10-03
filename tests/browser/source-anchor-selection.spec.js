@@ -29,17 +29,23 @@ test('source row selects an imported anchor that can immediately move and undo',
   await page.locator('#canvas').press('ArrowRight');expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[1].x)).toBeGreaterThan(16);
   await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[1].x)).toBe(16);
 });
-test('a source row in an imported counter becomes an editable child and keeps its point list',async({page})=>{
+test('a source row in an imported counter becomes an editable child and shows only its selected point',async({page})=>{
   await setup(page,{name:'Outline with counter',shape:'path',d:'M4 4L16 4L16 16L4 16ZM8 8L8 12L12 12L12 8Z'});
   await page.locator('#pointRows [data-source-point="0:1:1"]').click();
   expect(await page.evaluate(()=>window.__gw.S.selectedAnchors)).toEqual([{selection:{l:0,p:[1]},index:1}]);
-  await expect(page.locator('#pointRows tr')).toHaveCount(4);
+  await expect(page.locator('#pointRows tr')).toHaveCount(1);
   await expect(page.locator('#pointRows [data-source-point="0:1:1"]')).toHaveAttribute('aria-selected','true');
   await page.locator('#canvas').press('ArrowRight');expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children[1].pts[1].x)).toBeGreaterThan(8);
 });
-test('multiple selected anchors hide other point rows and clearing selection restores them without changing rounding tags',async({page})=>{
+test('selected anchors hide other point rows from the first selection and clearing selection restores them without changing rounding tags',async({page})=>{
   await setup(page,{shape:'pen',closed:true,pts:[{x:4,y:4},{x:16,y:4},{x:16,y:16},{x:4,y:16}]});
-  await page.locator('#pointRows [data-source-point="0::0"]').click();await page.locator('#pointRows [data-source-point="0::1"]').click({modifiers:['Shift']});
+  const before = await page.locator('.point-table-wrap').boundingBox();
+  await page.locator('#pointRows [data-source-point="0::0"]').click();
+  await expect(page.locator('#pointRows tr')).toHaveCount(1);
+  const after = await page.locator('.point-table-wrap').boundingBox();
+  expect(after.height).toBe(before.height);
+  const second = await screen(page,16,4);
+  await page.keyboard.down('Shift');await page.mouse.click(second.x,second.y);await page.keyboard.up('Shift');
   await expect(page.locator('#pointRows tr')).toHaveCount(2);await expect(page.locator('#pointRows tr[aria-selected="true"]')).toHaveCount(2);
   await page.locator('#pointRows [data-source-point="0::0"]').getByRole('checkbox').uncheck();
   expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.roundingAnchors)).toEqual([1,2,3]);
@@ -85,4 +91,23 @@ test('the comment outline previews a nearby broken-handle merge before release',
   await page.mouse.up();const pts=await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts);
   expect(pts).toHaveLength(12);expect(pts[8].in).toEqual([0.21,0.1]);expect(pts[8].out).toBeUndefined();
   await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length)).toBe(13);
+});
+
+test('anchor numbers and coordinates toggle independently and persist without hiding anchors',async({page})=>{
+  await setup(page,{shape:'pen',closed:true,pts:[{x:4,y:4},{x:16,y:4},{x:16,y:16},{x:4,y:16}]});
+  const labels=page.locator('#gPoints .point-coordinate');
+  await expect(labels.first()).toHaveText('4, 4');
+  await page.locator('#showToggle').click();
+  await page.locator('[data-show="anchorValues"]').click();
+  await expect(labels).toHaveCount(0);
+  await expect(page.locator('#gPoints').locator('circle,rect,path')).not.toHaveCount(0);
+  await page.locator('[data-show="anchorNumbers"]').click();
+  await expect(labels.first()).toHaveText('#1');
+  await page.locator('[data-show="anchorValues"]').click();
+  await expect(labels.first()).toHaveText('#1 · 4, 4');
+  await page.locator('[data-show="anchorValues"]').click();
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);
+  await expect(page.locator('[data-show="anchorNumbers"]')).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('[data-show="anchorValues"]')).toHaveAttribute('aria-pressed','false');
+  await expect(page.locator('#gPoints .point-coordinate').first()).toHaveText('#1');
 });

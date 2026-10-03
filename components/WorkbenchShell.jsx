@@ -145,6 +145,8 @@ export function WorkbenchShell() {
           <Button className="btn view-tile" data-show="guides" aria-label="Guides" title="Guides" data-icon-ui="guides">Guides</Button>
           <Button className="btn view-tile" data-show="keylines" aria-label="Keylines" title="Keylines" data-icon-ui="keylines">Keylines</Button>
           <Button className="btn view-tile" data-show="points" aria-label="Points" title="Points" data-icon-ui="points">Points</Button>
+          <Button className="btn view-tile" data-show="anchorNumbers" aria-label="Anchor numbers" title="Anchor numbers">#</Button>
+          <Button className="btn view-tile" data-show="anchorValues" aria-label="Anchor coordinates" title="Anchor coordinates">X, Y</Button>
           <Button className="btn view-tile" data-show="forms" aria-label="Forms" title="Forms" data-icon-ui="forms">Forms</Button>
           <Button className="btn view-tile" data-show="original" id="origBtn" aria-label="Original" title="Original" data-icon-ui="duplicate">Original</Button>
           <Button className="btn view-tile" data-show="cutters" id="cuttersBtn" aria-label="Cutters" title="Cutters" data-icon-ui="cutter">Cutters</Button>

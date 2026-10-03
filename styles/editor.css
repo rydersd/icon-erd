@@ -248,7 +248,7 @@ textarea { height: auto; padding: 6px; width: 100%; resize: vertical; font-famil
 
 /* Geometry is first in the right column; coordinates stay legible against either theme. */
 .point-coordinate { fill: var(--text); paint-order: stroke; stroke: var(--canvas-bg); stroke-width: 2px; vector-effect: non-scaling-stroke; font-family: ui-monospace, monospace; }
-.point-table-wrap { max-height: 240px; overflow: auto; margin-top: 8px; }
+.point-table-wrap { height: 240px; overflow: auto; margin-top: 8px; }
 .point-table { width: 100%; border-collapse: collapse; font: 11px ui-monospace, monospace; }
 .point-table th, .point-table td { padding: 5px 6px; border-bottom: 1px solid var(--border); text-align: right; }
 .point-table th:first-child, .point-table td:first-child { text-align: left; }
@@ -333,3 +333,5 @@ textarea { height: auto; padding: 6px; width: 100%; resize: vertical; font-famil
 button.glyph-tag { background: transparent; cursor: pointer; }
 
 .library-output-fields{border:1px solid var(--border);border-radius:6px;margin:10px 0;padding:8px}.library-output-fields legend{font-size:12px;padding:0 4px}.group-problems[aria-pressed="true"]{color:var(--accent);outline:1px solid currentColor}.library-output-fields input[type="color"]{width:48px;height:26px}
+
+.deleted-review-actions{flex-wrap:wrap;margin:12px 0}.deleted-review-group{margin-top:16px}.deleted-review-group h3{font-size:13px}.deleted-icon-card.is-selected{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}.deleted-icon-pick{display:grid;grid-template-columns:auto 1fr;gap:8px;cursor:pointer;align-items:center}.deleted-icon-pick>span:not(.review-drawing){overflow-wrap:anywhere}.deleted-icon-pick .review-drawing{grid-column:1 / -1;display:block}.deleted-icon-card:focus-within{outline:2px solid var(--accent);outline-offset:2px}
