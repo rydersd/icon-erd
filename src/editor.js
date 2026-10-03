@@ -18,6 +18,7 @@ import { mergeNearbyAnchors } from './anchor-merge.js';
 import { cleanupAnchors } from './anchor-cleanup.js';
 import { mergeAnchorCorners } from './anchor-corner.js';
 import { anchorMarker } from './anchor-marker.js';
+import { pathEnclosedBy } from './selection-region.js';
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, setShortcut, shortcutFromEvent } from './shortcuts.js';
 import { inspectGeometry } from './geometry-inspection.js';
 import { ensureLayerNames, canMoveTreeItem, moveTreeItem, useAsCutter } from './layer-tree.js';
@@ -633,7 +634,7 @@ function isoLabel(t) {
 function isoEnter(t) {
   S.iso = t; S.anchor = null;
   S.sel = S.sel.filter(s => s.l === t.l && (t.p === null || (s.p !== null && prefixOf(t.p, s.p))));
-  refresh(true); status('Isolated ' + isoLabel(t).join(' › ') + ' — everything else is dimmed and locked. Esc or Exit returns.');
+  refresh(true); status('Isolated ' + isoLabel(t).join(' › ') + ' — everything else is dimmed and locked. Esc clears selection; Esc again or Exit returns.');
 }
 function isoExit() { if (!S.iso) return false; S.iso = null; refresh(true); status('Isolation ended.'); return true; }
 function renderIsoBar() {
@@ -876,10 +877,19 @@ function applyAreaSelection(points, state) {
       form.n.pts.forEach((point,index)=>{const p=ap(matrix,point);if(region.contains([p.x,p.y]))hits.push({selection,index});});
     }
   } else {
+    const candidates = new Map();
     for(const form of formCache) {
       if(form.n.hidden || S.glyph.layers[form.l].visible===false || !inIso(form.l,form.p) || !form.fm)continue;
       const paths=[...(form.fm.closed?[form.fm.closed]:[]),...form.fm.open];
-      if(paths.some(path=>region.getIntersections(path).length || path.contains(region.firstSegment.point) || region.contains(path.firstSegment?.point || path.bounds.center)))hits.push(isoTargetFor(form)||{l:form.l,p:form.p});
+      const selection=isoTargetFor(form)||{l:form.l,p:form.p};
+      if(state.mode==='polygon') {
+        const key=treeKey(selection);
+        if(!candidates.has(key))candidates.set(key,{selection,paths:[]});
+        candidates.get(key).paths.push(...paths);
+      } else if(paths.some(path=>region.getIntersections(path).length || path.contains(region.firstSegment.point) || region.contains(path.firstSegment?.point || path.bounds.center)))hits.push(selection);
+    }
+    for(const candidate of candidates.values()) {
+      if(candidate.paths.length && candidate.paths.every(path=>pathEnclosedBy(region,path)))hits.push(candidate.selection);
     }
   }
   region.remove();
@@ -890,7 +900,7 @@ function applyAreaSelection(points, state) {
   S.anchor=S.selectedAnchors.find(a=>same(a.selection,primarySel()))?.index ?? null;S.sourceAnchor=null;refresh(true);
   status(`Selected ${values.length} ${state.scope}. Shift adds; Option/Alt subtracts.`);
 }
-function finishAreaPolygon() { if(!areaPolygon)return;const pending=areaPolygon;areaPolygon=null;applyAreaSelection(pending.points,pending); }
+function finishAreaPolygon() { if(!areaPolygon)return;const pending=areaPolygon;areaPolygon=null;applyAreaSelection(pending.points,{...pending,mode:'polygon'}); }
 function pointMarker(point, size, kind, selected, parent, attrs = {}) {
   const common = { fill: selected ? 'var(--sel)' : 'var(--canvas-bg)', stroke: selected ? 'var(--sel)' : 'var(--anchor-idle)', 'stroke-width': 1.5 / pxPerUnit(), 'data-point-kind': kind, 'data-selected': String(selected), ...attrs };
   if (kind === 'circle') return el('circle', { ...common, cx: point.x, cy: point.y, r: size }, parent);
@@ -1892,7 +1902,7 @@ function setTool(t) {
   S.tool = t; if (t === 'direct') S.hmode = 'shape'; else if (t === 'select') { S.anchor = null; S.selectedAnchors = []; S.hmode = 'transform'; }
   cv.classList.toggle('direct', t === 'direct'); cv.classList.toggle('pen', t === 'pen');cv.classList.toggle('area',t==='area'); syncToggles(); renderSelection();
   if (t === 'pen') status('Pen: click to place anchors, drag for curves, click the first anchor to close, Enter or Esc to finish.');
-  if(t==='area')status(`${areaLabels[S.areaMode]} selection: ${S.areaScope}. Shift adds; Option/Alt subtracts. ${S.areaMode==='polygon'?'Click vertices; Enter, double-click or click first vertex to finish; Escape cancels.':'Drag to select.'}`);
+  if(t==='area')status(`${areaLabels[S.areaMode]} selection: ${S.areaScope}. Shift adds; Option/Alt subtracts. ${S.areaMode==='polygon'?'Click vertices; Return, double-click or click first vertex to finish; Escape cancels. Objects must be fully enclosed.':'Drag to select.'}`);
   const area=$('areaSelectBtn');area.classList.toggle('active',t==='area');area.setAttribute('aria-pressed',String(t==='area'));
 }
 
@@ -2736,8 +2746,8 @@ $('libFilter').onchange = () => { applyLibFilter(); try { localStorage.setItem('
 try { const f = localStorage.getItem('gw-lib-filter'); if (f && [...$('libFilter').options].some(o => o.value === f)) $('libFilter').value = f; } catch (e) {}
 $('libSearchIcon').innerHTML = uiIcon('search-outline');
 listen(document, 'keydown', e => {
-  if (!root.contains(document.activeElement)) return;
-  const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+  if (!root.contains(document.activeElement) && document.activeElement !== document.body) return;
+  const t = e.target; if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
   const mod = e.metaKey || e.ctrlKey;
   if(t?.closest?.('#lib')) {
     if(e.key === 'Delete' || e.key === 'Backspace'){e.preventDefault();deleteLibraryIcons();return;}
@@ -2746,6 +2756,10 @@ listen(document, 'keydown', e => {
   }
   if (penDraft && (e.key === 'Enter' || e.key === 'Escape')) { e.preventDefault(); finishPen(); setTool('select'); return; }
   if(areaPolygon && (e.key==='Enter' || e.key==='Escape')){e.preventDefault();if(e.key==='Enter')finishAreaPolygon();else {areaPolygon=null;$('anchorMarquee')?.remove();status('Polygon selection cancelled.');}return;}
+  if (e.key === 'Escape' && drag?.kind === 'area-selection') {
+    e.preventDefault(); drag = null; $('anchorMarquee')?.remove(); refresh(true);
+    status('Selection gesture cancelled.'); return;
+  }
   const key = shortcutFromEvent(e), action = Object.keys(shortcuts).find(action => shortcuts[action] === key);
   if (action) {
     e.preventDefault();
@@ -2757,7 +2771,12 @@ listen(document, 'keydown', e => {
     else if (action === 'handles') { S.hmode = S.hmode === 'transform' ? 'shape' : 'transform'; syncToggles(); renderSelection(); }
     return;
   }
-  if (e.key === 'Escape') { if (isoExit()) return; S.sel = []; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null; refresh(true); return; }
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (!S.sel.length && !S.selectedAnchors.length && !S.sourceAnchor && isoExit()) return;
+    S.sel = []; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
+    refresh(true); status('Selection cleared.'); return;
+  }
   const step = (S.snap || 0.1) * (e.shiftKey ? 10 : 1);
   const dirs = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
   if (dirs[e.key] && t && t.getAttribute && t.getAttribute('role') === 'treeitem' && !S.sel.some(s => s.p !== null)) return;

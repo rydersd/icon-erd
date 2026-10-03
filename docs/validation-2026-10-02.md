@@ -141,3 +141,9 @@ Published application source `5b1c90d`; Cloudflare version `d74f465b-34df-457d-8
 ## Edited-badge history timeline
 
 Edited/History badge opens an accessible range over the library-wide Undo/Redo stacks. Five focused local browser checks passed, including pointer/keyboard scrubbing, cross-icon restoration, returning to latest, redo-branch replacement, Escape/focus restoration and reload persistence. Scrubbing uses existing peer-aware restore behavior and creates no new entries.
+
+## Select All / Escape selection shortcuts
+
+Cmd/Ctrl+A supports page focus and context-sensitive object/anchor selection. Text and content-editable fields retain native shortcuts. Escape cancels active region selection (pointer release does not apply it), clears current selection first, then exits isolation on a further press. Focused browser regression covers page focus, direct selection, gesture cancellation, isolation and text-input selection.
+
+Polygon object enclosure now includes all contours and grouped paths; crossing/partially enclosed targets are excluded. Geometry checks cover curved excursions, concave regions, compound paths and boundary-aligned paths. Browser checks exercise Return and double-click completion while retaining selected objects.
