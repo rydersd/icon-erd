@@ -29,3 +29,7 @@ Use a disposable browser profile for persistence tests and export valuable edits
 ## Commit & Pull Request Guidelines
 
 This directory has no Git metadata, so historical commit conventions cannot be verified. If contributing through Git, use concise imperative subjects, for example `Fix mirrored glyph selection`. Keep changes focused. PR descriptions should explain the behavior changed, list manual checks and browser used, link relevant issues, and include before/after screenshots for visual changes. Preserve embedded library provenance and document intentional dataset or dependency updates.
+
+## Running innovation record
+
+Keep the local Git-ignored `wiki/product-spec/innovations.md` current as owner interactions introduce or refine design ideas. Append dated decisions and evidence to `wiki/product-spec/innovation-log.md`; link detailed proposals and the backlog. Capture the problem, reasoning, tradeoff and current status. Distinguish implemented behavior, experiments and proposals; update status after validation/shipment. This record belongs to the wiki and must not publish private artwork or conversational transcripts.
