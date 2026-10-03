@@ -7,7 +7,7 @@ import {
   faArrowUp, faArrowDown, faRotateLeft, faRotateRight, faRotate, faArrowsUpDownLeftRight,
   faMagnifyingGlassPlus, faMagnifyingGlassMinus, faExpand, faUpload, faDownload,
   faMoon, faSun, faSliders, faCrosshairs, faArrowsLeftRight, faArrowsUpDown, faMagnifyingGlass,
-  faBorderAll, faBullseye, faBraille, faShapes,
+  faBorderAll, faBullseye, faBraille, faShapes, faEllipsis,
 } from '@fortawesome/free-solid-svg-icons';
 const ICONS = {
   select: faArrowPointer, pen: faPenNib, circle: faCircle, ellipse: faCircle,
@@ -22,6 +22,7 @@ const ICONS = {
   import: faUpload, export: faDownload, theme: faMoon, sun: faSun, deform: faSliders,
   'flip-h': faArrowsLeftRight, 'flip-v': faArrowsUpDown, 'search-outline': faMagnifyingGlass,
   grid: faBorderAll, safe: faDrawPolygon, keylines: faBullseye, points: faBraille, forms: faShapes,
+  more: faEllipsis,
 };
 const BOOLEAN_PATHS = {
   union: '<path d="M3 3H15V9H21V21H9V15H3Z"/>',

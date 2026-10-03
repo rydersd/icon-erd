@@ -1,3 +1,4 @@
+import {validateLibraryProperties} from './library-tokens.js';
 // Versioned JSON interchange; no dependency on the DOM, storage, or a particular icon vendor.
 import { ensureLayerNames } from './layer-tree.js';
 const SHAPES = new Set(['rect', 'circle', 'triangle', 'pen', 'ellipse', 'line', 'polyline', 'polygon', 'arc', 'path']);
@@ -132,7 +133,8 @@ export function parseLibraryArchive(text) {
     const check = node => { if (node.component && !components.has(node.component.id)) throw new Error('Missing component definition'); (node.children || []).forEach(check); };
     glyphs.forEach(g=>g.layers.forEach(l=>check(l.node)));
   }
-  return { glyphs, originals, components };
+  const libraryProperties=validateLibraryProperties(data?.libraryProperties);
+  return { glyphs, originals, components, libraryProperties };
 }
 
 export function mergeLibrary(existing, incoming, mode = 'add') {
@@ -159,11 +161,11 @@ export function mergeLibrary(existing, incoming, mode = 'add') {
   return { library, names, added, replaced, renamed };
 }
 
-export function libraryDocument(glyphs, scope = 'all', originals, components) {
+export function libraryDocument(glyphs, scope = 'all', originals, components, libraryProperties) {
   const baselines = originals ? glyphs.map(glyph => originals.get(glyph.name)).filter(Boolean).map(clone) : null;
   const used = new Set();
   const walk = node => { if (node.component) used.add(node.component.id); (node.children || []).forEach(walk); };
   glyphs.forEach(g=>g.layers.forEach(l=>walk(l.node)));
   const definitions = components ? [...components.values()].filter(c=>used.has(c.id)).map(clone) : null;
-  return { ...(definitions ? { components: definitions } : {}), ...(baselines ? { originals: baselines } : {}), format: 'glyph-workbench-library', version: 1, scope, exportedAt: new Date().toISOString(), count: glyphs.length, glyphs: glyphs.map(clone) };
+  return { ...(libraryProperties ? {libraryProperties:validateLibraryProperties(libraryProperties)} : {}), ...(definitions ? { components: definitions } : {}), ...(baselines ? { originals: baselines } : {}), format: 'glyph-workbench-library', version: 1, scope, exportedAt: new Date().toISOString(), count: glyphs.length, glyphs: glyphs.map(clone) };
 }

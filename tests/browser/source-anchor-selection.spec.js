@@ -37,7 +37,7 @@ test('a source row in an imported counter becomes an editable child and keeps it
   await expect(page.locator('#pointRows [data-source-point="0:1:1"]')).toHaveAttribute('aria-selected','true');
   await page.locator('#canvas').press('ArrowRight');expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children[1].pts[1].x)).toBeGreaterThan(8);
 });
-test('rounded source anchors remain selectable outside the evaluated outline, with shift add and alt subtract',async({page})=>{
+test('rounded source anchors remain selectable outside the evaluated outline, with shift add and option-click',async({page})=>{
   await setup(page,{shape:'pen',closed:true,pts:[{x:4,y:4,r:3},{x:16,y:4},{x:16,y:16},{x:4,y:16}]});
   await expect(page.locator('#pointRows tr')).toHaveCount(4);
   const p=await screen(page,4,4);await page.mouse.click(p.x,p.y);
@@ -45,8 +45,22 @@ test('rounded source anchors remain selectable outside the evaluated outline, wi
   const q=await screen(page,16,4);await page.keyboard.down('Shift');await page.mouse.click(q.x,q.y);await page.keyboard.up('Shift');
   expect(await page.evaluate(()=>window.__gw.S.selectedAnchors.map(a=>a.index))).toEqual([0,1]);
   await page.keyboard.down('Alt');await page.mouse.click(p.x,p.y);await page.keyboard.up('Alt');
-  expect(await page.evaluate(()=>window.__gw.S.selectedAnchors.map(a=>a.index))).toEqual([1]);
+  expect(await page.evaluate(()=>window.__gw.S.selectedAnchors.map(a=>a.index))).toEqual([0]);
   expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[0].r)).toBe(3);
+});
+test('Cleanup reconstructs the private comment corner while preserving both sharp intersections',async({page})=>{
+  const file='imports/eds-icons-named.json';test.skip(!await access(file).then(()=>true,()=>false),'Private EDS artwork is not published');
+  const pack=JSON.parse(await readFile(file,'utf8')),outline=pack.glyphs.find(g=>g.name==='comment-exclamation').layers[0].node.children[0];
+  await setup(page,outline);
+  const a=await screen(page,14.3,22.4),b=await screen(page,7.8,17.7);
+  await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y);await page.mouse.up();
+  expect(await page.evaluate(()=>window.__gw.S.selectedAnchors.map(a=>a.index))).toEqual([6,7,8,9,10]);
+  await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Cleanup',exact:true}).click();
+  const points=await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts);
+  expect(points).toHaveLength(11);expect(points[6]).toEqual(outline.pts[6]);expect(points[8]).toEqual(outline.pts[10]);expect(points[7].r).toBeCloseTo(0.6,2);
+  await expect(page.locator('#gSel [data-anchor="7"]')).toHaveAttribute('data-point-kind','circle');
+  await expect(page.locator('#gSel [data-anchor="6"]')).toHaveAttribute('data-point-kind','square');
+  await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts)).toEqual(outline.pts);
 });
 test('the comment outline previews a nearby broken-handle merge before release',async({page})=>{
   const file='imports/eds-icons-named.json';

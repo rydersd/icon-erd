@@ -15,7 +15,8 @@ import { TEMPLATES, DEFAULT_SHAPES, PRIMARY_TOOLS, MORE_TOOLS } from './template
 import { ID, mul, ap, apv, inv } from './affine.js';
 import { regularEllipse } from './regular-shape.js';
 import { mergeNearbyAnchors, previewNearbyAnchors } from './anchor-merge.js';
-import { cleanupAnchors } from './anchor-cleanup.js';
+import { cleanupDrawingAnchors } from './corner-cleanup.js';
+import {TOKEN_FIELDS,numberTokens,tokenStyle,validateLibraryProperties,linkedLibraryProperties} from './library-tokens.js';
 import { mergeAnchorCorners } from './anchor-corner.js';
 import { anchorMarker } from './anchor-marker.js';
 import { roundableAnchor } from './anchor-rounding.js';
@@ -56,6 +57,7 @@ const S = {
   sel: [], // [{l, p:null|[...]}]
   snap: 0.1, view: { x: -1, y: -1, s: 26 },
   components: new Map(), proximityMerge: false,
+  libraryProperties: null,
   gridStep: null,
   show: { grid: true, safe: true, artboard: true, guides: true, keylines: true, forms: false, original: false, cutters: false, points: true },
   iso: null, // isolated object {l, p:null|[...]}; everything else dims and stops taking clicks
@@ -206,16 +208,17 @@ function saveHistory() {
   const snapshot = { id: 'edit-history', undo: clone(S.undo), redo: clone(S.redo), iconHistories: clone(S.iconHistories) };
   DB.run('readwrite', (store)=>{ store.put({id:'component-definitions',components:[...S.components.values()].map(clone)}); return store.put(snapshot); }, 'snapshots').catch(error=>status(`Undo history could not be saved: ${error.message}`,true));
 }
-function commit(peerHistory = []) {
+function commit(peerHistory = [], libraryBefore) {
+  if(S.libraryProperties)S.glyph.setStyle=tokenStyle(S.libraryProperties);
   ensureLayerNames(S.glyph);
-  if (JSON.stringify(S.glyph) === lastSnap && !peerHistory.length) return;
+  if (JSON.stringify(S.glyph) === lastSnap && !peerHistory.length && libraryBefore===undefined) return;
   const before = lastSnap ? JSON.parse(lastSnap) : clone(S.glyph);
   const timeline = iconTimeline(before.name, lastSnap || JSON.stringify(before));
   if (before.name !== S.glyph.name) {
     Object.defineProperty(S.iconHistories,S.glyph.name,{value:timeline,writable:true,enumerable:true,configurable:true});
     delete S.iconHistories[before.name];
   }
-  if (!scrubbingIcon) {
+  if (!scrubbingIcon && JSON.stringify(S.glyph)!==lastSnap) {
     timeline.states = timeline.states.slice(0,timeline.position+1);
     timeline.states.push(JSON.stringify(S.glyph));
     if (timeline.states.length > 301) timeline.states.shift();
@@ -224,7 +227,7 @@ function commit(peerHistory = []) {
   // Peers are immutable library slots outside this publication boundary.
   const peers = publishSharedForms(S.glyph, before, S.lib.filter((_,i)=>i!==S.cur), core);
   const history = new Map([...peers,...peerHistory].map(g=>[g.name,g]));
-  if (lastSnap) { S.undo.push({name:S.glyph.name,glyph:lastSnap, peers:[...history.values()]}); if (S.undo.length > 300) S.undo.shift(); }
+  if (lastSnap) { S.undo.push({name:S.glyph.name,glyph:lastSnap, peers:[...history.values()],...(libraryBefore!==undefined?{libraryProperties:clone(libraryBefore)}:{})}); if (S.undo.length > 300) S.undo.shift(); }
   S.redo = []; lastSnap = JSON.stringify(S.glyph); storeCurrent();
   for(const name of history.keys()){queueSave(name);updateLibItem(name);}
   journalSharedChanges([...history.keys()]);
@@ -259,10 +262,11 @@ function restoreHistory(from,to) {
   if (target < 0) { status('This edit belongs to an icon outside the current library. Restore its checkpoint first.',true); return; }
   from.pop();
   if (S.cur !== target) loadGlyph(target);
-  to.push({name:JSON.parse(entry.glyph).name,glyph:lastSnap,peers:entry.peers.map(g=>S.lib[idx(g.name)]).filter(Boolean).map(clone)});
+  to.push({name:JSON.parse(entry.glyph).name,glyph:lastSnap,peers:entry.peers.map(g=>S.lib[idx(g.name)]).filter(Boolean).map(clone),...(Object.hasOwn(entry,'libraryProperties')?{libraryProperties:clone(S.libraryProperties)}:{})});
+  if(Object.hasOwn(entry,'libraryProperties')){S.libraryProperties=clone(entry.libraryProperties);saveLibraryProperties();}
   for(const peer of entry.peers){const at=idx(peer.name);if(at>=0){S.lib[at]=clone(peer);queueSave(peer.name);updateLibItem(peer.name);}}
   const oldWeight=S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
-  lastSnap=entry.glyph;S.glyph=JSON.parse(lastSnap);storeCurrent();
+  S.glyph=JSON.parse(entry.glyph);if(S.libraryProperties)S.glyph.setStyle=tokenStyle(S.libraryProperties);lastSnap=JSON.stringify(S.glyph);storeCurrent();
   const restoredWeight=S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
   if(oldWeight!==restoredWeight)S.rt.weight=restoredWeight;
   journalSharedChanges(entry.peers.map(g=>g.name));
@@ -278,7 +282,7 @@ function revert() {
 }
 function currentLibraryVersion(name) {
   return { id: `version-${crypto.randomUUID()}`, name, createdAt: Date.now(), current: S.glyph.name,
-    document: libraryDocument(S.lib,'all',ORIG,collectComponents(S.lib,core)) };
+    document: libraryDocument(S.lib,'all',ORIG,collectComponents(S.lib,core),S.libraryProperties) };
 }
 async function saveLibraryVersion(name) {
   if (!DB.db) throw new Error('Browser storage is unavailable; export a ZIP instead.');
@@ -320,6 +324,7 @@ async function restoreLibraryVersion(version) {
     snapshots.put({id:'library-trash',entries:[]}); snapshots.delete('library-reset'); snapshots.delete('library-organization');
   },'edits',['snapshots']);
   S.lib = archive.glyphs; ORIG.clear();for(const record of records)if(record.original)ORIG.set(record.name,clone(record.original));
+  S.libraryProperties=archive.libraryProperties || null;saveLibraryProperties();
   EDITS.clear();records.forEach(record=>EDITS.set(record.name,record));deletedIcons.clear();records.filter(r=>r.deleted).forEach(r=>deletedIcons.add(r.name));
   S.undo=[];S.redo=[];S.iconHistories={};libraryTrash=[];libraryResetBackup=null;organizationBackup=null;librarySelection.clear();
   $('undoLibraryResetBtn').disabled=true;$('undoOrganizationBtn').disabled=true;
@@ -343,6 +348,7 @@ async function resetLibrary() {
   catch (error) { status(`Could not save reset backup: ${error.message}`, true); return; }
   libraryResetBackup = snapshot;
   S.lib = S.lib.map(glyph => clone(ORIG.get(glyph.name) || glyph));
+  if(S.libraryProperties)S.lib=S.lib.map(glyph=>({...glyph,setStyle:tokenStyle(S.libraryProperties)}));
   for (const glyph of S.lib) queueSave(glyph.name);
   await flushSaves(); renderLibrary(); loadGlyph(Math.max(0, idx(current))); $('undoLibraryResetBtn').disabled = false;
   status('Library restored to imported originals. Undo library reset restores your edits.');
@@ -351,6 +357,7 @@ async function undoLibraryReset() {
   if (!libraryResetBackup) return;
   const snapshot = libraryResetBackup;
   S.lib = mergeLibrary(S.lib, snapshot.glyphs, 'overwrite').library;
+  if(S.libraryProperties)S.lib=S.lib.map(glyph=>({...glyph,setStyle:tokenStyle(S.libraryProperties)}));
   for (const original of snapshot.originals) ORIG.set(original.name, clone(original));
   for (const glyph of S.lib) queueSave(glyph.name);
   await flushSaves(); renderLibrary(); loadGlyph(Math.max(0, idx(snapshot.current))); status('Edits restored from the library reset backup.');
@@ -400,6 +407,7 @@ function loadGlyph(i) {
   areaPolygon=null;drag=null;$('anchorMarquee')?.remove();
   closeGroupReview();
   S.cur = i; S.glyph = clone(S.lib[i] || TEMPLATES.blank()); S.sel = []; lastSnap = JSON.stringify(S.glyph); penDraft = null; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
+  if(S.libraryProperties)S.glyph.setStyle=tokenStyle(S.libraryProperties);
   ensureLayerNames(S.glyph); lastSnap = JSON.stringify(S.glyph); alignIconTimeline();
   S.components = collectComponents(S.lib,core); renderComponents();
   S.rt.weight = S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
@@ -849,7 +857,7 @@ function sourceAnchorPoints() {
   }
   return points;
 }
-function materializeAnchorPoints(points) {
+function materializeAnchorPoints(points, save = true) {
   const owners = new Set();
   for (const point of points) {
     if (!point.converted || owners.has(treeKey(point.owner))) continue;
@@ -858,7 +866,7 @@ function materializeAnchorPoints(points) {
     if (s.p.length) getParent(s).children[s.p.at(-1)] = clone(point.converted);
     else layerOf(s).node = clone(point.converted);
   }
-  if (owners.size) commit();
+  if (owners.size && save) commit();
 }
 function renderGeometryInspection() {
   const forms = formCache.filter(f => f.fm && !f.n.hidden && S.glyph.layers[f.l].visible !== false);
@@ -1218,7 +1226,7 @@ listen(cv, 'pointerdown', ev => {
   if (hit) {
     const s = hit.s || primarySel(); const n = getNode(s);
     if (S.tool === 'direct' && hit.ai != null && hit.kind === 'pt') {
-      if(ev.altKey) { S.selectedAnchors=S.selectedAnchors.filter(a=>!same(a.selection,s)||a.index!==hit.ai);S.anchor=null;refresh(true);return; }
+      if(ev.altKey) { selectAnchor(s,hit.ai);retractSelectedHandles();return; }
       if (ev.shiftKey || !anchorSelected(s, hit.ai)) selectAnchor(s, hit.ai, ev.shiftKey);
       renderTree(); renderInspector(); renderSelection();
       if (anchorSelected(s, hit.ai)) startAnchorDrag(pos, ev.pointerId);
@@ -1232,9 +1240,9 @@ listen(cv, 'pointerdown', ev => {
   if (S.tool === 'direct') {
     const point = sourceAnchorPoints().map(point => ({...point, distance:Math.hypot(point.x-pos.x,point.y-pos.y)})).filter(point => point.distance <= 8*px).sort((a,b)=>a.distance-b.distance)[0];
     if (point) {
-      if (!ev.altKey) materializeAnchorPoints([point]);
-      if (ev.altKey) S.selectedAnchors = S.selectedAnchors.filter(a=>!same(a.selection,point.selection)||a.index!==point.index);
-      else if (ev.shiftKey || !anchorSelected(point.selection,point.index)) selectAnchor(point.selection,point.index,ev.shiftKey);
+      materializeAnchorPoints([point],!ev.altKey);
+      if (ev.altKey) { selectAnchor(point.selection,point.index);retractSelectedHandles(!!point.converted);return; }
+      if (ev.shiftKey || !anchorSelected(point.selection,point.index)) selectAnchor(point.selection,point.index,ev.shiftKey);
       S.sourceAnchor=null;S.hmode='shape';refresh(true);
       if (anchorSelected(point.selection,point.index)) startAnchorDrag(pos,ev.pointerId);
       return;
@@ -1677,18 +1685,30 @@ function snapSelectedAnchors() {
   }
   commit();refresh(true);status(`Snapped ${selected.length} anchor${selected.length===1?'':'s'} to the nearest ${S.snap}-unit grid intersection.`);
 }
+function retractSelectedHandles(converted = false) {
+  const anchors=S.selectedAnchors.length ? S.selectedAnchors : S.anchor!=null && primarySel()?.p!==null ? [{selection:primarySel(),index:S.anchor}] : [];
+  let changed=0;
+  for(const anchor of anchors) {
+    const point=getNode(anchor.selection)?.pts?.[anchor.index];if(!point)continue;
+    if(point.in || point.out){delete point.in;delete point.out;changed++;}
+  }
+  S.sourceAnchor=null;
+  if(changed || converted)commit();
+  refresh(true);status(`Retracted handles on ${changed} anchor${changed===1?'':'s'}. Procedural corner radii retained. Undo restores the handles.`);
+}
 function cleanupSelectedAnchors() {
   const anchors=S.selectedAnchors.length ? S.selectedAnchors : S.anchor!=null && primarySel()?.p!==null ? [{selection:primarySel(),index:S.anchor}] : [];
-  const groups=new Map();let removed=0;
+  const groups=new Map();let removed=0,rounded=0,sharp=0;
   for(const anchor of anchors) { const key=treeKey(anchor.selection);if(!groups.has(key))groups.set(key,{selection:anchor.selection,indices:[]});groups.get(key).indices.push(anchor.index); }
   for(const {selection,indices} of groups.values()) {
     const node=getNode(selection);if(!node || node.deform?.length)continue;
-    const result=cleanupAnchors(node,indices,fullMatrix(selection));removed+=result.removed;
+    const result=cleanupDrawingAnchors(node,indices,fullMatrix(selection),core);removed+=result.removed;rounded+=result.rounded;sharp+=result.sharp;
     S.selectedAnchors=S.selectedAnchors.map(anchor=>same(anchor.selection,selection)?{...anchor,index:result.indexMap[anchor.index]}:anchor).filter(anchor=>anchor.index>=0);
   }
+  S.selectedAnchors=S.selectedAnchors.filter((anchor,i,all)=>all.findIndex(other=>same(other.selection,anchor.selection)&&other.index===anchor.index)===i);
   S.anchor=S.selectedAnchors.find(anchor=>same(anchor.selection,primarySel()))?.index ?? null;S.sourceAnchor=null;
   if(removed){commit();refresh(true);}
-  status(removed ? `Cleanup removed ${removed} redundant anchor${removed===1?'':'s'} (0.03-unit outline tolerance). Sharp corners and unselected anchors retained. Undo restores the original.` : 'Cleanup found no redundant selected anchors within 0.03 units. Sharp corners and unselected anchors retained.');
+  status(removed ? `Cleanup removed ${removed} redundant anchor${removed===1?'':'s'}; reconstructed ${rounded} rounded and ${sharp} sharp corners (0.03-unit outline tolerance). Undo restores the original.` : 'Cleanup found no safe reconstruction within 0.03 units. Sharp corners and unselected anchors retained.');
 }
 function selectAllAnchors() {
   const points=sourceAnchorPoints().filter(point=>!S.sel.length || selCovers(point.owner.l,point.owner.p));
@@ -1745,6 +1765,7 @@ function openCanvasMenu(event) {
     menuHeading(S.snap ? `Snap spacing: ${S.snap}` : 'Snap is off');
     menuAction('Snap to nearest','grid',snapSelectedAnchors,null,!S.snap);
     menuAction('Cleanup','anchor',cleanupSelectedAnchors);
+    menuAction('Retract handles','anchor',()=>retractSelectedHandles());
     menuAction('Merge to corner','anchor',mergeSelectedCorners,null,anchors<2);
     menuAction('Select all anchors','select',selectAllAnchors);
     if(anchors===1 && node?.shape==='pen') {
@@ -2030,7 +2051,7 @@ function setTool(t) {
   S.tool = t; if (t === 'direct') S.hmode = 'shape'; else if (t === 'select') { S.anchor = null; S.selectedAnchors = []; S.hmode = 'transform'; }
   cv.classList.toggle('direct', t === 'direct'); cv.classList.toggle('pen', t === 'pen');cv.classList.toggle('area',t==='area'); syncToggles(); renderSelection();
   if (t === 'pen') status('Pen: click to place anchors, drag for curves, click the first anchor to close, Enter or Esc to finish.');
-  if (t === 'direct') status('Direct Select: click anchors or drag empty space to select anchors. Shift adds; Option/Alt subtracts.');
+  if (t === 'direct') status('Direct Select: click anchors or drag empty space to select anchors. Shift adds; Option-click retracts handles; Option-drag subtracts.');
   if(t==='area')status(`${areaLabels[S.areaMode]} selection: ${S.areaScope}. Shift adds; Option/Alt subtracts. ${S.areaMode==='polygon'?'Click vertices; Return, double-click or click first vertex to finish; Escape cancels. Objects must be fully enclosed.':'Drag to select. Objects must be fully enclosed.'}`);
   const area=$('areaSelectBtn');area.classList.toggle('active',t==='area');area.setAttribute('aria-pressed',String(t==='area'));
 }
@@ -2627,12 +2648,13 @@ function refresh(full) {
   renderCanvas(); renderPreviews();
   if (full) { renderTree(); renderInspector(); }
   $('hdrName').textContent = S.glyph.name;
-  const style = S.glyph.setStyle || {};
+  const style = S.libraryProperties ? tokenStyle(S.libraryProperties) : S.glyph.setStyle || {};
   $('setThicknessEnabled').checked = style.thickness != null; $('setRoundingEnabled').checked = !!style.rounding;
   $('setEndRoundingEnabled').checked = !!(style.endRounding ?? style.rounding);
   if (document.activeElement !== $('setEndRounding')) $('setEndRounding').value = (style.endRounding ?? style.rounding) || 0.5;
   if (document.activeElement !== $('setThickness')) $('setThickness').value = style.thickness ?? 1.6;
   if (document.activeElement !== $('setRounding')) $('setRounding').value = style.rounding || 0.5;
+  renderLibraryTokens();
   $('drawingMode').value = S.glyph.kind === 'app-icon' ? 'app-icon' : 'interface';
   $('exportSize').value = S.glyph.exportSize || (S.glyph.kind === 'app-icon' ? 1024 : 24);
   $('modeHint').textContent = S.glyph.kind === 'app-icon' ? 'App icon · 24-unit canvas · scalable export' : 'Interface icon · 24-unit canvas';
@@ -2748,6 +2770,39 @@ $('newBtn').onclick = () => {
   while (idx(name) >= 0) name = name.replace(/-\d+$/, '') + '-' + (++k);
   g.name = name; g.provenance = 'hand-built'; ensureLayerNames(g); ORIG.set(name, clone(g)); S.lib.push(g); renderLibrary(); loadGlyph(S.lib.length - 1); queueSave(name); status(`New glyph from ${$('tplSel').value} template.`);
 };
+function saveLibraryProperties() {
+  try {localStorage.setItem('gw-library-properties',JSON.stringify(S.libraryProperties));}catch(error){status(`Library properties could not be saved: ${error.message}`,true);}
+}
+try {S.libraryProperties=validateLibraryProperties(JSON.parse(localStorage.getItem('gw-library-properties') || 'null'));}catch {}
+const tokenControls={thickness:['setThickness','setThicknessEnabled'],rounding:['setRounding','setRoundingEnabled'],endRounding:['setEndRounding','setEndRoundingEnabled']};
+function renderLibraryTokens() {
+  const properties=S.libraryProperties, source=properties?.source;
+  $('libraryTokensTitle').textContent=source ? `Library tokens · ${source.name}` : 'Library tokens';
+  $('libraryTokenSource').textContent=source ? 'Linked values · reselect the file to update' : 'Defined in this library';
+  $('unlinkTokensBtn').disabled=!source;
+  const tokens=source ? numberTokens(source.document) : {};
+  for(const [key,field] of Object.entries(TOKEN_FIELDS)) {
+    const [input,checkbox]=tokenControls[key],binding=properties?.bindings?.[key];
+    $(input).disabled=!!binding;$(checkbox).disabled=!!binding;
+    $(`${key}TokenRow`).hidden=!source;
+    const select=$(`${key}Token`);
+    const choices=['',...Object.keys(tokens).filter(name=>tokens[name]>=field.min && tokens[name]<=field.max)];
+    if(JSON.stringify([...select.options].map(option=>option.value))!==JSON.stringify(choices)) {
+      select.replaceChildren(...choices.map(name=>{const option=document.createElement('option');option.value=name;option.textContent=name || 'Define in library';return option;}));
+    }
+    select.value=binding || '';
+  }
+}
+function applyLibraryProperties(input) {
+  const properties=validateLibraryProperties(input), style=tokenStyle(properties),before=clone(S.libraryProperties);
+  S.libraryProperties=properties;saveLibraryProperties();
+  const peers=S.lib.filter((glyph,i)=>i!==S.cur && JSON.stringify(glyph.setStyle)!==JSON.stringify(style)).map(clone);
+  S.glyph.setStyle=clone(style);S.lib=S.lib.map((glyph,i)=>i===S.cur?glyph:({...glyph,setStyle:clone(style)}));
+  commit(peers,before);
+  for(const glyph of S.lib)queueSave(glyph.name);
+  S.rt.weight=style.thickness ?? S.glyph.weight ?? 1.2;
+  refresh(true);renderLibrary();status(`Library tokens applied to ${S.lib.length} icons.`);
+}
 function applySetSettings() {
   if (penDraft) finishPen();
   const style = {
@@ -2755,15 +2810,21 @@ function applySetSettings() {
     rounding: $('setRoundingEnabled').checked ? Math.max(0, Math.min(6, +$('setRounding').value || 0)) : 0,
     endRounding: $('setEndRoundingEnabled').checked ? Math.max(0, Math.min(6, +$('setEndRounding').value || 0)) : 0,
   };
-  const peers=S.lib.filter((glyph,i)=>i!==S.cur && JSON.stringify(glyph.setStyle)!==JSON.stringify(style)).map(clone);
-  S.glyph.setStyle = clone(style);
-  S.lib = S.lib.map((glyph,i) => i===S.cur ? glyph : ({ ...glyph, setStyle: clone(style) }));
-  commit(peers);
-  for (const glyph of S.lib) queueSave(glyph.name);
-  S.rt.weight = style.thickness ?? S.glyph.weight ?? 1.2;
-  refresh(true); renderLibrary(); status(`Set settings applied to ${S.lib.length} icons.`);
+  applyLibraryProperties({...S.libraryProperties,values:style});
 }
 for (const id of ['setThicknessEnabled', 'setRoundingEnabled', 'setThickness', 'setRounding', 'setEndRoundingEnabled', 'setEndRounding']) $(id).onchange = applySetSettings;
+for(const key of Object.keys(TOKEN_FIELDS))$(`${key}Token`).onchange=()=>{
+  try {const properties=clone(S.libraryProperties);properties.bindings[key]=$(`${key}Token`).value;applyLibraryProperties(properties);}catch(error){refresh(true);status(error.message,true);}
+};
+$('libraryPropertiesMenuBtn').onclick=()=>{const button=$('libraryPropertiesMenuBtn'),bounds=button.getBoundingClientRect();if(popup?.panel===$('libraryPropertiesMenu'))closePopup(true);else openPopup($('libraryPropertiesMenu'),button,bounds.left,bounds.bottom+6,()=>button);};
+$('linkTokensBtn').onclick=()=>{closePopup(true);$('tokensFile').click();};
+$('tokensFile').onchange=async()=>{
+  const file=$('tokensFile').files[0];if(!file)return;
+  try {if(file.size>2*1024*1024)throw new Error('Tokens file exceeds 2 MB');const document=JSON.parse(await file.text());applyLibraryProperties(linkedLibraryProperties(document,file.name,S.libraryProperties || {values:S.glyph.setStyle || {}}));}
+  catch(error){status(`Tokens: ${error.message}`,true);}finally{$('tokensFile').value='';}
+};
+$('unlinkTokensBtn').onclick=()=>{closePopup(true);applyLibraryProperties({values:tokenStyle(S.libraryProperties),bindings:{}});};
+$('exportTokensBtn').onclick=()=>{closePopup(true);const properties=S.libraryProperties || {values:S.glyph.setStyle || {}};const values=tokenStyle(properties);const document=properties.source?.document || {icon:{thickness:{$type:'number',$value:values.thickness ?? S.glyph.weight ?? 1.2},cornerRadius:{$type:'number',$value:values.rounding},endRadius:{$type:'number',$value:values.endRounding}}};downloadBlob(properties.source?.name || 'iconerd.tokens.json',new Blob([JSON.stringify(document,null,2)],{type:'application/json'}));};
 $('iconDescription').onchange = () => { S.glyph.description = $('iconDescription').value.trim(); commit(); applyLibFilter(); };
 $('iconAliases').onchange = () => { S.glyph.aliases = [...new Set($('iconAliases').value.split(',').map(term => term.trim()).filter(Boolean))]; commit(); applyLibFilter(); };
 $('iconGroup').onchange = () => { S.glyph.group = $('iconGroup').value.split('/').map(part=>part.trim()).filter(Boolean).join('/'); S.glyph.groupSource='manual'; commit(); renderLibrary(); };
@@ -2773,7 +2834,7 @@ for (const id of ['exportStructure','exportRoot','exportSVGs']) {
   $(id).onchange=()=>{try{localStorage.setItem(`gw-${id}`,id==='exportSVGs'?String($(id).checked):$(id).value);}catch{}};
 }
 const io = $('ioText');
-$('expJson').onclick = () => { if (penDraft) finishPen(); io.value = JSON.stringify(libraryDocument([S.glyph], 'one', ORIG, S.components), null, 2); status('Editable JSON and reset original in the box — Copy, or edit and Import.'); };
+$('expJson').onclick = () => { if (penDraft) finishPen(); io.value = JSON.stringify(libraryDocument([S.glyph], 'one', ORIG, S.components,S.libraryProperties), null, 2); status('Editable JSON and reset original in the box — Copy, or edit and Import.'); };
 $('expSvg').onclick = () => { io.value = core.toSVG(S.glyph); status('Runtime SVG: weight, caps, joins and role colours come from CSS vars.'); };
 $('expBaked').onclick = () => { io.value = core.toSVG(S.glyph, { mode: 'baked', weight: S.rt.weight, cap: S.rt.cap, join: S.rt.join }); status('Baked SVG at the current runtime settings.'); };
 $('copyBtn').onclick = async () => {
@@ -2796,7 +2857,7 @@ async function exportLibrary(scope) {
   if (!glyphs.length) { status('No glyphs to export.', true); return; }
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
   try {
-    const data = await libraryZIP(libraryDocument(glyphs, scope, ORIG, S.components), glyph => core.toSVG(glyph, { mode: 'baked', weight: glyph.setStyle?.thickness ?? glyph.weight ?? 1.2 }), { structure: $('exportStructure').value, root: $('exportRoot').value, includeSVG: $('exportSVGs').checked });
+    const data = await libraryZIP(libraryDocument(glyphs, scope, ORIG, S.components,S.libraryProperties), glyph => core.toSVG(glyph, { mode: 'baked', weight: glyph.setStyle?.thickness ?? glyph.weight ?? 1.2 }), { structure: $('exportStructure').value, root: $('exportRoot').value, includeSVG: $('exportSVGs').checked });
     downloadBlob(`glyph-library-${scope}-${stamp}.zip`, new Blob([data], { type: 'application/zip' }));
   } catch (error) { status(`Export: ${error.message}`, true); return; }
   status(`Exported ${glyphs.length} glyph${glyphs.length === 1 ? '' : 's'}.`);
@@ -2813,6 +2874,7 @@ function requestLibraryImport(text, fileName) {
     }
     $('importReplace').closest('label').hidden=false;
     const archive = parseLibraryArchive(text);
+    $('importTokensRow').hidden=!archive.libraryProperties;$('importLibraryTokens').checked=false;
     for (const glyph of [...archive.glyphs, ...archive.originals.values()]) {
       const errors = core.resolve(glyph).filter(layer => layer.error);
       if (errors.length) throw new Error(`${glyph.name}: ${errors[0].error}`);
@@ -2831,12 +2893,12 @@ $('cancelImportBtn').onclick = () => $('importDialog').close();
 listen($('importDialog'), 'close', () => { pendingImport = null; });
 $('confirmImportBtn').onclick = async () => {
   if (!pendingImport) return;
-  const { text, fileName, report } = pendingImport, mode = $('importReplace').checked ? 'overwrite' : 'add';
+  const { text, fileName, report } = pendingImport, mode = $('importReplace').checked ? 'overwrite' : 'add', useTokens=$('importLibraryTokens').checked;
   pendingImport = null;
   $('importDialog').close();
-  if(report)await attachReconstructionReport(report);else await importLibraryText(text, fileName, mode);
+  if(report)await attachReconstructionReport(report);else await importLibraryText(text, fileName, mode,useTokens);
 };
-async function importLibraryText(text, fileName, mode = 'add') {
+async function importLibraryText(text, fileName, mode = 'add', useTokens = false) {
   let result, archive;
   try {
     archive = parseLibraryArchive(text);
@@ -2856,6 +2918,12 @@ async function importLibraryText(text, fileName, mode = 'add') {
   const current = S.glyph.name;
   try { await saveLibraryVersion(`Before importing ${fileName || 'icons'}`); } catch(error) { status(error.message,true); return null; }
   S.lib = result.library;
+  if(useTokens && archive.libraryProperties){S.libraryProperties=archive.libraryProperties;saveLibraryProperties();}
+  if(S.libraryProperties) {
+    const style=tokenStyle(S.libraryProperties);
+    S.lib=S.lib.map(glyph=>useTokens || result.names.includes(glyph.name)?{...glyph,setStyle:clone(style)}:glyph);
+    if(useTokens)for(const glyph of S.lib)queueSave(glyph.name);
+  }
   S.undo=[];S.redo=[];S.iconHistories={};saveHistory();
   result.names.forEach((name, index) => { const source = archive.glyphs[index]; ORIG.set(name, { ...clone(archive.originals.get(source.name) || source), name }); });
   for (const name of result.names) queueSave(name);

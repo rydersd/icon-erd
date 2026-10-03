@@ -42,15 +42,25 @@ export function WorkbenchShell() {
   {/* LEFT: library, shapes, layer / boolean tree */}
   <div className="col-left">
     <LibraryPanel />
-    <details className="panel set-settings" open>
-      <summary>Set settings</summary>
+    <details className="panel set-settings" aria-label="Library properties" open>
+      <summary id="libraryTokensTitle">Library tokens</summary>
       <div className="pad set-settings-fields">
+        <div className="row library-token-source"><span className="lbl" id="libraryTokenSource">Defined in this library</span><Button className="btn icon-only" id="libraryPropertiesMenuBtn" aria-label="Library properties options" aria-haspopup="menu" aria-controls="libraryPropertiesMenu" aria-expanded="false" data-icon-ui="more" /></div>
+        <div id="libraryPropertiesMenu" className="floating-panel item-menu" role="menu" aria-label="Library properties options" hidden>
+          <Button className="menu-item" role="menuitem" id="linkTokensBtn">Link tokens file…</Button>
+          <Button className="menu-item" role="menuitem" id="unlinkTokensBtn" disabled>Disconnect tokens file</Button>
+          <Button className="menu-item" role="menuitem" id="exportTokensBtn">Export tokens JSON</Button>
+        </div>
+        <input id="tokensFile" type="file" accept=".json,.tokens,.tokens.json,application/json" hidden />
         <label><input id="setThicknessEnabled" type="checkbox" /> Override thickness</label>
         <label htmlFor="setThickness">Thickness <input id="setThickness" type="number" min="0.1" max="8" step="0.1" defaultValue="1.6" /></label>
+        <label id="thicknessTokenRow" hidden>Thickness token <select id="thicknessToken" /></label>
         <label><input id="setRoundingEnabled" type="checkbox" /> Round corners</label>
         <label htmlFor="setRounding">Corner radius <input id="setRounding" type="number" min="0" max="6" step="0.1" defaultValue="0.5" /></label>
+        <label id="roundingTokenRow" hidden>Corner radius token <select id="roundingToken" /></label>
         <label><input id="setEndRoundingEnabled" type="checkbox" /> Round line ends</label>
         <label htmlFor="setEndRounding">End radius <input id="setEndRounding" type="number" min="0" max="6" step="0.1" defaultValue="0.5" /></label>
+        <label id="endRoundingTokenRow" hidden>End radius token <select id="endRoundingToken" /></label>
         <span className="lbl">Applies to the whole library. Source shapes remain editable.</span>
       </div>
     </details>

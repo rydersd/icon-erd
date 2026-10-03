@@ -260,6 +260,12 @@ textarea { height: auto; padding: 6px; width: 100%; resize: vertical; font-famil
 .set-settings-fields { display: grid; gap: 8px; }
 .set-settings-fields label { display: flex; align-items: center; gap: 8px; }
 .set-settings-fields input[type=number] { margin-left: auto; width: 80px; }
+.set-settings-fields label[hidden] { display: none; }
+.set-settings-fields select { min-width: 0; max-width: 58%; margin-left: auto; }
+.set-settings summary { overflow-wrap: anywhere; }
+.library-token-source { flex-wrap: nowrap; }
+.library-token-source .lbl { flex: 1; min-width: 0; }
+.library-token-source button { flex-shrink: 0; }
 #exportSize { width: 72px; }
 .library-panel[data-closed] > h2 { border-bottom: 0; }
 .library-panel[data-closed] .disclosure-arrow { transform: rotate(-90deg); }

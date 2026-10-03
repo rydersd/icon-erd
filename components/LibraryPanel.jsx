@@ -55,6 +55,7 @@ export function LibraryPanel() {
           <h2 id="importHeading">Import icons</h2>
           <p id="importSummary"></p>
           <label className="row"><input type="checkbox" id="importReplace" /> Replace matching icons</label>
+          <label className="row" id="importTokensRow" hidden><input type="checkbox" id="importLibraryTokens" /> Use imported library tokens</label>
           <p>Replace keeps other icons in your library. Add renames incoming icons when a name is already in use.</p>
           <div className="row"><Button className="btn" id="cancelImportBtn">Cancel</Button><Button className="btn" id="confirmImportBtn">Add icons</Button></div>
         </dialog>
