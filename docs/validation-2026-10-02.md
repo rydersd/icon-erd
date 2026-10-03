@@ -147,3 +147,11 @@ Edited/History badge opens an accessible range over the library-wide Undo/Redo s
 Cmd/Ctrl+A supports page focus and context-sensitive object/anchor selection. Text and content-editable fields retain native shortcuts. Escape cancels active region selection (pointer release does not apply it), clears current selection first, then exits isolation on a further press. Focused browser regression covers page focus, direct selection, gesture cancellation, isolation and text-input selection.
 
 Polygon object enclosure now includes all contours and grouped paths; crossing/partially enclosed targets are excluded. Geometry checks cover curved excursions, concave regions, compound paths and boundary-aligned paths. Browser checks exercise Return and double-click completion while retaining selected objects.
+
+## Icon-only timeline and proximity prehighlight
+
+Supersedes the earlier library-wide Edited timeline: the badge now scrubs only the current icon’s persisted states. Restoration is a normal peer-aware edit, so shared geometry updates while unrelated icon edits/peer metadata remain intact. Keyboard Undo/Redo remains chronological. Local checks include legacy-history migration, unrelated edited icons, pointer/keyboard scrubbing, branch replacement, reload, and linked-peer geometry with retained peer description.
+
+Merge preview rings and an averaged-point marker use the actual merge calculation on a private clone, respecting minimum topology and eight-screen-pixel adjacency. Newly inserted Pen-anchor drag release now uses proximity merge; previously it bypassed that branch. Preview clears when moving away or releasing. Unit checks cover preview/release parity and nonmutation; physical browser checks cover direct drag and inserted-point drag, retained broken handles, persistence and toggle-off behavior.
+
+Validation receipts: 47/47 unit checks passed; 53/53 full production-browser checks passed. After the final legacy/identical-state playhead correction, the final rebuilt output passed 10/10 focused component/merge/history browser checks. The full run exposed page-focus arrow nudging from the previous shortcut expansion; constraining nudge to editor focus repaired it, and the final full run passed.

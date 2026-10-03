@@ -10,7 +10,7 @@ test('handle hover follows the real hit zone, clears on leave, and optional merg
  await page.mouse.move(start.x+5,start.y);await expect(page.locator('#canvas')).toHaveAttribute('data-handle-hover','pt');await expect(page.locator('#gHandleHover circle')).toHaveCount(2);
  await page.mouse.move(10,10);await expect(page.locator('#gHandleHover circle')).toHaveCount(0);
  await page.locator('#proximityMergeBtn').click();await expect(page.locator('#proximityMergeBtn')).toHaveAttribute('aria-pressed','true');
- await page.mouse.move(start.x,start.y);await page.mouse.down();await page.mouse.move(target.x,target.y);await page.mouse.up();
+ await page.mouse.move(start.x,start.y);await page.mouse.down();await page.mouse.move(target.x,target.y);await expect(page.locator('#gMergePreview [data-merge-target]')).toHaveCount(2);await expect(page.locator('#gMergePreview [data-merge-result]')).toHaveCount(1);await page.mouse.up();await expect(page.locator('#gMergePreview [data-merge-target]')).toHaveCount(0);
  const merged=await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts);expect(merged).toHaveLength(3);expect(merged[1].in).toEqual([-2,0]);expect(merged[1].out).toEqual([0,-3]);expect(merged[1].x).toBeCloseTo(6.05,3);expect(merged[1].y).toBeCloseTo(6.025,3);
  await expect(page.locator('#gSel [data-anchor="1"]')).toHaveAttribute('data-point-kind','diamond');
  await page.evaluate(()=>window.__gw.loadGlyph(0));await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.name)).toBe('merge-fixture');expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length)).toBe(4);
@@ -58,4 +58,20 @@ test('canvas right-click converts both selected eyes to regular four-anchor shap
  await page.locator('#canvas').scrollIntoViewIfNeeded();const p=await screen(page,8,8);await page.mouse.click(p.x,p.y,{button:'right'});await expect(page.locator('#itemMenu')).toContainText('2 selected objects');await page.screenshot({path:'artifacts/regular-eyes-menu.png'});await page.getByRole('menuitem',{name:'Convert to circle/ellipse (4 anchors)',exact:true}).click();
  expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children.map(n=>({shape:n.shape,points:window.__gw.core.toPen(n).pts.length,clockwise:n.clockwise})))).toEqual([{shape:'circle',points:4,clockwise:false},{shape:'circle',points:4,clockwise:false}]);
  await page.screenshot({path:'artifacts/regular-eyes-converted.png'});await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children.map(n=>n.pts.length))).toEqual([5,5]);await page.locator('#redoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children.map(n=>n.shape))).toEqual(['circle','circle']);
+});
+
+test('an inserted Pen anchor previews and merges on release rather than bypassing proximity merge', async ({page}) => {
+ await ready(page);
+ await page.evaluate(async()=>{const w=window.__gw;await w.importLibraryText(JSON.stringify({name:'insert-merge',weight:0.2,layers:[{id:'path',paint:'stroke',node:{shape:'pen',pts:[{x:2,y:4},{x:6,y:4},{x:12,y:4},{x:18,y:4}]}}]}),'insert.json');w.S.sel=[{l:0,p:[]}];w.setTool('pen');w.refresh(true);});
+ await page.locator('[data-snap="0"]').click();await page.locator('#proximityMergeBtn').click();
+ await page.locator('#canvas').scrollIntoViewIfNeeded();const start=await screen(page,9,4),near=await screen(page,11.9,4),far=await screen(page,10,4);
+ await page.mouse.move(start.x,start.y);await page.mouse.down();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length)).toBe(5);
+ await page.mouse.move(near.x,near.y);await expect(page.locator('#gMergePreview [data-merge-target]')).toHaveCount(2);
+ await page.mouse.move(far.x,far.y);await expect(page.locator('#gMergePreview [data-merge-target]')).toHaveCount(0);
+ await page.mouse.move(near.x,near.y);await expect(page.locator('#gMergePreview [data-merge-result]')).toHaveCount(1);
+ await page.screenshot({path:'artifacts/merge-preview.png'});await page.mouse.up();
+ expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length)).toBe(4);
+ await expect(page.locator('#gMergePreview [data-merge-target]')).toHaveCount(0);
+ await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length)).toBe(4);
+ expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[2].x)).toBe(12);
 });

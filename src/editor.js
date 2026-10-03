@@ -14,7 +14,7 @@ import { downloadBlob, svgToPNG } from './downloads.js';
 import { TEMPLATES, DEFAULT_SHAPES, PRIMARY_TOOLS, MORE_TOOLS } from './templates.js';
 import { ID, mul, ap, apv, inv } from './affine.js';
 import { regularEllipse } from './regular-shape.js';
-import { mergeNearbyAnchors } from './anchor-merge.js';
+import { mergeNearbyAnchors, previewNearbyAnchors } from './anchor-merge.js';
 import { cleanupAnchors } from './anchor-cleanup.js';
 import { mergeAnchorCorners } from './anchor-corner.js';
 import { anchorMarker } from './anchor-marker.js';
@@ -64,7 +64,7 @@ const S = {
   tool: 'select', hmode: 'shape', lockAspect: true,
   areaMode: 'marquee', areaScope: 'objects',
   rt: { weight: 1.2, cap: 'round', join: 'round', hint: false, rtl: false },
-  undo: [], redo: [], resolved: [],
+  undo: [], redo: [], iconHistories: {}, resolved: [],
 };
 let penDraft = null; // { s } while the pen is placing anchors
 let areaPolygon = null;
@@ -154,7 +154,7 @@ async function loadSaved() {
   }
 
   try { const definitions = await DB.run('readonly', store=>store.get('component-definitions'), 'snapshots'); if (definitions?.components) { S.components = new Map(definitions.components.map(c=>[c.id,c])); projectComponents(S.lib,S.components,core); } } catch {}
-  try { const saved = await DB.run('readonly', store=>store.get('edit-history'), 'snapshots'); if (saved) { S.undo = saved.undo || []; S.redo = saved.redo || []; } } catch {}
+  try { const saved = await DB.run('readonly', store=>store.get('edit-history'), 'snapshots'); if (saved) { S.undo = saved.undo || []; S.redo = saved.redo || []; S.iconHistories = saved.iconHistories || {}; } } catch {}
   try { libraryTrash = (await DB.run('readonly', store=>store.get('library-trash'), 'snapshots'))?.entries || []; syncLibrarySelection(); } catch {}
   try { organizationBackup = await DB.run('readonly', store=>store.get('library-organization'), 'snapshots'); $('undoOrganizationBtn').disabled = !organizationBackup; } catch {}
   try { libraryResetBackup = await DB.run('readonly', store => store.get('library-reset'), 'snapshots'); $('undoLibraryResetBtn').disabled = !libraryResetBackup; } catch {}
@@ -165,16 +165,61 @@ listen(document, 'visibilitychange', () => { if (document.visibilityState === 'h
 
 // ---------- history ----------
 let lastSnap = null;
+let scrubbingIcon = false;
+function iconTimeline(name = S.glyph?.name, current = lastSnap || JSON.stringify(S.glyph)) {
+  if (!name) return { states: [], position: 0 };
+  if (!Object.hasOwn(S.iconHistories,name)) {
+    const previous = S.undo.filter(entry => (entry.name || JSON.parse(entry.glyph).name) === name).map(entry => entry.glyph);
+    const later = S.redo.slice().reverse().filter(entry => (entry.name || JSON.parse(entry.glyph).name) === name).map(entry => entry.glyph);
+    const past = [...previous, current].filter((state,i,all) => i === 0 || state !== all[i-1]);
+    const states = [...past, ...later].filter((state,i,all) => i === 0 || state !== all[i-1]);
+    Object.defineProperty(S.iconHistories,name,{value:{states,position:past.length-1},writable:true,enumerable:true,configurable:true});
+  }
+  return S.iconHistories[name];
+}
+function alignIconTimeline() {
+  const timeline = iconTimeline();
+  if (timeline.states[timeline.position] === lastSnap) return;
+  const found = timeline.states.lastIndexOf(lastSnap);
+  if (found >= 0) timeline.position = found;
+  else {
+    timeline.states = timeline.states.slice(0,timeline.position+1);
+    timeline.states.push(lastSnap); timeline.position = timeline.states.length-1;
+  }
+}
+function scrubIconHistory(position) {
+  const timeline = iconTimeline(), snapshot = timeline.states[position];
+  if (!snapshot || position === timeline.position) return;
+  scrubbingIcon = true;
+  try {
+    S.glyph = JSON.parse(snapshot);
+    timeline.position = position;
+    // A restore is a normal publication: shared geometry propagates, unrelated icons do not revert.
+    commit(); pruneSel(); S.rt.weight = S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
+    renderAll(); saveHistory(); updateHistoryBtns();
+  } finally { scrubbingIcon = false; }
+}
 function saveHistory() {
   if (!DB.db) return;
   S.components = collectComponents(S.lib,core); renderComponents();
-  const snapshot = { id: 'edit-history', undo: clone(S.undo), redo: clone(S.redo) };
+  const snapshot = { id: 'edit-history', undo: clone(S.undo), redo: clone(S.redo), iconHistories: clone(S.iconHistories) };
   DB.run('readwrite', (store)=>{ store.put({id:'component-definitions',components:[...S.components.values()].map(clone)}); return store.put(snapshot); }, 'snapshots').catch(error=>status(`Undo history could not be saved: ${error.message}`,true));
 }
 function commit(peerHistory = []) {
   ensureLayerNames(S.glyph);
   if (JSON.stringify(S.glyph) === lastSnap && !peerHistory.length) return;
   const before = lastSnap ? JSON.parse(lastSnap) : clone(S.glyph);
+  const timeline = iconTimeline(before.name, lastSnap || JSON.stringify(before));
+  if (before.name !== S.glyph.name) {
+    Object.defineProperty(S.iconHistories,S.glyph.name,{value:timeline,writable:true,enumerable:true,configurable:true});
+    delete S.iconHistories[before.name];
+  }
+  if (!scrubbingIcon) {
+    timeline.states = timeline.states.slice(0,timeline.position+1);
+    timeline.states.push(JSON.stringify(S.glyph));
+    if (timeline.states.length > 301) timeline.states.shift();
+    timeline.position = timeline.states.length-1;
+  }
   // Peers are immutable library slots outside this publication boundary.
   const peers = publishSharedForms(S.glyph, before, S.lib.filter((_,i)=>i!==S.cur), core);
   const history = new Map([...peers,...peerHistory].map(g=>[g.name,g]));
@@ -220,7 +265,7 @@ function restoreHistory(from,to) {
   const restoredWeight=S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
   if(oldWeight!==restoredWeight)S.rt.weight=restoredWeight;
   journalSharedChanges(entry.peers.map(g=>g.name));
-  pruneSel();renderAll();markCurrent();saveHistory();updateHistoryBtns();
+  alignIconTimeline();pruneSel();renderAll();markCurrent();saveHistory();updateHistoryBtns();
 }
 function undo() {restoreHistory(S.undo,S.redo);}
 function redo() {restoreHistory(S.redo,S.undo);}
@@ -275,7 +320,7 @@ async function restoreLibraryVersion(version) {
   },'edits',['snapshots']);
   S.lib = archive.glyphs; ORIG.clear();for(const record of records)if(record.original)ORIG.set(record.name,clone(record.original));
   EDITS.clear();records.forEach(record=>EDITS.set(record.name,record));deletedIcons.clear();records.filter(r=>r.deleted).forEach(r=>deletedIcons.add(r.name));
-  S.undo=[];S.redo=[];libraryTrash=[];libraryResetBackup=null;organizationBackup=null;librarySelection.clear();
+  S.undo=[];S.redo=[];S.iconHistories={};libraryTrash=[];libraryResetBackup=null;organizationBackup=null;librarySelection.clear();
   $('undoLibraryResetBtn').disabled=true;$('undoOrganizationBtn').disabled=true;
   try { localStorage.removeItem('gw-open-pending-glyph');localStorage.removeItem('gw-open-pending-components'); } catch {}
   renderLibrary();loadGlyph(Math.max(0,idx(version.current)));setSaveState('saved');
@@ -335,7 +380,8 @@ $('undoOrganizationBtn').onclick=async()=>{
 };
 function updateHistoryBtns() {
   $('undoBtn').disabled = !S.undo.length; $('redoBtn').disabled = !S.redo.length;
-  const total = S.undo.length + S.redo.length, position = S.undo.length;
+  const timeline = iconTimeline();
+  const total = Math.max(0,timeline.states.length-1), position = timeline.position;
   const slider = $('historyScrubber');
   slider.max = total; slider.value = position; slider.disabled = !total;
   const description = `${position} of ${total} · ${S.glyph?.name || ''}${position === total ? ' · latest' : ''}`;
@@ -350,10 +396,10 @@ function status(msg, err) { const el = $('status'); el.textContent = msg || ''; 
 
 // ---------- load ----------
 function loadGlyph(i) {
-  areaPolygon=null;if(drag?.kind==='area-selection')drag=null;$('anchorMarquee')?.remove();
+  areaPolygon=null;drag=null;$('anchorMarquee')?.remove();
   closeGroupReview();
   S.cur = i; S.glyph = clone(S.lib[i] || TEMPLATES.blank()); S.sel = []; lastSnap = JSON.stringify(S.glyph); penDraft = null; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
-  ensureLayerNames(S.glyph); lastSnap = JSON.stringify(S.glyph);
+  ensureLayerNames(S.glyph); lastSnap = JSON.stringify(S.glyph); alignIconTimeline();
   S.components = collectComponents(S.lib,core); renderComponents();
   S.rt.weight = S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
   renderAll(); markCurrent(); updateHistoryBtns(); updateGlyphTags(); status('');
@@ -979,7 +1025,7 @@ function renderSelection() {
       if (penHover) { const last = ap(M, pn.pts[pn.pts.length - 1]); el('path', Object.assign({ d: `M${last.x} ${last.y}L${penHover.x} ${penHover.y}`, stroke: 'var(--sel)', 'stroke-width': 1, 'stroke-dasharray': '3 3' }, NS), gS); }
     }
   }
-  renderHandleHover();
+  renderHandleHover(); renderMergePreview();
 }
 function toUnits(ev) { const pt = cv.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY; const q = pt.matrixTransform(cv.getScreenCTM().inverse()); return { x: q.x, y: q.y }; }
 function hitForm(pos) {
@@ -1270,10 +1316,41 @@ listen(cv, 'pointermove', ev => {
     drag.moved = true; refresh(false);
   }
 });
+function draggedAnchors() {
+  if (!drag) return [];
+  return drag.kind === 'anchors' ? drag.starts.map(a => ({ selection: a.selection, index: a.index }))
+    : drag.kind === 'anchor' ? [{ selection: drag.s, index: drag.i }]
+    : drag.kind === 'handle' && drag.h.kind === 'pt' && drag.h.ai != null ? [{ selection: drag.s, index: drag.h.ai }] : [];
+}
+function renderMergePreview() {
+  let overlay = $('gMergePreview');
+  if (!overlay) overlay = el('g', {id:'gMergePreview','pointer-events':'none','aria-hidden':'true'},cv);
+  const previousCount = Number(cv.getAttribute('data-merge-preview') || 0);
+  overlay.replaceChildren(); cv.removeAttribute('data-merge-preview');
+  if (!S.proximityMerge) return;
+  const anchors = draggedAnchors();
+  if (drag?.kind === 'pen' && penDraft) anchors.push({selection:penDraft.s,index:getNode(penDraft.s).pts.length-1});
+  const selections = anchors.map(a=>a.selection).filter((s,i,all)=>all.findIndex(other=>same(s,other))===i);
+  let count = 0;
+  const px = 1/pxPerUnit();
+  for (const selection of selections) {
+    const node = getNode(selection);
+    for (const candidate of previewNearbyAnchors(node,anchors.filter(a=>same(a.selection,selection)).map(a=>a.index),fullMatrix(selection),8*px,drag?.kind==='pen'?1:undefined)) {
+      count++;
+      for (const point of candidate.points) {
+        el('circle',{cx:point.x,cy:point.y,r:10*px,fill:'none',stroke:'var(--canvas-bg)','stroke-width':5,...NS},overlay);
+        el('circle',{cx:point.x,cy:point.y,r:10*px,fill:'none',stroke:'var(--guide)','stroke-width':2,'stroke-dasharray':'3 2','data-merge-target':'true',...NS},overlay);
+      }
+      const {x,y} = candidate.point;
+      el('path',{d:`M${x-4*px} ${y}H${x+4*px}M${x} ${y-4*px}V${y+4*px}`,stroke:'var(--guide)','stroke-width':2,'data-merge-result':'true',...NS},overlay);
+    }
+  }
+  if(count) { cv.setAttribute('data-merge-preview',String(count)); if(count!==previousCount)status(`Release to merge ${count} highlighted anchor pair${count===1?'':'s'}. Outer handles retained.`); }
+  else if(previousCount && drag)status('No eligible merge pair. Move within 8 screen pixels of a neighboring anchor.');
+}
 function mergeDraggedAnchors() {
   if (!S.proximityMerge || !drag.moved) return 0;
-  const anchors = drag.kind === 'anchors' ? drag.starts.map(a => ({ selection: a.selection, index: a.index }))
-    : drag.kind === 'handle' && drag.h.kind === 'pt' && drag.h.ai != null ? [{ selection: drag.s, index: drag.h.ai }] : [];
+  const anchors = draggedAnchors();
   let merged = 0;
   const selections = anchors.map(a => a.selection).filter((s,i,all) => all.findIndex(other => same(s,other)) === i);
   for (const selection of selections) {
@@ -1298,16 +1375,16 @@ function endDrag(ev) {
     }
     drag=null;refresh(true);return;
   }
-  if (drag.kind === 'pen') { penUp(); drag = null; return; }
-  if (drag.kind === 'anchor' || drag.kind === 'axis-move' || drag.kind === 'axis-rot') { commit(); refresh(true); drag = null; return; }
+  if (drag.kind === 'pen') { penUp(); drag = null; renderMergePreview(); return; }
+  if (drag.kind === 'axis-move' || drag.kind === 'axis-rot') { commit(); refresh(true); drag = null; return; }
   if (drag.kind === 'guide' || drag.kind === 'newGuide') {
     const g = S.glyph.guides[drag.i];
     if (ev && overRuler(ev, g.axis) || !drag.moved && drag.kind === 'newGuide') { S.glyph.guides.splice(drag.i, 1); status('Guide removed.'); }
     if (!S.glyph.guides.length) delete S.glyph.guides;
     commit(); renderGuides(); renderRulers(); drag = null; return;
   }
-  if (drag.moved) { const merged = mergeDraggedAnchors(); commit(); refresh(true); if (merged) status(`Merged ${merged} neighboring anchor pair${merged === 1 ? '' : 's'} at their average position.`); }
-  drag = null;
+  if (drag.moved || drag.kind === 'anchor') { const merged = mergeDraggedAnchors(); commit(); refresh(true); if (merged) status(`Merged ${merged} neighboring anchor pair${merged === 1 ? '' : 's'} at their average position.`); }
+  drag = null; renderMergePreview();
 }
 listen(cv, 'pointerup', ev => { endDrag(ev); handlePointer = toUnits(ev); renderHandleHover(); });
 listen(cv, 'pointercancel', ev => { endDrag(ev); handlePointer = null; renderHandleHover(); });
@@ -1453,13 +1530,7 @@ $('hdrEdited').onclick = () => {
   openPopup($('historyPalette'), button, bounds.left, bounds.bottom + 6, () => button);
 };
 listen($('historyScrubber'), 'input', event => {
-  const target = Number(event.target.value);
-  while (S.undo.length !== target) {
-    const before = S.undo.length;
-    if (before > target) undo(); else redo();
-    if (S.undo.length === before) break; // unavailable/deleted icons cannot be restored
-  }
-  updateHistoryBtns();
+  scrubIconHistory(Number(event.target.value));
 });
 listen(document, 'pointerdown', event => {
   if (popup && !popup.panel.contains(event.target) && !popup.trigger?.contains(event.target)) closePopup();
@@ -2484,7 +2555,7 @@ function updateGlyphTags() {
   const g = S.glyph, p = PROV_LABEL[g.provenance] || g.provenance || 'new glyph';
   $('hdrProv').textContent = p;
   const edited = ORIG.has(g.name) && isEdited(g);
-  $('hdrEdited').hidden = !edited && !S.undo.length && !S.redo.length;
+  $('hdrEdited').hidden = !edited && iconTimeline().states.length < 2;
   $('hdrEdited').textContent = edited ? 'edited' : 'history';
   $('revertBtn').disabled = !edited;
   $('revertBtn').title = ORIG.has(g.name) ? 'Put this glyph back to its library original (undo brings your edit back)' : 'Not in the library: nothing to revert to';
@@ -2725,7 +2796,7 @@ async function importLibraryText(text, fileName, mode = 'add') {
   const current = S.glyph.name;
   try { await saveLibraryVersion(`Before importing ${fileName || 'icons'}`); } catch(error) { status(error.message,true); return null; }
   S.lib = result.library;
-  S.undo=[];S.redo=[];saveHistory();
+  S.undo=[];S.redo=[];S.iconHistories={};saveHistory();
   result.names.forEach((name, index) => { const source = archive.glyphs[index]; ORIG.set(name, { ...clone(archive.originals.get(source.name) || source), name }); });
   for (const name of result.names) queueSave(name);
   await flushSaves();
@@ -2777,6 +2848,7 @@ listen(document, 'keydown', e => {
     S.sel = []; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
     refresh(true); status('Selection cleared.'); return;
   }
+  if (document.activeElement === document.body) return; // page-level Select All/Escape must not turn navigation arrows into nudges
   const step = (S.snap || 0.1) * (e.shiftKey ? 10 : 1);
   const dirs = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
   if (dirs[e.key] && t && t.getAttribute && t.getAttribute('role') === 'treeitem' && !S.sel.some(s => s.p !== null)) return;

@@ -41,3 +41,18 @@ export function mergeNearbyAnchors(node, movedIndices, matrix, tolerance, minimu
   }
   return { merged, indexMap };
 }
+
+// Run the same merge on a private copy: preview and release share one decision.
+export function previewNearbyAnchors(node, movedIndices, matrix, tolerance, minimum) {
+  const copy = structuredClone(node);
+  const result = mergeNearbyAnchors(copy, movedIndices, matrix, tolerance, minimum);
+  if (!result.merged) return [];
+  const groups = new Map();
+  result.indexMap.forEach((next, old) => {
+    if (!groups.has(next)) groups.set(next, []);
+    groups.get(next).push(old);
+  });
+  return [...groups.entries()].filter(([, indices]) => indices.length > 1).map(([next, indices]) => ({
+    indices, points: indices.map(i => ap(matrix, node.pts[i])), point: ap(matrix, copy.pts[next]),
+  }));
+}

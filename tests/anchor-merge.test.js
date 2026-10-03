@@ -20,3 +20,12 @@ test('merge threshold is in drawing-plane space, preserves minimum topology and 
  assert.equal(mergeNearbyAnchors(n,[],identity,10).merged,0);
  const line={shape:'pen',pts:[{x:0,y:0},{x:0.1,y:0}]};assert.equal(mergeNearbyAnchors(line,[1],identity,1).merged,0);
 });
+
+test('preview reports exactly the release pairs and never changes original points', async () => {
+ const {previewNearbyAnchors}=await import('../src/anchor-merge.js');
+ const n={shape:'pen',pts:[{x:0,y:0},{x:3,y:4},{x:3.1,y:4.2},{x:10,y:10}]};
+ const before=structuredClone(n);const pairs=previewNearbyAnchors(n,[1],identity,0.3);
+ assert.deepEqual(n,before);assert.equal(pairs.length,1);assert.deepEqual(pairs[0].indices,[1,2]);
+ const result=mergeNearbyAnchors(n,[1],identity,0.3);assert.equal(result.merged,pairs.length);assert.deepEqual(pairs[0].point,{x:n.pts[1].x,y:n.pts[1].y});
+ const minimum={shape:'pen',pts:[{x:0,y:0},{x:0.1,y:0}]};assert.deepEqual(previewNearbyAnchors(minimum,[1],identity,1),[]);
+});
