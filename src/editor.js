@@ -832,42 +832,74 @@ function renderOverlays() {
   renderGeometryInspection();
   renderIsoBar();
 }
+// Editable anchors are independent of evaluated rounding and boolean output.
+// Convert primitives only when their anchors are actually selected.
+function sourceAnchorPoints() {
+  const points = [];
+  for (const form of leafList()) {
+    if (S.glyph.layers[form.l].visible === false || !inIso(form.l, form.p)) continue;
+    const owner = { l: form.l, p: form.p };
+    const converted = form.n.shape === 'pen' ? null : core.toPen(form.n);
+    const walk = (node, selection, parent) => {
+      const matrix = mul(parent, core.nodeMatrix(node));
+      if (node.shape === 'pen') node.pts.forEach((q, index) => points.push({ ...ap(matrix, q), index, selection, owner, converted, node, key: treeKey(selection), name: node.name || form.n.name || form.n.shape }));
+      else (node.children || []).forEach((child, i) => walk(child, {l:selection.l,p:selection.p.concat(i)}, matrix));
+    };
+    if (converted || form.n.shape === 'pen') walk(converted || form.n, owner, parentMatrix(owner));
+  }
+  return points;
+}
+function materializeAnchorPoints(points) {
+  const owners = new Set();
+  for (const point of points) {
+    if (!point.converted || owners.has(treeKey(point.owner))) continue;
+    owners.add(treeKey(point.owner));
+    const s = point.owner;
+    if (s.p.length) getParent(s).children[s.p.at(-1)] = clone(point.converted);
+    else layerOf(s).node = clone(point.converted);
+  }
+  if (owners.size) commit();
+}
 function renderGeometryInspection() {
   const forms = formCache.filter(f => f.fm && !f.n.hidden && S.glyph.layers[f.l].visible !== false);
   const report = inspectGeometry(forms);
   const selected = forms.filter(f => selCovers(f.l, f.p));
   const shown = (S.iso ? forms.filter(f => inIso(f.l, f.p)) : selected.length ? selected : forms);
   const keys = new Set(shown.map(f => `${f.l}:${f.p.join('.')}`));
-  const points = report.points.filter(point => keys.has(point.key));
+  const sourcePoints = sourceAnchorPoints();
+  const points = sourcePoints.filter(point => keys.has(treeKey(point.owner)));
   const rows = $('pointRows'); rows.replaceChildren();
   for (const point of points) {
     const row = rows.insertRow();
-    const active = anchorSelected(point.selection, point.index) || S.sourceAnchor?.key === point.key && S.sourceAnchor.index === point.index && S.sel.some(s => s.l === point.selection.l && s.p?.join('.') === point.selection.p.join('.'));
+    const active = anchorSelected(point.selection, point.index);
     row.dataset.sourcePoint = `${point.key}:${point.index}`;
     row.classList.toggle('selected', active); row.setAttribute('aria-selected', String(active));
     row.tabIndex = 0;
     const selectPoint = (event = {}) => {
+      materializeAnchorPoints([point]);
       if (!event.shiftKey) S.selectedAnchors = [];
       S.sel = [point.selection]; S.sourceAnchor = { key: point.key, index: point.index }; S.anchor = null; S.hmode = 'shape';
       const node = getNode(point.selection);
       if (node?.shape === 'pen') {
-        const index = node.pts.findIndex(q => { const world = ap(fullMatrix(point.selection), q); return Math.hypot(world.x - point.x, world.y - point.y) < 1e-4; });
-        if (index >= 0) { selectAnchor(point.selection, index, event.shiftKey); S.tool = 'direct'; syncToggles(); }
+        const index = point.index;
+        if (index >= 0) { selectAnchor(point.selection, index, event.shiftKey); setTool('direct'); }
       }
-      renderTree(); renderInspector(); renderSelection();
+      refresh(true);
     };
     row.onclick = selectPoint;
     row.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectPoint(event); } };
     for (const value of [`${point.name} [${point.key}]`, point.index + 1, r4(point.x), r4(point.y)]) row.insertCell().textContent = String(value);
     const tag = document.createElement('input'); tag.type = 'checkbox';
-    const node = getNode(point.selection);
-    tag.checked = !Array.isArray(node.roundingAnchors) || node.roundingAnchors.includes(point.index);
+    const node = point.converted ? null : getNode(point.selection);
+    tag.checked = !Array.isArray(node?.roundingAnchors) || node.roundingAnchors.includes(point.index);
     tag.setAttribute('aria-label', `Round ${point.name} anchor ${point.index + 1}`);
     tag.onclick = event => event.stopPropagation();
     tag.onkeydown = event => event.stopPropagation();
     tag.onchange = () => {
-      if (!Array.isArray(node.roundingAnchors)) node.roundingAnchors = report.points.filter(p => p.key === point.key).map(p => p.index);
-      node.roundingAnchors = tag.checked ? [...new Set([...node.roundingAnchors, point.index])] : node.roundingAnchors.filter(i => i !== point.index);
+      materializeAnchorPoints([point]);
+      const target = getNode(point.selection);
+      if (!Array.isArray(target.roundingAnchors)) target.roundingAnchors = points.filter(p => p.key === point.key).map(p => p.index);
+      target.roundingAnchors = tag.checked ? [...new Set([...target.roundingAnchors, point.index])] : target.roundingAnchors.filter(i => i !== point.index);
       commit(); refresh(true);
     };
     row.insertCell().appendChild(tag);
@@ -877,15 +909,15 @@ function renderGeometryInspection() {
     const px = 1 / pxPerUnit();
     const unique = new Map(points.map(point => [`${r4(point.x)},${r4(point.y)}`, point]));
     for (const point of unique.values()) {
-      const active = anchorSelected(point.selection, point.index) || S.sourceAnchor?.key === point.key && S.sourceAnchor.index === point.index && S.sel.some(s => s.l === point.selection.l && s.p?.join('.') === point.selection.p.join('.'));
+      const active = anchorSelected(point.selection, point.index);
       if (!S.show.points && !active) continue;
       if (active) el('circle', { cx: point.x, cy: point.y, r: 7 * px, fill: 'none', stroke: 'var(--sel)', 'stroke-width': 2 * px, 'data-selected-source-point': 'true' }, overlay);
-      pointMarker(point, 2.5*px, anchorMarker(getNode(point.selection), point.index, S.glyph.setStyle), active, overlay);
+      pointMarker(point, 2.5*px, anchorMarker(point.node, point.index, S.glyph.setStyle), active, overlay);
       const label = el('text', { x: point.x + 5 * px, y: point.y - 5 * px, class: 'point-coordinate', 'font-size': 10 * px }, overlay);
       label.textContent = `${r4(point.x)}, ${r4(point.y)}`;
     }
   }
-  $('geometrySummary').textContent = `${report.points.length} source points · ${report.overlaps.length ? `${report.overlaps.length} coincident segment(s) to inspect` : 'No coincident source segments detected'}. ${selected.length ? 'Showing selected objects.' : 'Showing all objects.'}`;
+  $('geometrySummary').textContent = `${sourcePoints.length} source points · ${report.overlaps.length ? `${report.overlaps.length} coincident segment(s) to inspect` : 'No coincident source segments detected'}. ${selected.length ? 'Showing selected objects.' : 'Showing all objects.'}`;
   const list = $('overlapList'); list.replaceChildren();
   for (const overlap of report.overlaps) {
     const button = document.createElement('button'); button.type = 'button'; button.className = 'overlap-item';
@@ -913,22 +945,18 @@ function applyAreaSelection(points, state) {
   $('anchorMarquee')?.remove();if(points.length<3)return;
   const region=new paper.Path({insert:false,closed:true,segments:points.map(p=>[p.x,p.y])}), hits=[];
   if(state.scope==='anchors') {
-    for(const form of leafList()) {
-      if(form.n.shape!=='pen' || form.n.hidden || S.glyph.layers[form.l].visible===false || !inIso(form.l,form.p))continue;
-      const selection={l:form.l,p:form.p}, matrix=fullMatrix(selection);
-      form.n.pts.forEach((point,index)=>{const p=ap(matrix,point);if(region.contains([p.x,p.y]))hits.push({selection,index});});
-    }
+    const enclosed = sourceAnchorPoints().filter(point => region.contains([point.x,point.y]));
+    if (state.combine !== 'subtract') materializeAnchorPoints(enclosed);
+    for (const {selection,index} of enclosed) hits.push({selection,index});
   } else {
     const candidates = new Map();
     for(const form of formCache) {
       if(form.n.hidden || S.glyph.layers[form.l].visible===false || !inIso(form.l,form.p) || !form.fm)continue;
       const paths=[...(form.fm.closed?[form.fm.closed]:[]),...form.fm.open];
       const selection=isoTargetFor(form)||{l:form.l,p:form.p};
-      if(state.mode==='polygon') {
-        const key=treeKey(selection);
-        if(!candidates.has(key))candidates.set(key,{selection,paths:[]});
-        candidates.get(key).paths.push(...paths);
-      } else if(paths.some(path=>region.getIntersections(path).length || path.contains(region.firstSegment.point) || region.contains(path.firstSegment?.point || path.bounds.center)))hits.push(selection);
+      const key=treeKey(selection);
+      if(!candidates.has(key))candidates.set(key,{selection,paths:[]});
+      candidates.get(key).paths.push(...paths);
     }
     for(const candidate of candidates.values()) {
       if(candidate.paths.length && candidate.paths.every(path=>pathEnclosedBy(region,path)))hits.push(candidate.selection);
@@ -1200,6 +1228,17 @@ listen(cv, 'pointerdown', ev => {
     if (hit.kind === 'tscale' || hit.kind === 'trotate' || hit.kind === 'torigin') ensureT(n);
     drag = { kind: hit.kind.startsWith('t') ? hit.kind : 'handle', h: hit, s, start: clone(n), from: pos, Mp: parentMatrix(s), moved: false };
     cv.setPointerCapture(ev.pointerId); return;
+  }
+  if (S.tool === 'direct') {
+    const point = sourceAnchorPoints().map(point => ({...point, distance:Math.hypot(point.x-pos.x,point.y-pos.y)})).filter(point => point.distance <= 8*px).sort((a,b)=>a.distance-b.distance)[0];
+    if (point) {
+      if (!ev.altKey) materializeAnchorPoints([point]);
+      if (ev.altKey) S.selectedAnchors = S.selectedAnchors.filter(a=>!same(a.selection,point.selection)||a.index!==point.index);
+      else if (ev.shiftKey || !anchorSelected(point.selection,point.index)) selectAnchor(point.selection,point.index,ev.shiftKey);
+      S.sourceAnchor=null;S.hmode='shape';refresh(true);
+      if (anchorSelected(point.selection,point.index)) startAnchorDrag(pos,ev.pointerId);
+      return;
+    }
   }
   const gi = hitGuide(pos);
   if (gi >= 0) { drag = { kind: 'guide', i: gi, moved: false }; cv.setPointerCapture(ev.pointerId); return; }
@@ -1652,9 +1691,10 @@ function cleanupSelectedAnchors() {
   status(removed ? `Cleanup removed ${removed} redundant anchor${removed===1?'':'s'} (0.03-unit outline tolerance). Sharp corners and unselected anchors retained. Undo restores the original.` : 'Cleanup found no redundant selected anchors within 0.03 units. Sharp corners and unselected anchors retained.');
 }
 function selectAllAnchors() {
-  const forms=leafList().filter(form=>form.n.shape==='pen' && !form.n.hidden && S.glyph.layers[form.l].visible!==false && inIso(form.l,form.p) && (!S.sel.length || selCovers(form.l,form.p)));
-  S.selectedAnchors=forms.flatMap(form=>form.n.pts.map((_,index)=>({selection:{l:form.l,p:form.p},index})));
-  S.sel=forms.map(form=>({l:form.l,p:form.p}));S.anchor=S.selectedAnchors.find(anchor=>same(anchor.selection,primarySel()))?.index ?? null;
+  const points=sourceAnchorPoints().filter(point=>!S.sel.length || selCovers(point.owner.l,point.owner.p));
+  materializeAnchorPoints(points);
+  S.selectedAnchors=points.map(({selection,index})=>({selection,index}));
+  S.sel=points.map(point=>point.selection).filter((s,i,all)=>all.findIndex(other=>same(other,s))===i);S.anchor=S.selectedAnchors.find(anchor=>same(anchor.selection,primarySel()))?.index ?? null;
   S.hmode='shape';refresh(true);status(`Selected ${S.selectedAnchors.length} anchors. Right-click for Cleanup.`);
 }
 function mergeSelectedCorners() {
@@ -1990,7 +2030,8 @@ function setTool(t) {
   S.tool = t; if (t === 'direct') S.hmode = 'shape'; else if (t === 'select') { S.anchor = null; S.selectedAnchors = []; S.hmode = 'transform'; }
   cv.classList.toggle('direct', t === 'direct'); cv.classList.toggle('pen', t === 'pen');cv.classList.toggle('area',t==='area'); syncToggles(); renderSelection();
   if (t === 'pen') status('Pen: click to place anchors, drag for curves, click the first anchor to close, Enter or Esc to finish.');
-  if(t==='area')status(`${areaLabels[S.areaMode]} selection: ${S.areaScope}. Shift adds; Option/Alt subtracts. ${S.areaMode==='polygon'?'Click vertices; Return, double-click or click first vertex to finish; Escape cancels. Objects must be fully enclosed.':'Drag to select.'}`);
+  if (t === 'direct') status('Direct Select: click anchors or drag empty space to select anchors. Shift adds; Option/Alt subtracts.');
+  if(t==='area')status(`${areaLabels[S.areaMode]} selection: ${S.areaScope}. Shift adds; Option/Alt subtracts. ${S.areaMode==='polygon'?'Click vertices; Return, double-click or click first vertex to finish; Escape cancels. Objects must be fully enclosed.':'Drag to select. Objects must be fully enclosed.'}`);
   const area=$('areaSelectBtn');area.classList.toggle('active',t==='area');area.setAttribute('aria-pressed',String(t==='area'));
 }
 
@@ -2644,7 +2685,7 @@ root.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.da
 root.querySelectorAll('[data-hmode]').forEach(b => b.onclick = () => { S.hmode = b.dataset.hmode; syncToggles(); renderSelection(); });
 function updateAreaTool() {
   const button=$('areaSelectBtn'),name=areaLabels[S.areaMode];button.innerHTML=uiSVG(S.areaMode==='polygon'?'polygon-lasso':S.areaMode);button.setAttribute('aria-label',`${name} selection`);button.dataset.controlTooltip=`${name} selection. Shift adds; Option/Alt subtracts.`;
-  root.querySelectorAll('[data-area-choice]').forEach(choice=>choice.setAttribute('aria-checked',String(choice.dataset.areaChoice===S.areaMode)));
+  root.querySelectorAll('[data-area-choice]').forEach(choice=>{choice.setAttribute('aria-checked',String(choice.dataset.areaChoice===S.areaMode));choice.setAttribute('aria-label',areaLabels[choice.dataset.areaChoice]);});
 }
 $('areaSelectBtn').onclick=()=>setTool('area');
 $('areaSelectToggle').onclick=()=>{if(popup?.panel===$('areaSelectionMenu')){closePopup(true);return;}const button=$('areaSelectToggle'),bounds=button.getBoundingClientRect();openPopup($('areaSelectionMenu'),button,bounds.left,bounds.bottom+6,()=>button);};
@@ -2666,6 +2707,8 @@ $('proximityMergeBtn').onclick = () => {
   S.proximityMerge = !S.proximityMerge;
   try { localStorage.setItem('gw-proximity-merge', String(S.proximityMerge)); } catch {}
   syncToggles();
+  renderMergePreview();
+  status(S.proximityMerge ? 'Proximity merge on: drag an anchor within 8 screen pixels of its neighbor. Highlighted pairs merge on release; outer handles retained.' : 'Proximity merge off. Anchors remain separate when moved.');
 };
 const saveSnap = () => { try { localStorage.setItem('gw-snap-preferences', JSON.stringify({ slots: snapButtons.map(button => +button.dataset.snap), active: S.snap })); } catch {} };
 snapButtons.forEach(button => button.onclick = event => {

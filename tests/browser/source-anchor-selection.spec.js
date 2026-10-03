@@ -1,0 +1,69 @@
+import {test,expect} from '@playwright/test';
+const screen=async(page,x,y)=>page.evaluate(({x,y})=>{const c=document.querySelector('#canvas'),p=c.createSVGPoint();p.x=x;p.y=y;const q=p.matrixTransform(c.getScreenCTM());return {x:q.x,y:q.y};},{x,y});
+const setup=async(page,node)=>{
+  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);
+  await page.evaluate(async node=>{const w=window.__gw;await w.importLibraryText(JSON.stringify({name:'source-selection',layers:[{id:'outline',paint:'fill',node}]}),'source.json');w.S.sel=[];w.setTool('direct');w.refresh(true);},node);
+  await page.locator('#canvas').scrollIntoViewIfNeeded();
+};
+for(const mode of ['Marquee','Lasso','Polygon lasso'])test(`${mode} selects imported compound anchors and preserves counters and transforms`,async({page})=>{
+  await setup(page,{name:'Imported outline',shape:'path',d:'M4 4L16 4L16 16L4 16ZM8 8L8 12L12 12L12 8Z',transform:{origin:[0,0],scaleX:1.25,scaleY:1}});
+  expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.shape)).toBe('path');
+  await page.locator('#areaSelectToggle').click();await page.getByRole('menuitemradio',{name:mode,exact:true}).click();
+  const vertices=[[3,2],[7,2],[7,6],[3,6]];
+  if(mode==='Polygon lasso'){
+    for(const [x,y] of vertices){const p=await screen(page,x,y);await page.mouse.click(p.x,p.y);}await page.keyboard.press('Enter');
+  }else{
+    const p=await screen(page,...vertices[0]);await page.mouse.move(p.x,p.y);await page.mouse.down();
+    for(const [x,y] of mode==='Marquee'?[[7,6]]:[...vertices.slice(1),vertices[0]]){const q=await screen(page,x,y);await page.mouse.move(q.x,q.y,{steps:4});}await page.mouse.up();
+  }
+  expect(await page.evaluate(()=>window.__gw.S.selectedAnchors)).toEqual([{selection:{l:0,p:[0]},index:0}]);
+  const node=await page.evaluate(()=>window.__gw.S.glyph.layers[0].node);expect(node.op).toBe('compound');expect(node.children).toHaveLength(2);expect(node.transform).toEqual({origin:[0,0],scaleX:1.25,scaleY:1});
+  await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.shape)).toBe('path');
+});
+test('source row selects an imported anchor that can immediately move and undo',async({page})=>{
+  await setup(page,{name:'Imported triangle',shape:'path',d:'M4 4L16 4L10 16Z'});
+  await page.locator('#pointRows [data-source-point="0::1"]').click();
+  expect(await page.evaluate(()=>window.__gw.S.selectedAnchors)).toEqual([{selection:{l:0,p:[]},index:1}]);
+  await expect(page.locator('#gSel [data-anchor="1"]')).toHaveAttribute('data-selected','true');
+  await page.locator('#canvas').press('ArrowRight');expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[1].x)).toBeGreaterThan(16);
+  await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[1].x)).toBe(16);
+});
+test('a source row in an imported counter becomes an editable child and keeps its point list',async({page})=>{
+  await setup(page,{name:'Outline with counter',shape:'path',d:'M4 4L16 4L16 16L4 16ZM8 8L8 12L12 12L12 8Z'});
+  await page.locator('#pointRows [data-source-point="0:1:1"]').click();
+  expect(await page.evaluate(()=>window.__gw.S.selectedAnchors)).toEqual([{selection:{l:0,p:[1]},index:1}]);
+  await expect(page.locator('#pointRows tr')).toHaveCount(4);
+  await expect(page.locator('#pointRows [data-source-point="0:1:1"]')).toHaveAttribute('aria-selected','true');
+  await page.locator('#canvas').press('ArrowRight');expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children[1].pts[1].x)).toBeGreaterThan(8);
+});
+test('rounded source anchors remain selectable outside the evaluated outline, with shift add and alt subtract',async({page})=>{
+  await setup(page,{shape:'pen',closed:true,pts:[{x:4,y:4,r:3},{x:16,y:4},{x:16,y:16},{x:4,y:16}]});
+  await expect(page.locator('#pointRows tr')).toHaveCount(4);
+  const p=await screen(page,4,4);await page.mouse.click(p.x,p.y);
+  expect(await page.evaluate(()=>window.__gw.S.selectedAnchors.map(a=>a.index))).toEqual([0]);
+  const q=await screen(page,16,4);await page.keyboard.down('Shift');await page.mouse.click(q.x,q.y);await page.keyboard.up('Shift');
+  expect(await page.evaluate(()=>window.__gw.S.selectedAnchors.map(a=>a.index))).toEqual([0,1]);
+  await page.keyboard.down('Alt');await page.mouse.click(p.x,p.y);await page.keyboard.up('Alt');
+  expect(await page.evaluate(()=>window.__gw.S.selectedAnchors.map(a=>a.index))).toEqual([1]);
+  expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[0].r)).toBe(3);
+});
+test('the comment outline previews a nearby broken-handle merge before release',async({page})=>{
+  await setup(page,{name:'Comment outline',shape:'pen',closed:true,pts:[
+    {x:2.4,y:4.8,out:[0,-1.32]},{x:4.8,y:2.4,in:[-1.32,0]},
+    {x:19.2,y:2.4,out:[1.32,0]},{x:21.6,y:4.8,in:[0,-1.32]},
+    {x:21.6,y:15.6,out:[0,1.32]},{x:19.2,y:18,in:[1.32,0]},
+    {x:14,y:18},{x:9.36,y:21.48,out:[-0.18,0.14]},
+    {x:8.73,y:21.54,in:[0.21,0.1],out:[-0.21,-0.1]},
+    {x:8.4,y:21,in:[0,0.23]},{x:8.4,y:18},
+    {x:4.8,y:18,out:[-1.32,0]},{x:2.4,y:15.6,in:[0,1.32]},
+  ]});
+  await page.locator('[data-snap="0"]').click();await page.locator('#proximityMergeBtn').click();
+  const from=await screen(page,8.73,21.54),to=await screen(page,8.45,21.03);
+  await page.mouse.move(from.x,from.y);await page.mouse.down();await page.mouse.move(to.x,to.y);
+  await expect(page.locator('#gMergePreview [data-merge-target]')).toHaveCount(2);
+  await expect(page.locator('#gMergePreview [data-merge-result]')).toHaveCount(1);
+  expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length)).toBe(13);
+  await page.mouse.up();const pts=await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts);
+  expect(pts).toHaveLength(12);expect(pts[8].in).toEqual([0.21,0.1]);expect(pts[8].out).toBeUndefined();
+  await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length)).toBe(13);
+});
