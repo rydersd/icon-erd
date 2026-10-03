@@ -18,6 +18,7 @@ import { mergeNearbyAnchors, previewNearbyAnchors } from './anchor-merge.js';
 import { cleanupAnchors } from './anchor-cleanup.js';
 import { mergeAnchorCorners } from './anchor-corner.js';
 import { anchorMarker } from './anchor-marker.js';
+import { roundableAnchor } from './anchor-rounding.js';
 import { pathEnclosedBy } from './selection-region.js';
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, setShortcut, shortcutFromEvent } from './shortcuts.js';
 import { inspectGeometry } from './geometry-inspection.js';
@@ -521,21 +522,16 @@ function handlesFor(n, px) {
     case 'pen':
       n.pts.forEach((q, i) => {
         H.push({ x: q.x, y: q.y, kind: 'pt', ai: i, set: (m, s, p) => { m.pts[i].x = p.x; m.pts[i].y = p.y; } });
-        // the selected corner anchor gets a radius dot on its bisector (that vertex's own corner radius)
-        if (i === S.anchor && !q.in && !q.out) {
-          const N = n.pts.length, pv = n.pts[(i - 1 + N) % N], nx = n.pts[(i + 1) % N];
-          const ends = n.closed || (i > 0 && i < N - 1);
-          if (ends) {
-            const u1 = norm(pv.x - q.x, pv.y - q.y), u2 = norm(nx.x - q.x, nx.y - q.y), b = norm(u1.x + u2.x, u1.y + u2.y);
-            if (b.l > 1e-6) {
-              const half = Math.acos(Math.max(-1, Math.min(1, u1.x * u2.x + u1.y * u2.y))) / 2; // half the interior angle
-              const k = 1 / Math.sin(half || 1e-3); // centre of an r-fillet sits r/sin(half) along the bisector
-              const d = Math.max((q.r || 0) * k, 10 * px);
-              H.push({ x: q.x + b.x * d, y: q.y + b.y * d, kind: 'radius', set: (m, st, p) => {
-                const r = Math.max(0, snapV(((p.x - q.x) * b.x + (p.y - q.y) * b.y) / k));
-                if (r > 0) m.pts[i].r = r; else delete m.pts[i].r;
-              } });
-            }
+        // Radius control follows the actual incoming/outgoing curve tangents.
+        if (i === S.anchor) {
+          const geometry = roundableAnchor(n,i,core);
+          if (geometry) {
+            const b = geometry.bisector, k = geometry.k;
+            const d = Math.max((q.r || 0)*k,10*px);
+            H.push({x:q.x+b.x*d,y:q.y+b.y*d,kind:'radius',cornerIndex:i,corner:{x:q.x,y:q.y},rounded:(q.r || 0)>0,set:(m,st,p)=>{
+              const r = Math.max(0,snapV(((p.x-q.x)*b.x+(p.y-q.y)*b.y)/k));
+              if(r>0)m.pts[i].r=r;else delete m.pts[i].r;
+            }});
           }
         }
         for (const side of ['in', 'out']) {
@@ -984,8 +980,14 @@ function renderSelection() {
       activeHandles.push(H);
       if (h.kind === 'ctrl') { const a = ap(M, { x: h.anchor[0], y: h.anchor[1] }); el('path', Object.assign({ d: `M${a.x} ${a.y}L${d.x} ${d.y}`, stroke: 'var(--sel)', 'stroke-width': 1 }, NS), gS); }
       if (H.kind === 'pt') pointMarker(H, sz, H.ai != null ? anchorMarker(node, H.ai, S.glyph.setStyle) : 'square', H.ai != null && (anchorSelected(selection, H.ai) || (!S.selectedAnchors.length && same(selection, ps) && H.ai === S.anchor)), gS, { 'data-anchor': H.ai ?? '', 'data-anchor-object': treeKey(selection) });
-      else if (H.kind === 'radius' || H.kind === 'ctrl') el('circle', Object.assign({ cx: H.x, cy: H.y, r: sz*.85, fill: H.kind === 'ctrl' ? 'var(--canvas-bg)' : 'var(--sel)', stroke: 'var(--sel)', 'stroke-width': 1.2 }, NS), gS);
+      else if (H.kind === 'radius' || H.kind === 'ctrl') el('circle', Object.assign({ cx: H.x, cy: H.y, r: sz*.85, fill: H.kind === 'ctrl' ? 'var(--canvas-bg)' : 'var(--sel)', stroke: 'var(--sel)', 'stroke-width': 1.2, ...(H.cornerIndex!=null ? {'data-radius-anchor':H.cornerIndex} : {}) }, NS), gS);
       else el('path', Object.assign({ d: `M${H.x} ${H.y-sz*1.2}L${H.x+sz*1.2} ${H.y}L${H.x} ${H.y+sz*1.2}L${H.x-sz*1.2} ${H.y}Z`, fill: 'var(--sel)', stroke: 'var(--sel)', 'stroke-width': 1 }, NS), gS);
+      if (H.kind === 'radius' && H.rounded && H.corner) {
+        const corner = ap(M,H.corner), b = norm(H.x-corner.x,H.y-corner.y), t = {x:-b.y,y:b.x};
+        const arcPoint = (out,side) => ({x:H.x+(b.x*out+t.x*side)*px,y:H.y+(b.y*out+t.y*side)*px});
+        const a=arcPoint(3,-5), c=arcPoint(10,0), e=arcPoint(3,5);
+        el('path',{d:`M${a.x} ${a.y}Q${c.x} ${c.y} ${e.x} ${e.y}`,fill:'none',stroke:'var(--sel)','stroke-width':1.5,'data-rounding-handle-arc':H.cornerIndex,...NS},gS);
+      }
     }
   }
   if (n && S.sel.length === 1 && !anchorMode) {
@@ -1668,6 +1670,13 @@ function mergeSelectedCorners() {
   if(merged){commit();refresh(true);}
   status(merged ? `Merged ${merged} redundant anchors into sharp corners. Exterior controls retained; apply procedural rounding to the new corners. Undo restores the original.` : 'Select two or more consecutive anchors at each corner. Whole paths, open endpoints and distant tangent intersections are retained.');
 }
+function convertAnchorToRounded(selection,index) {
+  const node=getNode(selection);
+  if(!roundableAnchor(node,index,core))return;
+  node.pts[index].r = node.pts[index].r || S.glyph.setStyle?.rounding || 0.5;
+  S.anchor=index;S.hmode='shape';commit();refresh(true);
+  status('Corner rounded. Drag the arc-marked radius handle to adjust; Undo restores the corner.');
+}
 function openCanvasMenu(event) {
   event.preventDefault();drag=null;lastDown=null;areaPolygon=null;$('anchorMarquee')?.remove();
   const keyboard=event.type==='keydown';
@@ -1698,7 +1707,14 @@ function openCanvasMenu(event) {
     menuAction('Cleanup','anchor',cleanupSelectedAnchors);
     menuAction('Merge to corner','anchor',mergeSelectedCorners,null,anchors<2);
     menuAction('Select all anchors','select',selectAllAnchors);
-    if(anchors===1 && node?.shape==='pen')menuAction('Toggle corner / smooth','anchor',()=>toggleSmooth(selection,S.anchor));
+    if(anchors===1 && node?.shape==='pen') {
+      const index=S.selectedAnchors[0]?.index ?? S.anchor;
+      if(roundableAnchor(node,index,core)) {
+        if(node.pts[index].r>0)menuAction('Remove corner rounding','anchor',()=>{delete node.pts[index].r;commit();refresh(true);});
+        else menuAction('Convert to rounded','anchor',()=>convertAnchorToRounded(selection,index));
+      }
+      menuAction('Toggle corner / smooth','anchor',()=>toggleSmooth(selection,index));
+    }
     menuAction('Delete selected anchors','delete',()=>{if(!deleteSelectedAnchors())deleteAnchor();});
   } else if(S.sel.length) {
     menuAction('Duplicate','duplicate',duplicate);menuAction('Delete selected objects','delete',del);
@@ -1708,7 +1724,8 @@ function openCanvasMenu(event) {
     if(S.sel.length>1)for(const op of ['union','subtract','intersect','exclude'])menuAction(op[0].toUpperCase()+op.slice(1),op,()=>group(op));
     if(node?.component)menuAction('Detach shared instance','ungroup',()=>{delete node.component;commit();refresh(true);});
   } else menuAction('Select all objects','select',()=>{S.sel=S.glyph.layers.map((_,l)=>({l,p:[]}));refresh(true);});
-  if(S.sel.some(s=>s.p!==null && regularEllipse(getNode(s),core)))menuAction('Convert to circle/ellipse (4 anchors)','circle',()=>regularizeSelections());
+  const wholeContours=!anchors || S.sel.every(s=>s.p!==null && getNode(s)?.shape==='pen' && getNode(s).pts.every((_,i)=>anchorSelected(s,i)));
+  if(wholeContours && S.sel.length && S.sel.every(s=>s.p!==null && regularEllipse(getNode(s),core)))menuAction('Convert to circle/ellipse (4 anchors)','circle',()=>regularizeSelections());
   const bounds=cv.getBoundingClientRect();
   openPopup(itemMenu,cv,keyboard?bounds.left+bounds.width/2:event.clientX,keyboard?bounds.top+bounds.height/2:event.clientY,()=>cv);
 }
@@ -2268,7 +2285,7 @@ function renderInspector() {
         field(g, 'anchor x', q.x, v => { q.x = v; }, { key: 'ax' });
         field(g, 'anchor y', q.y, v => { q.y = v; }, { key: 'ay' });
         field(g, 'anchor type', q.in || q.out ? 'smooth' : 'corner', v => { if ((v === 'smooth') !== !!(q.in || q.out)) toggleSmooth(s, i); }, { options: ['corner', 'smooth'] });
-        if (!q.in && !q.out) field(g, 'anchor corner r', q.r || 0, v => { if (v > 0) q.r = r4(v); else delete q.r; }, { key: 'ar', step: 0.05 });
+        if (roundableAnchor(n,i,core)) field(g, 'anchor corner r', q.r || 0, v => { if (v > 0) q.r = r4(v); else delete q.r; }, { key: 'ar', step: 0.05 });
         g.appendChild(smallBtn('Delete anchor', () => deleteAnchor(), 'Remove this anchor (⌫)', 'delete'));
       }
       g.appendChild(smallBtn('Corners only', () => { n.pts.forEach(q => { delete q.in; delete q.out; }); commit(); refresh(true); }, 'Remove all bezier handles'));

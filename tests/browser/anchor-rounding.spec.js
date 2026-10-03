@@ -1,0 +1,21 @@
+import {test,expect} from '@playwright/test';
+const setup=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await page.evaluate(async()=>{const w=window.__gw;await w.importLibraryText(JSON.stringify({name:'rounded-corner',weight:0.2,layers:[{id:'outline',paint:'stroke',node:{shape:'pen',closed:true,pts:[{x:4,y:4},{x:16,y:4,in:[-2,0],out:[0,2]},{x:16,y:16},{x:4,y:16}]}}]}),'rounded.json');w.S.sel=[{l:0,p:[]}];w.S.selectedAnchors=[{selection:{l:0,p:[]},index:1}];w.S.anchor=1;w.setTool('direct');w.refresh(true);});};
+test('one corner offers rounding, preserves handles and shows an adjustable arc; whole contours offer ellipse conversion',async({page})=>{
+ await setup(page);const before=await page.evaluate(()=>window.__gw.core.shapeItems(window.__gw.S.glyph.layers[0].node)[0].pathData);
+ await page.locator('#canvas').press('Shift+F10');await expect(page.getByRole('menuitem',{name:'Convert to circle/ellipse (4 anchors)',exact:true})).toHaveCount(0);
+ await page.getByRole('menuitem',{name:'Convert to rounded',exact:true}).click();
+ expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[1])).toMatchObject({x:16,y:4,in:[-2,0],out:[0,2],r:0.5});
+ await expect(page.locator('#gSel [data-anchor="1"]')).toHaveAttribute('data-point-kind','circle');await expect(page.locator('[data-rounding-handle-arc="1"]')).toHaveCount(1);
+ expect(await page.evaluate(()=>window.__gw.core.shapeItems(window.__gw.S.glyph.layers[0].node)[0].pathData)).not.toBe(before);
+ await page.locator('[data-snap="0"]').click();const knob=page.locator('[data-radius-anchor="1"]');const position=await knob.evaluate(e=>{const p=document.querySelector('#canvas').createSVGPoint();p.x=+e.getAttribute('cx');p.y=+e.getAttribute('cy');const q=p.matrixTransform(e.getScreenCTM());return {x:q.x,y:q.y};});
+ await page.mouse.move(position.x,position.y);await page.mouse.down();await page.mouse.move(position.x-12,position.y+12);await page.mouse.up();
+ expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[1].r)).toBeGreaterThan(0.5);
+ await page.screenshot({path:'artifacts/rounded-corner-handle.png'});await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[1].r)).toBe(0.5);
+ const anchorBox=await page.locator('#gSel [data-anchor="1"]').boundingBox();await page.mouse.click(anchorBox.x+anchorBox.width/2,anchorBox.y+anchorBox.height/2);await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Remove corner rounding',exact:true}).click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[1].r)).toBeUndefined();await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[1].r)).toBe(0.5);
+ await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[1].r)).toBeUndefined();
+ await page.locator('#canvas').focus();await page.keyboard.press('ControlOrMeta+a');await page.locator('#canvas').press('Shift+F10');await expect(page.getByRole('menuitem',{name:'Convert to circle/ellipse (4 anchors)',exact:true})).toBeVisible();
+});
+test('partial anchor selections and open endpoints never offer whole-path circle conversion or unsupported rounding',async({page})=>{
+ await setup(page);await page.evaluate(()=>{const w=window.__gw;w.S.selectedAnchors.push({selection:{l:0,p:[]},index:2});w.refresh(true);});await page.locator('#canvas').press('Shift+F10');await expect(page.getByRole('menuitem',{name:'Convert to circle/ellipse (4 anchors)',exact:true})).toHaveCount(0);await page.keyboard.press('Escape');
+ await page.evaluate(()=>{const w=window.__gw;w.S.glyph.layers[0].node.closed=false;w.S.selectedAnchors=[{selection:{l:0,p:[]},index:0}];w.S.anchor=0;w.refresh(true);});await page.locator('#canvas').press('Shift+F10');await expect(page.getByRole('menuitem',{name:'Convert to rounded',exact:true})).toHaveCount(0);await expect(page.getByRole('menuitem',{name:'Convert to circle/ellipse (4 anchors)',exact:true})).toHaveCount(0);
+});

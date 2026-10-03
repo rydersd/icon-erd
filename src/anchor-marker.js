@@ -2,6 +2,7 @@
 export function anchorMarker(node, index, style = {}) {
   const point = node.pts?.[index];
   if (point && !Array.isArray(point)) {
+    if (point.r > 0) return 'circle';
     const incoming = point.in, outgoing = point.out;
     const hasIn = incoming && Math.hypot(...incoming) > 1e-6, hasOut = outgoing && Math.hypot(...outgoing) > 1e-6;
     if (hasIn || hasOut) {
@@ -10,7 +11,6 @@ export function anchorMarker(node, index, style = {}) {
       const dot = incoming[0] * outgoing[0] + incoming[1] * outgoing[1];
       return Math.abs(cross) > 1e-5 * Math.hypot(...incoming) * Math.hypot(...outgoing) || dot >= 0 ? 'diamond' : 'circle';
     }
-    if (point.r > 0) return 'circle';
   }
   const tagged = !Array.isArray(node.roundingAnchors) || node.roundingAnchors.includes(index);
   if (!tagged) return 'square';
