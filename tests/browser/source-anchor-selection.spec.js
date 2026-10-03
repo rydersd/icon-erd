@@ -37,6 +37,14 @@ test('a source row in an imported counter becomes an editable child and keeps it
   await expect(page.locator('#pointRows [data-source-point="0:1:1"]')).toHaveAttribute('aria-selected','true');
   await page.locator('#canvas').press('ArrowRight');expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children[1].pts[1].x)).toBeGreaterThan(8);
 });
+test('multiple selected anchors hide other point rows and clearing selection restores them without changing rounding tags',async({page})=>{
+  await setup(page,{shape:'pen',closed:true,pts:[{x:4,y:4},{x:16,y:4},{x:16,y:16},{x:4,y:16}]});
+  await page.locator('#pointRows [data-source-point="0::0"]').click();await page.locator('#pointRows [data-source-point="0::1"]').click({modifiers:['Shift']});
+  await expect(page.locator('#pointRows tr')).toHaveCount(2);await expect(page.locator('#pointRows tr[aria-selected="true"]')).toHaveCount(2);
+  await page.locator('#pointRows [data-source-point="0::0"]').getByRole('checkbox').uncheck();
+  expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.roundingAnchors)).toEqual([1,2,3]);
+  await page.locator('#canvas').press('Escape');await expect(page.locator('#pointRows tr')).toHaveCount(4);
+});
 test('rounded source anchors remain selectable outside the evaluated outline, with shift add and option-click',async({page})=>{
   await setup(page,{shape:'pen',closed:true,pts:[{x:4,y:4,r:3},{x:16,y:4},{x:16,y:16},{x:4,y:16}]});
   await expect(page.locator('#pointRows tr')).toHaveCount(4);

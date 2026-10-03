@@ -884,8 +884,9 @@ function renderGeometryInspection() {
   const keys = new Set(shown.map(f => `${f.l}:${f.p.join('.')}`));
   const sourcePoints = sourceAnchorPoints();
   const points = sourcePoints.filter(point => keys.has(treeKey(point.owner)));
+  const listedPoints = S.selectedAnchors.length>1 ? points.filter(point=>anchorSelected(point.selection,point.index)) : points;
   const rows = $('pointRows'); rows.replaceChildren();
-  for (const point of points) {
+  for (const point of listedPoints) {
     const row = rows.insertRow();
     const active = anchorSelected(point.selection, point.index);
     row.dataset.sourcePoint = `${point.key}:${point.index}`;
@@ -1462,6 +1463,7 @@ function onDoubleClick(ev) {
 }
 listen(cv, 'wheel', ev => {
   ev.preventDefault();
+  if (!S.glyph) return;
   const r = cv.getBoundingClientRect(); const k = S.view.s / r.width;
   if (ev.ctrlKey || ev.metaKey) zoomAt(toUnits(ev), Math.exp(ev.deltaY * 0.01));
   else { S.view.x += ev.deltaX * k; S.view.y += ev.deltaY * k; applyView(); renderGuides(); }
@@ -3016,7 +3018,7 @@ const ready = (async () => {
   const at = last ? idx(last) : -1;
   loadGlyph(at >= 0 ? at : 0);
   if (DB.db) {
-    try { const snapshots=await DB.run('readonly',store=>store.getAll(),'snapshots'); if(!snapshots.some(v=>v.id.startsWith('version-')))await saveLibraryVersion('Initial library checkpoint'); }catch(error){status(error.message,true);}
+    try { const keys=await DB.run('readonly',store=>store.getAllKeys(),'snapshots'); if(!keys.some(id=>id.startsWith('version-')))await saveLibraryVersion('Initial library checkpoint'); }catch(error){status(error.message,true);}
   }
   window.__gw.ready = true; window.__gw.readyAt = performance.now();
 })();
