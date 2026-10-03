@@ -31,3 +31,39 @@ for (const finish of ['Return', 'double-click', 'Marquee', 'Lasso']) {
     await expect(page.locator('#canvas')).toBeVisible();
   });
 }
+
+for (const scope of ['objects', 'anchors']) for (const finish of ['Return at preview', 'double-click across targets']) {
+  test(`polygon ${scope} completes with ${finish} and selects the visible region`, async ({ page }) => {
+    await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready);
+    await page.evaluate(async scope => {
+      const w = window.__gw;
+      await w.importLibraryText(JSON.stringify({name:'completion',layers:[
+        {id:'inside-preview',paint:'stroke',node:{shape:'line',x1:3,y1:8,x2:4,y2:8}},
+        {id:'boundary-target',paint:'fill',node:{shape:'path',d:'M-1 10L11 10L11 12L-1 12Z'}},
+      ]}), 'completion.json'); w.setTool(scope==='anchors'?'direct':'select');
+    }, scope);
+    await page.locator('#areaSelectToggle').click();
+    await page.getByRole('menuitemradio',{name:'Polygon lasso',exact:true}).click();
+    const screen = async (x,y) => page.evaluate(({x,y}) => {
+      const c=document.querySelector('#canvas'),p=c.createSVGPoint();p.x=x;p.y=y;
+      const q=p.matrixTransform(c.getScreenCTM());return {x:q.x,y:q.y};
+    },{x,y});
+    for (const [x,y] of [[2,2],[10,2],[10,10]]) {
+      const p=await screen(x,y);await page.mouse.click(p.x,p.y);await page.waitForTimeout(450);
+    }
+    const end=await screen(2,10);
+    if (finish==='Return at preview') {
+      await page.mouse.move(end.x,end.y);await page.keyboard.press('Enter');
+    } else {
+      // A real double-click can cross the edge of a rendered SVG path.
+      // The two targets differ, so the browser does not emit native dblclick.
+      await page.mouse.click(end.x,end.y-1);
+      await page.mouse.click(end.x,end.y+1);
+    }
+    await expect(page.locator('#anchorMarquee')).toHaveCount(0);
+    expect(await page.evaluate(()=>window.__gw.S.sel)).toEqual([{l:0,p:[]}]);
+    if(scope==='anchors')expect(await page.evaluate(()=>window.__gw.S.selectedAnchors)).toEqual([
+      {selection:{l:0,p:[]},index:0},{selection:{l:0,p:[]},index:1},
+    ]);
+  });
+}
