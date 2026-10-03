@@ -62,7 +62,7 @@ const S = {
   components: new Map(), proximityMerge: false,
   libraryProperties: null,
   gridStep: null,
-  show: { grid: true, safe: true, artboard: true, guides: true, keylines: true, forms: false, original: false, cutters: false, points: true },
+  show: { grid: true, safe: true, artboard: true, guides: true, keylines: true, forms: false, original: false, cutters: false, points: true, anchorNumbers: false, anchorValues: true },
   iso: null, // isolated object {l, p:null|[...]}; everything else dims and stops taking clicks
   sourceAnchor: null,
   selectedAnchors: [],
@@ -72,6 +72,10 @@ const S = {
   rt: { weight: 1.2, cap: 'round', join: 'round', hint: false, rtl: false },
   undo: [], redo: [], iconHistories: {}, resolved: [],
 };
+try {
+  const labels = JSON.parse(localStorage.getItem('gw-anchor-labels') || '{}');
+  for (const key of ['anchorNumbers', 'anchorValues']) if (typeof labels[key] === 'boolean') S.show[key] = labels[key];
+} catch {}
 let penDraft = null; // { s } while the pen is placing anchors
 let areaPolygon = null;
 try { const mode=localStorage.getItem('gw-area-mode');if(['marquee','lasso','polygon'].includes(mode))S.areaMode=mode; }catch{}
@@ -105,6 +109,8 @@ const deletedIcons = new Set();
 const librarySelection = new Set();
 let librarySelectionAnchor = null;
 let libraryTrash = [];
+const deletedSelection = new Set();
+let reviewingDeleted = false;
 let libraryDeleteBusy = false;
 let libraryResetBackup = null;
 let organizationBackup = null;
@@ -894,7 +900,7 @@ function renderGeometryInspection() {
   const keys = new Set(shown.map(f => `${f.l}:${f.p.join('.')}`));
   const sourcePoints = sourceAnchorPoints();
   const points = sourcePoints.filter(point => keys.has(treeKey(point.owner)));
-  const listedPoints = S.selectedAnchors.length>1 ? points.filter(point=>anchorSelected(point.selection,point.index)) : points;
+  const listedPoints = S.selectedAnchors.length ? points.filter(point=>anchorSelected(point.selection,point.index)) : points;
   const rows = $('pointRows'); rows.replaceChildren();
   for (const point of listedPoints) {
     const row = rows.insertRow();
@@ -940,8 +946,13 @@ function renderGeometryInspection() {
       if (!S.show.points && !active) continue;
       if (active) el('circle', { cx: point.x, cy: point.y, r: 7 * px, fill: 'none', stroke: 'var(--sel)', 'stroke-width': 2 * px, 'data-selected-source-point': 'true' }, overlay);
       pointMarker(point, 2.5*px, anchorMarker(point.node, point.index, S.glyph.setStyle), active, overlay);
-      const label = el('text', { x: point.x + 5 * px, y: point.y - 5 * px, class: 'point-coordinate', 'font-size': 10 * px }, overlay);
-      label.textContent = `${r4(point.x)}, ${r4(point.y)}`;
+      const parts = [];
+      if (S.show.anchorNumbers) parts.push(`#${point.index + 1}`);
+      if (S.show.anchorValues) parts.push(`${r4(point.x)}, ${r4(point.y)}`);
+      if (parts.length) {
+        const label = el('text', { x: point.x + 5 * px, y: point.y - 5 * px, class: 'point-coordinate', 'font-size': 10 * px }, overlay);
+        label.textContent = parts.join(' · ');
+      }
     }
   }
   $('geometrySummary').textContent = `${sourcePoints.length} source points · ${report.overlaps.length ? `${report.overlaps.length} coincident segment(s) to inspect` : 'No coincident source segments detected'}. ${selected.length ? 'Showing selected objects.' : 'Showing all objects.'}`;
@@ -2508,6 +2519,7 @@ function syncLibrarySelection() {
   $('clearIconSelectionBtn').disabled = !librarySelection.size;
   $('restoreIconsBtn').disabled = !libraryTrash.length || libraryDeleteBusy;
   $('restoreIconsBtn').textContent = libraryTrash.length ? `Restore deleted (${libraryTrash.length})` : 'Restore deleted';
+  syncDeletedSelection();
 }
 function shownLibraryIcons() {
   return [...$('lib').querySelectorAll('.lib-item')].filter(button=>!button.hidden && button.closest('.lib-group').open).map(button=>button.dataset.name);
@@ -2548,29 +2560,59 @@ async function deleteLibraryIcons() {
   finally{libraryDeleteBusy=false;syncLibrarySelection();}
 }
 async function restoreDeletedIcons() {
-  if(libraryDeleteBusy || !libraryTrash.length || !DB.db)return;
+  if(libraryDeleteBusy || !deletedSelection.size || !DB.db)return;
+  const trash=libraryTrash,library=S.lib,selected=trash.filter(entry=>deletedSelection.has(entry));
+  if(!selected.length)return;
   libraryDeleteBusy=true;syncLibrarySelection();
   try {
     await flushSaves();if(pendingSave.size)throw new Error('Save your current edits before restoring icons.');
-    const result=mergeLibrary(S.lib,libraryTrash.map(entry=>entry.glyph),'add');
-    const records=result.names.map((name,index)=>({name,glyph:result.library.find(glyph=>glyph.name===name),original:libraryTrash[index].original?{...clone(libraryTrash[index].original),name}:null,savedAt:Date.now()}));
-    await DB.run('readwrite',(store,tx)=>{tx.objectStore('snapshots').put({id:'library-trash',entries:[]});for(const record of records)store.put(record);},'edits',['snapshots']);
-    S.lib=result.library;libraryTrash=[];librarySelection.clear();
+    if(libraryTrash!==trash || S.lib!==library)throw new Error('The library changed while restoring. Choose deleted icons again.');
+    const result=mergeLibrary(S.lib,selected.map(entry=>entry.glyph),'add');
+    const remaining=trash.filter(entry=>!selected.includes(entry));
+    const records=result.names.map((name,index)=>({name,glyph:result.library.find(glyph=>glyph.name===name),original:selected[index].original?{...clone(selected[index].original),name}:null,savedAt:Date.now()}));
+    await DB.run('readwrite',(store,tx)=>{tx.objectStore('snapshots').put({id:'library-trash',entries:remaining});for(const record of records)store.put(record);},'edits',['snapshots']);
+    S.lib=result.library;libraryTrash=remaining;deletedSelection.clear();librarySelection.clear();
     for(const record of records){deletedIcons.delete(record.name);EDITS.set(record.name,record);if(record.original)ORIG.set(record.name,record.original);librarySelection.add(record.name);}
-    renderLibrary();loadGlyph(idx(result.names[0]));setSaveState('saved');status(`Restored ${records.length} icons${result.renamed?' (renamed to preserve newer icons with matching names)':''}.`);
+    const continueReview=reviewingDeleted;renderLibrary();loadGlyph(idx(result.names[0]));if(remaining.length && continueReview)openDeletedReview();setSaveState('saved');status(`Restored ${records.length} icon${records.length===1?'':'s'}${result.renamed?' (renamed to preserve newer icons with matching names)':''}. ${remaining.length} remain deleted.`);
   }catch(error){status(`Restore: ${error.message}`,true);}
   finally{libraryDeleteBusy=false;syncLibrarySelection();}
 }
 $('selectShownIconsBtn').onclick=()=>{for(const name of shownLibraryIcons())librarySelection.add(name);syncLibrarySelection();};
 $('clearIconSelectionBtn').onclick=()=>{librarySelection.clear();librarySelectionAnchor=null;syncLibrarySelection();};
 $('deleteIconsBtn').onclick=deleteLibraryIcons;
-$('restoreIconsBtn').onclick=restoreDeletedIcons;
+$('restoreIconsBtn').onclick=openDeletedReview;
 let reviewingGroup = null;
 const groupReview = document.createElement('section');groupReview.id='groupReview';groupReview.className='group-review';groupReview.hidden=true;groupReview.setAttribute('aria-label','Group drawing review');
 root.querySelector('.canvas-wrap').appendChild(groupReview);
-function closeGroupReview() { groupReview.hidden=true;root.querySelector('.stage').hidden=false;reviewingGroup=null; }
+function closeGroupReview() { groupReview.hidden=true;root.querySelector('.stage').hidden=false;reviewingGroup=null;reviewingDeleted=false;deletedSelection.clear();groupReview.setAttribute('aria-label','Group drawing review');groupReview.removeAttribute('aria-labelledby'); }
+function closeDeletedReview(){closeGroupReview();$('restoreIconsBtn').focus();}
+function syncDeletedSelection(){
+  if(!reviewingDeleted)return;
+  for(const card of groupReview.querySelectorAll('.deleted-icon-card')){const entry=libraryTrash[Number(card.dataset.trashIndex)],selected=deletedSelection.has(entry);card.classList.toggle('is-selected',selected);const checkbox=card.querySelector('input');checkbox.checked=selected;checkbox.disabled=libraryDeleteBusy;}
+  $('deletedSelectionCount').textContent=`${deletedSelection.size} selected`;
+  $('restoreSelectedIconsBtn').disabled=libraryDeleteBusy || !deletedSelection.size;
+  $('selectAllDeletedBtn').disabled=libraryDeleteBusy;$('clearDeletedSelectionBtn').disabled=libraryDeleteBusy || !deletedSelection.size;
+}
+function selectAllDeleted(){for(const entry of libraryTrash)deletedSelection.add(entry);syncDeletedSelection();}
+function openDeletedReview(){
+  if(!libraryTrash.length)return;
+  if(penDraft)finishPen();closeGroupReview();reviewingDeleted=true;
+  root.querySelector('.stage').hidden=true;groupReview.hidden=false;groupReview.replaceChildren();groupReview.setAttribute('aria-label','Deleted icon review');groupReview.setAttribute('aria-labelledby','deletedReviewHeading');
+  const header=document.createElement('div');header.className='group-review-header';const heading=document.createElement('h2');heading.id='deletedReviewHeading';heading.tabIndex=-1;heading.textContent=`Deleted icons · ${libraryTrash.length}`;header.appendChild(heading);
+  header.appendChild(smallBtn('Back to drawing',closeDeletedReview,'Close without restoring unchecked icons','undo'));groupReview.appendChild(header);
+  const help=document.createElement('p');help.className='lbl';help.textContent='Select icons to restore. Unchecked items stay deleted. Matching names receive a suffix.';groupReview.appendChild(help);
+  const actions=document.createElement('div');actions.className='row deleted-review-actions';
+  for(const [id,label,action] of [['selectAllDeletedBtn','Select all deleted',selectAllDeleted],['clearDeletedSelectionBtn','Clear selection',()=>{deletedSelection.clear();syncDeletedSelection();}],['restoreSelectedIconsBtn','Restore selected',restoreDeletedIcons]]){const button=smallBtn(label,action,label);button.id=id;actions.appendChild(button);}
+  const count=document.createElement('span');count.id='deletedSelectionCount';count.setAttribute('role','status');actions.appendChild(count);groupReview.appendChild(actions);
+  const groups=new Map();
+  libraryTrash.forEach((entry,index)=>{const name=iconGroup(entry.glyph);if(!groups.has(name))groups.set(name,[]);groups.get(name).push({entry,index});});
+  for(const [name,items] of [...groups].sort(([a],[b])=>a.localeCompare(b))){const section=document.createElement('section');section.className='deleted-review-group';const title=document.createElement('h3');title.textContent=`${name} · ${items.length}`;section.appendChild(title);const grid=document.createElement('div');grid.className='group-review-grid';section.appendChild(grid);groupReview.appendChild(section);
+    for(const {entry,index} of items){const card=document.createElement('article');card.className='group-review-card deleted-icon-card';card.dataset.trashIndex=index;const label=document.createElement('label');label.className='deleted-icon-pick';const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.setAttribute('aria-label',`Select deleted ${entry.glyph.name}, item ${index+1}`);checkbox.onchange=()=>{if(checkbox.checked)deletedSelection.add(entry);else deletedSelection.delete(entry);syncDeletedSelection();};const caption=document.createElement('span');caption.textContent=entry.glyph.name;const drawing=document.createElement('span');drawing.className='review-drawing';drawing.innerHTML=core.toSVG(entry.glyph,{mode:'baked',size:160});drawing.setAttribute('aria-hidden','true');label.append(checkbox,caption,drawing);card.appendChild(label);grid.appendChild(card);}
+  }
+  syncDeletedSelection();heading.focus();
+}
 function openGroupReview(group) {
-  reviewingGroup=group;root.querySelector('.stage').hidden=true;groupReview.hidden=false;groupReview.replaceChildren();
+  closeGroupReview();reviewingGroup=group;root.querySelector('.stage').hidden=true;groupReview.hidden=false;groupReview.replaceChildren();
   const glyphs=S.lib.filter(glyph=>iconGroup(glyph)===group && !(S.libraryProperties?.output?.familyView && !glyph.name.endsWith('-outline') && idx(`${glyph.name}-outline`)>=0)), header=document.createElement('div');header.className='group-review-header';
   const heading=document.createElement('h2');heading.textContent=`${group} · ${glyphs.length} icons`;header.appendChild(heading);
   const back=smallBtn('Back to drawing',closeGroupReview,'Return to the drawing plane','undo');header.appendChild(back);
@@ -2791,7 +2833,11 @@ root.querySelectorAll('[data-mirror]').forEach(b => b.onclick = () => {
 });
 root.querySelectorAll('[data-rot]').forEach(b => b.onclick = () => { const target = symmetryTarget(); if (!target) { status('Select a group in the Layers tree first.', true); return; } target.symmetry ||= { mirror: null }; target.symmetry.rotate = +b.dataset.rot; commit(); refresh(true); });
 $('symScope').onchange = syncToggles;
-root.querySelectorAll('[data-show]').forEach(b => b.onclick = () => { S.show[b.dataset.show] = !S.show[b.dataset.show]; renderGrid(); renderCanvas(); syncToggles(); });
+root.querySelectorAll('[data-show]').forEach(b => b.onclick = () => { S.show[b.dataset.show] = !S.show[b.dataset.show];
+  if (['anchorNumbers', 'anchorValues'].includes(b.dataset.show)) {
+    try { localStorage.setItem('gw-anchor-labels', JSON.stringify({ anchorNumbers: S.show.anchorNumbers, anchorValues: S.show.anchorValues })); } catch {}
+  }
+  renderGrid(); renderCanvas(); syncToggles(); });
 $('wRange').oninput = () => { S.rt.weight = +$('wRange').value; renderCanvas(); renderPreviews(); };
 root.querySelectorAll('[data-cap]').forEach(b => b.onclick = () => { S.rt.cap = b.dataset.cap; refresh(false); });
 root.querySelectorAll('[data-join]').forEach(b => b.onclick = () => { S.rt.join = b.dataset.join; refresh(false); });
@@ -3018,7 +3064,13 @@ try { const f = localStorage.getItem('gw-lib-filter'); if (f && [...$('libFilter
 $('libSearchIcon').innerHTML = uiIcon('search-outline');
 listen(document, 'keydown', e => {
   if (!root.contains(document.activeElement) && document.activeElement !== document.body) return;
-  const t = e.target; if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+  const t = e.target;
+  if(reviewingDeleted && (groupReview.contains(t) || t===document.body)){
+    if(e.key==='Escape'){e.preventDefault();closeDeletedReview();return;}
+    if((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==='a'){e.preventDefault();selectAllDeleted();return;}
+    return;
+  }
+  if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
   const mod = e.metaKey || e.ctrlKey;
   if(t?.closest?.('#lib')) {
     if(e.key === 'Delete' || e.key === 'Backspace'){e.preventDefault();deleteLibraryIcons();return;}
