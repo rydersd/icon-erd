@@ -11,6 +11,7 @@ for (const finish of ['Return', 'double-click', 'Marquee', 'Lasso']) {
       ] }), 'enclosure.json');
       w.setTool('select');
     });
+    await page.locator('#areaSelectToggle').click();await page.getByRole('menuitemradio',{name:'Select objects',exact:true}).click();
     await page.locator('#areaSelectToggle').click(); await page.getByRole('menuitemradio', { name: ['Marquee','Lasso'].includes(finish) ? finish : 'Polygon lasso', exact: true }).click();
     await page.locator('#canvas').scrollIntoViewIfNeeded();
     const screen = async (x, y) => page.evaluate(({ x, y }) => { const c = document.querySelector('#canvas'), p = c.createSVGPoint(); p.x = x; p.y = y; const q = p.matrixTransform(c.getScreenCTM()); return { x: q.x, y: q.y }; }, { x, y });
@@ -40,8 +41,9 @@ for (const scope of ['objects', 'anchors']) for (const finish of ['Return at pre
       await w.importLibraryText(JSON.stringify({name:'completion',layers:[
         {id:'inside-preview',paint:'stroke',node:{shape:'line',x1:3,y1:8,x2:4,y2:8}},
         {id:'boundary-target',paint:'fill',node:{shape:'path',d:'M-1 10L11 10L11 12L-1 12Z'}},
-      ]}), 'completion.json'); w.setTool(scope==='anchors'?'direct':'select');
+      ]}), 'completion.json'); w.setTool('select');
     }, scope);
+    if(scope==='objects'){await page.locator('#areaSelectToggle').click();await page.getByRole('menuitemradio',{name:'Select objects',exact:true}).click();}
     await page.locator('#areaSelectToggle').click();
     await page.getByRole('menuitemradio',{name:'Polygon lasso',exact:true}).click();
     const screen = async (x,y) => page.evaluate(({x,y}) => {
@@ -67,3 +69,21 @@ for (const scope of ['objects', 'anchors']) for (const finish of ['Return at pre
     ]);
   });
 }
+
+test('area target is explicit, remembered and independent of the previous arrow tool', async ({ page }) => {
+  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);
+  await page.locator('[data-tool="select"]').click();await page.locator('#areaSelectBtn').click();
+  expect(await page.evaluate(()=>window.__gw.S.areaScope)).toBe('anchors');
+  await expect(page.locator('#areaSelectBtn')).toHaveAttribute('aria-description','Select anchors');
+  await page.locator('#areaSelectToggle').click();
+  await expect(page.getByRole('menuitemradio',{name:'Select anchors',exact:true})).toHaveAttribute('aria-checked','true');
+  await page.getByRole('menuitemradio',{name:'Select objects',exact:true}).click();
+  await page.locator('[data-tool="direct"]').click();await page.locator('#areaSelectBtn').click();
+  expect(await page.evaluate(()=>window.__gw.S.areaScope)).toBe('objects');
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);
+  await page.locator('#areaSelectToggle').click();
+  await expect(page.getByRole('menuitemradio',{name:'Select objects',exact:true})).toHaveAttribute('aria-checked','true');
+  await page.getByRole('menuitemradio',{name:'Select anchors',exact:true}).click();
+  await page.locator('[data-tool="select"]').click();await page.locator('#areaSelectBtn').click();
+  expect(await page.evaluate(()=>window.__gw.S.areaScope)).toBe('anchors');
+});

@@ -68,7 +68,7 @@ const S = {
   selectedAnchors: [],
   anchor: null, // index of the selected anchor on the selected pen path
   tool: 'select', hmode: 'shape', lockAspect: true,
-  areaMode: 'marquee', areaScope: 'objects',
+  areaMode: 'marquee', areaScope: 'anchors',
   rt: { weight: 1.2, cap: 'round', join: 'round', hint: false, rtl: false },
   undo: [], redo: [], iconHistories: {}, resolved: [],
 };
@@ -78,6 +78,7 @@ try {
 } catch {}
 let penDraft = null; // { s } while the pen is placing anchors
 let areaPolygon = null;
+try { const scope=localStorage.getItem('gw-area-scope');if(['anchors','objects'].includes(scope))S.areaScope=scope; }catch{}
 try { const mode=localStorage.getItem('gw-area-mode');if(['marquee','lasso','polygon'].includes(mode))S.areaMode=mode; }catch{}
 function idx(name) { return S.lib.findIndex(g => g.name === name); }
 
@@ -2211,7 +2212,6 @@ function nudge(dx, dy) {
   nodes.forEach(s => translateSel(s, dx, dy)); commit(); refresh(true); return true;
 }
 function setTool(t) {
-  if(t==='area' && S.tool!=='area')S.areaScope=S.tool==='direct'?'anchors':'objects';
   areaPolygon=null;$('anchorMarquee')?.remove();
   if (S.tool === 'pen' && t !== 'pen') finishPen();
   S.tool = t; if (t === 'direct') S.hmode = 'shape'; else if (t === 'select') { S.anchor = null; S.selectedAnchors = []; S.hmode = 'transform'; }
@@ -2920,12 +2920,14 @@ root.querySelectorAll('[data-group]').forEach(b => b.onclick = () => group(b.dat
 root.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
 root.querySelectorAll('[data-hmode]').forEach(b => b.onclick = () => { S.hmode = b.dataset.hmode; syncToggles(); renderSelection(); });
 function updateAreaTool() {
-  const button=$('areaSelectBtn'),name=areaLabels[S.areaMode];button.innerHTML=uiSVG(S.areaMode==='polygon'?'polygon-lasso':S.areaMode);button.setAttribute('aria-label',`${name} selection`);button.dataset.controlTooltip=`${name} selection. Shift adds; Option/Alt subtracts.`;
+  const button=$('areaSelectBtn'),name=areaLabels[S.areaMode];button.innerHTML=uiSVG(S.areaMode==='polygon'?'polygon-lasso':S.areaMode);button.setAttribute('aria-label',`${name} selection`);button.dataset.controlTooltip=`${name}: select ${S.areaScope}. Shift adds; Option/Alt subtracts.`;button.setAttribute('aria-description',`Select ${S.areaScope}`);
+  root.querySelectorAll('[data-area-scope]').forEach(choice=>{choice.setAttribute('aria-checked',String(choice.dataset.areaScope===S.areaScope));choice.setAttribute('aria-label',`Select ${choice.dataset.areaScope}`);});
   root.querySelectorAll('[data-area-choice]').forEach(choice=>{choice.setAttribute('aria-checked',String(choice.dataset.areaChoice===S.areaMode));choice.setAttribute('aria-label',areaLabels[choice.dataset.areaChoice]);});
 }
 $('areaSelectBtn').onclick=()=>setTool('area');
 $('areaSelectToggle').onclick=()=>{if(popup?.panel===$('areaSelectionMenu')){closePopup(true);return;}const button=$('areaSelectToggle'),bounds=button.getBoundingClientRect();openPopup($('areaSelectionMenu'),button,bounds.left,bounds.bottom+6,()=>button);};
 root.querySelectorAll('[data-area-choice]').forEach(choice=>choice.onclick=()=>{S.areaMode=choice.dataset.areaChoice;try{localStorage.setItem('gw-area-mode',S.areaMode);}catch{}updateAreaTool();closePopup(true);setTool('area');});
+root.querySelectorAll('[data-area-scope]').forEach(choice=>choice.onclick=()=>{S.areaScope=choice.dataset.areaScope;try{localStorage.setItem('gw-area-scope',S.areaScope);}catch{}updateAreaTool();closePopup(true);setTool('area');});
 updateAreaTool();
 $('ungroupBtn').onclick = ungroup; $('upBtn').onclick = () => move(-1); $('downBtn').onclick = () => move(1);
 $('dupBtn').onclick = duplicate; $('delBtn').onclick = del; $('addLayerBtn').onclick = () => addLayer(true);
