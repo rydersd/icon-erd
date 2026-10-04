@@ -4,8 +4,9 @@ import {normalizeGlyph} from './library-io.js';
 import {downloadBlob} from './downloads.js';
 import {REPAIR_DRAFT_KEY,geometryIdentity,contentHashes} from './reconstruction-records.js';
 const copy=value=>structuredClone(value);
-export function createGuidedRepair({root,core,getGlyph,getLibrary,getStyle,enter,leave,replace,refresh,finishPen,publish,status}) {
+export function createGuidedRepair({root,core,getGlyph,getLibrary,getStyle,enter,leave,replace,refresh,finishPen,publish,status,listen}) {
   let draft=null,busy=false,revision=0,summary,acceptButton,differenceURL=null,lastGuideKey=null,insetCache=null,sourcePaths=[];
+  for(const event of ['pointerdown','click','change','input'])listen(root,event,e=>{if(busy){e.preventDefault();e.stopImmediatePropagation();}},{capture:true});
   const panel=document.createElement('section');panel.className='repair-toolbar';panel.hidden=true;panel.setAttribute('aria-label','Guided outline repair');root.querySelector('.canvas-wrap').prepend(panel);
   const guide=document.createElementNS('http://www.w3.org/2000/svg','g');guide.id='gRepairGuide';guide.setAttribute('pointer-events','none');root.querySelector('#gLayers').before(guide);
   const difference=document.createElementNS(guide.namespaceURI,'g');difference.id='gRepairDifference';difference.setAttribute('pointer-events','none');root.querySelector('#gLayers').after(difference);
