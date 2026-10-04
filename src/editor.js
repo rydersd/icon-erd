@@ -305,7 +305,7 @@ function revert() {
   const o = ORIG.get(S.glyph.name);
   if (!o || !isEdited(S.glyph)) return;
   penDraft = null; S.glyph = clone(o); S.sel = []; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
-  commit(); renderAll(); status('Reset to the imported original. Undo brings your edit back.');
+  commit(); renderAll(); status('Reverted to the imported original. Undo brings your edit back.');
 }
 function currentLibraryVersion(name) {
   return { id: `version-${crypto.randomUUID()}`, name, createdAt: Date.now(), current: S.glyph.name,
