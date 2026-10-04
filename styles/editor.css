@@ -376,3 +376,15 @@ button.glyph-tag { background: transparent; cursor: pointer; }
 .measurement-actions[hidden] { display: none; }
 
 .library-output-fields { min-inline-size: 0; }
+
+/* Keep tool creation near the canvas and independently fold the output panes. */
+.disclosure-panel > summary, .tool-settings > summary { padding: 8px 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text-2); }
+.disclosure-panel[open] > summary, .tool-settings[open] > summary { border-bottom: 1px solid var(--border); }
+.cleanup-tolerance { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.cleanup-tolerance input { width: 76px; }
+.cleanup-presets { margin: 8px 0; flex-wrap: wrap; }
+.shape-toolbar { width: 100%; display: flex; flex-wrap: wrap; padding: 0; align-items: start; }
+.shape-toolbar > .btn { height: 30px; flex-direction: row; padding: 4px 7px; }
+.shape-toolbar .more-forms { min-width: 110px; }
+.shape-toolbar .more-forms > summary { padding: 6px; font-size: 11px; }
+.shape-toolbar .more { grid-template-columns: repeat(auto-fit, minmax(75px, 1fr)); max-width: 430px; padding: 4px; }
