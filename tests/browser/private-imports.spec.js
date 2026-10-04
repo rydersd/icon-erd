@@ -9,7 +9,7 @@ test('real project sets import in order and export every icon without data loss'
   let count = 4;
   for (const set of ['illtool', 'illmater', 'spurious-ecosystem']) {
     const file = `imports/${set}-icons.json`, pack = JSON.parse(await readFile(file, 'utf8'));
-    await page.locator('#impFile').setInputFiles(file);await page.locator('#importReplace').uncheck();await page.locator('#confirmImportBtn').click();
+    await page.locator('#impFile').setInputFiles(file);await expect(page.locator('#importDialog')).toBeVisible();await page.locator('#importReplace').uncheck();await page.locator('#confirmImportBtn').click();
     count += pack.count;
     await expect(page.locator('.lib-item')).toHaveCount(count);
     await expect(page.locator('#status')).toContainText(`${pack.count} added`);
@@ -25,7 +25,7 @@ test('real project sets import in order and export every icon without data loss'
 
 test('named EDS pack starts unedited with useful arrow groups, reset originals and full archive export',async({page})=>{
   const file='imports/eds-icons-named.json';test.skip(!(await access(file).then(()=>true,()=>false)),'Named private EDS pack is local only');test.setTimeout(120000);
-  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await page.locator('#impFile').setInputFiles(file);await page.locator('#importReplace').uncheck();await page.locator('#confirmImportBtn').click();
+  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await page.locator('#impFile').setInputFiles(file);await expect(page.locator('#importDialog')).toBeVisible();await page.locator('#importReplace').uncheck();await page.locator('#confirmImportBtn').click();
   await expect(page.locator('.lib-item')).toHaveCount(584);await expect(page.locator('#status')).toContainText('580 added');
   await page.locator('.lib-item').filter({hasText:'arrow-right-outline'}).click();
   await expect(page.locator('#tree')).toContainText('Head of Arrow');await expect(page.locator('#tree')).toContainText('Shaft of Arrow');await expect(page.locator('#revertBtn')).toBeDisabled();

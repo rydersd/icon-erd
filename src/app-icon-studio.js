@@ -19,8 +19,8 @@ export function createAppIconStudio({root,getGlyph,getLayer,setLayer,commit,refr
   function render() {
     const glyph=getGlyph();root.hidden=glyph.kind!=='app-icon';if(root.hidden)return;
     const at=Math.min(getLayer(),glyph.layers.length-1),layer=glyph.layers[at];
-    const key=JSON.stringify([glyph.name,at,layer?.fillGradient,layer?.fillColor,layer?.color,glyph.referenceImage,glyph.output?.colorMode]);if(rendered===key && renderedGlyph===glyph)return;rendered=key;renderedGlyph=glyph;root.replaceChildren();
-    const fill=section('App icon · Fill','fill');
+    const key=JSON.stringify([glyph.name,glyph.kind,at,layer?.fillGradient,layer?.fillColor,layer?.color,glyph.referenceImage,glyph.output?.colorMode]);if(rendered===key && renderedGlyph===glyph)return;rendered=key;renderedGlyph=glyph;root.replaceChildren();
+    const fill=section('Fill & gradients','fill');
     const label=make('label','Layer',fill,{class:'studio-field'}),layers=make('select','',label,{'aria-label':'App icon paint layer'});
     glyph.layers.forEach((l,i)=>{const o=make('option',l.name||l.id,layers,{value:i});o.selected=i===at;});layers.onchange=()=>setLayer(Number(layers.value));
     if(layer){
@@ -67,5 +67,5 @@ export function createAppIconStudio({root,getGlyph,getLayer,setLayer,commit,refr
       button('Remove reference',ref,()=>{delete glyph.referenceImage;save();});
     }
   }
-  return {render};
+  return {render,revealFill(){render();const panel=root.querySelector('details');if(panel)panel.open=true;root.querySelector('[aria-label="App icon fill type"]')?.scrollIntoView({block:'nearest'});}};
 }
