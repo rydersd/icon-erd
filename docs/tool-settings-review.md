@@ -11,3 +11,7 @@ Attack cases: a shallow bend that remains at 0.03 but simplifies at 0.1, Undo re
 This is adversarial self-review, not independent approval. Owner artwork was not mutated. An unrelated existing change to scripts/collect-illmater-icons.mjs remains uncommitted and excluded. Validation and shipment receipts follow in the PR/private wiki.
 
 A read-only experiment on disposable copies of the ignored phone-outline source retained 30 / 23 / 18 of 40 anchors at tolerances 0.03 / 0.1 / 0.25. Those counts do not prove that any particular owner-edited contour is equivalent. Dense reconstruction remains synchronous and can take several seconds; this change exposes its budget, not a background-worker implementation.
+
+## Unbounded cleanup tolerance follow-up
+
+Owner requested no upper cap. Removed it from the number input, setter and saved-preference restoration; finite values at least 0.001 remain valid. Added 1 and 5 presets. A physical regression sets 10, runs cleanup, checks the reported fit budget and resulting geometry, restores geometry through Undo, reloads the saved tolerance, and rejects a negative value. It failed against the preceding production build. Merge distance retains its independent interaction range. This remains adversarial self-review.

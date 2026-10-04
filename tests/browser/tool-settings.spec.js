@@ -30,3 +30,15 @@ test('all right sections and contextual settings collapse persistently; shapes l
  await expect(page.locator('[data-collapse="tool-settings"]')).not.toHaveAttribute('open','');
  await page.locator('[data-collapse="measureH"] > summary').focus();await page.keyboard.press('Enter');await expect(page.locator('[data-collapse="measureH"]')).toHaveAttribute('open','');
 });
+
+test('cleanup accepts a high tolerance without an upper cap and remembers it after reload',async({page})=>{
+ await setup(page,[{x:0,y:0},{x:1,y:.06},{x:2,y:0},{x:3,y:0}]);
+ await page.locator('#cleanupTolerance').fill('10');await page.locator('#cleanupTolerance').press('Tab');
+ await expect(page.locator('#cleanupTolerance')).toHaveValue('10');
+ expect(await page.locator('#cleanupTolerance').getAttribute('max')).toBeNull();
+ await page.locator('#canvas').press('ControlOrMeta+a');await page.locator('#cleanupSelectedBtn').click();
+ expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length)).toBe(2);
+ await expect(page.locator('#status')).toContainText('10-unit');await page.locator('#undoBtn').click();
+ await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('#cleanupTolerance')).toHaveValue('10');
+ await page.locator('#cleanupTolerance').fill('-1');await page.locator('#cleanupTolerance').press('Tab');await expect(page.locator('#cleanupTolerance')).toHaveValue('10');
+});

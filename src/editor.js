@@ -1882,10 +1882,10 @@ $('mergeDistance').onchange=()=>{
 };
 $('mergeDistance').onchange();
 let cleanupTolerance=0.03;
-try {const saved=Number(localStorage.getItem('gw-cleanup-tolerance'));if(saved>=0.001 && saved<=2)cleanupTolerance=saved;}catch{}
+try {const saved=Number(localStorage.getItem('gw-cleanup-tolerance'));if(Number.isFinite(saved) && saved>=0.001)cleanupTolerance=saved;}catch{}
 $('cleanupTolerance').value=cleanupTolerance;
 function setCleanupTolerance(value) {
-  if(!Number.isFinite(value) || value<0.001 || value>2)return false;
+  if(!Number.isFinite(value) || value<0.001)return false;
   cleanupTolerance=value;$('cleanupTolerance').value=value;
   try {localStorage.setItem('gw-cleanup-tolerance',String(value));}catch{}
   return true;
