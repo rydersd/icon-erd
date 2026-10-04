@@ -7,7 +7,7 @@ test('fresh launch, Font Awesome controls, remembered library collapse, metadata
   await ready(page);
   await expect(page.locator('.lib-item')).toHaveCount(4);
   await expect(page.locator('#undoBtn svg path')).toHaveCount(1);
-  await expect(page.locator('.col-right > section').first()).toHaveAttribute('aria-labelledby', 'geometryH');
+  await expect(page.locator('.col-right > details').first()).toHaveAttribute('aria-labelledby', 'geometryH');
   await page.locator('#iconAliases').fill('suggestion, vote, ballot'); await page.locator('#iconAliases').press('Tab');
   await page.locator('#libSearch').fill('ballot'); await expect(page.locator('.lib-item:visible')).toHaveCount(1);
   await page.locator('#libToggle').click(); await expect(page.locator('#libBody')).toBeHidden();

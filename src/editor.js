@@ -864,6 +864,8 @@ function renderOverlays() {
   renderAxes(scopes);
   renderGeometryInspection();
   renderMeasurements();
+  $('cleanupSelectedBtn').disabled=!S.selectedAnchors.length && S.anchor==null;
+  $('cleanupSelectionHint').textContent=S.selectedAnchors.length ? `${S.selectedAnchors.length} selected anchors. Undo restores the original.` : 'Select anchors to clean up. Undo restores the original.';
   renderIsoBar();
 }
 // Editable anchors are independent of evaluated rounding and boolean output.
@@ -1523,7 +1525,7 @@ function renderMergePreview() {
   const px = 1/pxPerUnit();
   for (const selection of selections) {
     const node = getNode(selection);
-    for (const candidate of previewNearbyAnchors(node,anchors.filter(a=>same(a.selection,selection)).map(a=>a.index),fullMatrix(selection),8*px,drag?.kind==='pen'?1:undefined)) {
+    for (const candidate of previewNearbyAnchors(node,anchors.filter(a=>same(a.selection,selection)).map(a=>a.index),fullMatrix(selection),mergeDistance*px,drag?.kind==='pen'?1:undefined)) {
       count++;
       for (const point of candidate.points) {
         el('circle',{cx:point.x,cy:point.y,r:10*px,fill:'none',stroke:'var(--canvas-bg)','stroke-width':5,...NS},overlay);
@@ -1534,7 +1536,7 @@ function renderMergePreview() {
     }
   }
   if(count) { cv.setAttribute('data-merge-preview',String(count)); if(count!==previousCount)status(`Release to merge ${count} highlighted anchor pair${count===1?'':'s'}. Outer handles retained.`); }
-  else if(previousCount && drag)status('No eligible merge pair. Move within 8 screen pixels of a neighboring anchor.');
+  else if(previousCount && drag)status(`No eligible merge pair. Move within ${mergeDistance} screen pixels of a neighboring anchor.`);
 }
 function mergeDraggedAnchors() {
   if (!S.proximityMerge || !drag.moved) return 0;
@@ -1543,7 +1545,7 @@ function mergeDraggedAnchors() {
   const selections = anchors.map(a => a.selection).filter((s,i,all) => all.findIndex(other => same(s,other)) === i);
   for (const selection of selections) {
     const node = getNode(selection);
-    const result = mergeNearbyAnchors(node, anchors.filter(a => same(a.selection,selection)).map(a => a.index), fullMatrix(selection), 8/pxPerUnit());
+    const result = mergeNearbyAnchors(node, anchors.filter(a => same(a.selection,selection)).map(a => a.index), fullMatrix(selection), mergeDistance/pxPerUnit());
     if (!result.merged) continue;
     merged += result.merged;
     S.selectedAnchors = S.selectedAnchors.map(a => same(a.selection,selection) ? { ...a, index: result.indexMap[a.index] } : a)
@@ -1640,7 +1642,7 @@ function penDrag(pos) {
 }
 function penUp() {
   const node = penDraft && getNode(penDraft.s);
-  if (S.proximityMerge && node) mergeNearbyAnchors(node, [node.pts.length-1], fullMatrix(penDraft.s), 8/pxPerUnit(), 1);
+  if (S.proximityMerge && node) mergeNearbyAnchors(node, [node.pts.length-1], fullMatrix(penDraft.s), mergeDistance/pxPerUnit(), 1);
   commit(); refresh(true);
 }
 function finishPen(msg) {
@@ -1861,19 +1863,48 @@ function retractSelectedHandles(converted = false) {
   if(changed || converted)commit();
   refresh(true);status(`Retracted handles on ${changed} anchor${changed===1?'':'s'}. Procedural corner radii retained. Undo restores the handles.`);
 }
+let mergeDistance=8;
+try {const saved=Number(localStorage.getItem('gw-merge-distance'));if(saved>=1 && saved<=64)mergeDistance=saved;}catch{}
+$('mergeDistance').value=mergeDistance;
+$('mergeDistance').onchange=()=>{
+  const value=$('mergeDistance').valueAsNumber;
+  if(!Number.isFinite(value) || value<1 || value>64){$('mergeDistance').reportValidity();$('mergeDistance').value=mergeDistance;return;}
+  mergeDistance=value;try{localStorage.setItem('gw-merge-distance',String(value));}catch{}
+  $('proximityMergeBtn').dataset.controlTooltip=`Proximity merge: merge neighboring anchors within ${mergeDistance} screen pixels on release; retain outer handle directions and lengths`;
+};
+$('mergeDistance').onchange();
+let cleanupTolerance=0.03;
+try {const saved=Number(localStorage.getItem('gw-cleanup-tolerance'));if(saved>=0.001 && saved<=2)cleanupTolerance=saved;}catch{}
+$('cleanupTolerance').value=cleanupTolerance;
+function setCleanupTolerance(value) {
+  if(!Number.isFinite(value) || value<0.001 || value>2)return false;
+  cleanupTolerance=value;$('cleanupTolerance').value=value;
+  try {localStorage.setItem('gw-cleanup-tolerance',String(value));}catch{}
+  return true;
+}
+$('cleanupTolerance').onchange=()=>{if(!setCleanupTolerance($('cleanupTolerance').valueAsNumber)){$('cleanupTolerance').reportValidity();$('cleanupTolerance').value=cleanupTolerance;}};
+root.querySelectorAll('[data-cleanup-tolerance]').forEach(button=>button.onclick=()=>setCleanupTolerance(Number(button.dataset.cleanupTolerance)));
+$('cleanupSelectedBtn').onclick=()=>cleanupSelectedAnchors();
+root.querySelectorAll('details[data-collapse]').forEach(panel=>{
+  const key=`gw-panel-${panel.dataset.collapse}`;
+  try {const saved=localStorage.getItem(key);if(saved!==null)panel.open=saved==='open';}catch{}
+  // Native toggle is queued; capture summary activation before an immediate reload.
+  panel.querySelector(':scope > summary').addEventListener('click',()=>{try {localStorage.setItem(key,panel.open?'closed':'open');}catch{}});
+  panel.addEventListener('toggle',()=>{try {localStorage.setItem(key,panel.open?'open':'closed');}catch{}});
+});
 function cleanupSelectedAnchors() {
   const anchors=S.selectedAnchors.length ? S.selectedAnchors : S.anchor!=null && primarySel()?.p!==null ? [{selection:primarySel(),index:S.anchor}] : [];
   const groups=new Map();let removed=0,rounded=0,sharp=0;
   for(const anchor of anchors) { const key=treeKey(anchor.selection);if(!groups.has(key))groups.set(key,{selection:anchor.selection,indices:[]});groups.get(key).indices.push(anchor.index); }
   for(const {selection,indices} of groups.values()) {
     const node=getNode(selection);if(!node || node.deform?.length)continue;
-    const result=cleanupDrawingAnchors(node,indices,fullMatrix(selection),core);removed+=result.removed;rounded+=result.rounded;sharp+=result.sharp;
+    const result=cleanupDrawingAnchors(node,indices,fullMatrix(selection),core,cleanupTolerance);removed+=result.removed;rounded+=result.rounded;sharp+=result.sharp;
     S.selectedAnchors=S.selectedAnchors.map(anchor=>same(anchor.selection,selection)?{...anchor,index:result.indexMap[anchor.index]}:anchor).filter(anchor=>anchor.index>=0);
   }
   S.selectedAnchors=S.selectedAnchors.filter((anchor,i,all)=>all.findIndex(other=>same(other.selection,anchor.selection)&&other.index===anchor.index)===i);
   S.anchor=S.selectedAnchors.find(anchor=>same(anchor.selection,primarySel()))?.index ?? null;S.sourceAnchor=null;
   if(removed){commit();refresh(true);}
-  status(removed ? `Cleanup removed ${removed} redundant anchor${removed===1?'':'s'}; reconstructed ${rounded} rounded and ${sharp} sharp corners (0.03-unit outline tolerance). Undo restores the original.` : 'Cleanup found no safe reconstruction within 0.03 units. Sharp corners and unselected anchors retained.');
+  status(removed ? `Cleanup removed ${removed} redundant anchor${removed===1?'':'s'}; reconstructed ${rounded} rounded and ${sharp} sharp corners (${cleanupTolerance}-unit outline tolerance). Undo restores the original.` : `Cleanup found no safe reconstruction within ${cleanupTolerance} units. Sharp corners and unselected anchors retained.`);
 }
 function selectAllAnchors() {
   const points=sourceAnchorPoints().filter(point=>!S.sel.length || selCovers(point.owner.l,point.owner.p));
@@ -2913,8 +2944,8 @@ decorate();
 const pal = $('palette');
 const palBtn = (k, parent) => { const b = document.createElement('button'); b.className = 'btn'; b.title = k === 'pen' ? 'Pen tool (P)' : 'Add ' + k; b.dataset.palette = k; b.innerHTML = `${uiIcon(k)}<span>${k}</span>`; b.onclick = () => addShape(k); parent.appendChild(b); };
 PRIMARY_TOOLS.forEach(k => palBtn(k, pal));
-const moreLbl = document.createElement('div'); moreLbl.className = 'lbl'; moreLbl.textContent = 'More forms'; pal.appendChild(moreLbl);
-const more = document.createElement('div'); more.className = 'more'; pal.appendChild(more);
+const moreLbl = document.createElement('details');moreLbl.className='more-forms';const moreSummary=document.createElement('summary');moreSummary.textContent='More forms';moreLbl.appendChild(moreSummary);pal.appendChild(moreLbl);
+const more = document.createElement('div'); more.className = 'more'; moreLbl.appendChild(more);
 MORE_TOOLS.forEach(k => palBtn(k, more));
 root.querySelectorAll('[data-group]').forEach(b => b.onclick = () => group(b.dataset.group));
 root.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
@@ -2946,7 +2977,7 @@ $('proximityMergeBtn').onclick = () => {
   try { localStorage.setItem('gw-proximity-merge', String(S.proximityMerge)); } catch {}
   syncToggles();
   renderMergePreview();
-  status(S.proximityMerge ? 'Proximity merge on: drag an anchor within 8 screen pixels of its neighbor. Highlighted pairs merge on release; outer handles retained.' : 'Proximity merge off. Anchors remain separate when moved.');
+  status(S.proximityMerge ? `Proximity merge on: drag an anchor within ${mergeDistance} screen pixels of its neighbor. Highlighted pairs merge on release; outer handles retained.` : 'Proximity merge off. Anchors remain separate when moved.');
 };
 const saveSnap = () => { try { localStorage.setItem('gw-snap-preferences', JSON.stringify({ slots: snapButtons.map(button => +button.dataset.snap), active: S.snap })); } catch {} };
 snapButtons.forEach(button => button.onclick = event => {

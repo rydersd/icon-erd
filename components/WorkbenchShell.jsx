@@ -67,6 +67,17 @@ export function WorkbenchShell() {
   {/* LEFT: library, shapes, layer / boolean tree */}
   <div className="col-left" id="pane-left">
     <Button className="btn sm pane-close" onClick={closePane}>Close pane</Button>
+    <details className="panel tool-settings" data-collapse="tool-settings" open>
+      <summary>Contextual Tool Settings</summary>
+      <div className="pad">
+        <label className="cleanup-tolerance" htmlFor="cleanupTolerance">Cleanup tolerance <input id="cleanupTolerance" type="number" min="0.001" max="2" step="0.001" defaultValue="0.03" /> units</label>
+        <label className="cleanup-tolerance" htmlFor="mergeDistance">Merge distance <input id="mergeDistance" type="number" min="1" max="64" step="1" defaultValue="8" /> screen px</label>
+        <div className="row cleanup-presets" role="group" aria-label="Cleanup tolerance presets"><Button className="btn sm" data-cleanup-tolerance="0.03">0.03</Button><Button className="btn sm" data-cleanup-tolerance="0.1">0.1</Button><Button className="btn sm" data-cleanup-tolerance="0.25">0.25</Button><Button className="btn sm" data-cleanup-tolerance="0.5">0.5</Button></div>
+        <p className="lbl">Maximum outline deviation on the 24-unit canvas. Higher values allow more simplification.</p>
+        <Button className="btn sm" id="cleanupSelectedBtn" disabled>Cleanup selected anchors</Button>
+        <p className="lbl" id="cleanupSelectionHint">Select anchors to clean up. Undo restores the original.</p>
+      </div>
+    </details>
     <LibraryPanel />
     <details className="panel set-settings" aria-label="Library properties" open>
       <summary id="libraryTokensTitle">Library tokens</summary>
@@ -106,10 +117,6 @@ export function WorkbenchShell() {
       </div>
     </details>
     <details className="panel shortcut-settings"><summary>Keyboard shortcuts</summary><div className="pad"><p className="lbl">Click a field and press a key combination. Mod means Cmd on Mac or Ctrl on Windows.</p><div id="shortcutFields"></div><Button className="btn sm" id="resetShortcuts">Restore defaults</Button></div></details>
-    <section className="panel" aria-labelledby="palH">
-      <h2 id="palH">Shapes</h2>
-      <div className="palette" id="palette"></div>
-    </section>
     <section className="panel" aria-labelledby="treeH">
       <h2 id="treeH">Layers <span className="h-actions"><Button className="btn sm" id="addLayerBtn" aria-label="Add layer" data-icon-ui="plus-outline">Layer</Button></span></h2>
       <div className="tree" id="tree" role="tree" aria-label="Layers and booleans"></div>
@@ -138,6 +145,7 @@ export function WorkbenchShell() {
           <div id="areaSelectionMenu" className="floating-panel item-menu" role="menu" aria-label="Area selection tools" hidden><div role="group" aria-label="Selection shape"><Button className="menu-item" role="menuitemradio" data-area-choice="marquee" aria-checked="true" data-icon-ui="marquee">Marquee</Button><Button className="menu-item" role="menuitemradio" data-area-choice="lasso" aria-checked="false" data-icon-ui="lasso">Lasso</Button><Button className="menu-item" role="menuitemradio" data-area-choice="polygon" aria-checked="false" data-icon-ui="polygon-lasso">Polygon lasso</Button></div><div role="separator" /><div role="group" aria-label="Selection target"><Button className="menu-item" role="menuitemradio" data-area-scope="anchors" aria-checked="true">Select anchors</Button><Button className="menu-item" role="menuitemradio" data-area-scope="objects" aria-checked="false">Select objects</Button></div></div>
           <span className="lbl">Handles</span>
           <div className="seg" role="group" aria-label="Handle mode"><Button className="btn sm" data-hmode="shape" title="Edit the form's own parameters" data-icon-ui="path">Shape</Button><Button className="btn sm" data-hmode="transform" title="Rotate / scale about the anchor point (T)" data-icon-ui="transform">Transform</Button></div></div>
+        <div className="palette shape-toolbar" id="palette" role="group" aria-label="Shapes"></div>
         <div className="canvas-options" data-expanded={drawingControls}>
         <Button className="btn sm canvas-options-toggle" aria-expanded={drawingControls} aria-controls="canvasOptions" onClick={() => setDrawingControls(!drawingControls)}><span className="disclosure-arrow" aria-hidden="true">▾</span>Drawing controls</Button>
         <div id="canvasOptions" className="canvas-options-content">
@@ -216,22 +224,22 @@ export function WorkbenchShell() {
   {/* RIGHT: previews, runtime controls, context, export */}
   <div className="col-right" id="pane-right">
     <Button className="btn sm pane-close" onClick={closePane}>Close pane</Button>
-    <section className="panel" aria-labelledby="geometryH">
-      <h2 id="geometryH">Points &amp; overlaps</h2>
+    <details className="panel disclosure-panel" data-collapse="geometryH" aria-labelledby="geometryH" open>
+      <summary id="geometryH">Points &amp; overlaps</summary>
       <div className="pad"><p className="lbl" id="geometrySummary" role="status"></p><div id="overlapList"></div>
         <details open><summary>Source anchors · canvas coordinates (24 × 24)</summary><div className="point-table-wrap"><table className="point-table"><thead><tr><th>Object</th><th>Point</th><th>X</th><th>Y</th><th>Round</th></tr></thead><tbody id="pointRows"></tbody></table></div></details>
       </div>
-    </section>
-    <section className="panel" aria-labelledby="measureH">
-      <h2 id="measureH">Measurements</h2>
+    </details>
+    <details className="panel disclosure-panel" data-collapse="measureH" aria-labelledby="measureH" open>
+      <summary id="measureH">Measurements</summary>
       <div className="pad"><div id="measurementDetails" className="measurement-details"></div>
         <div className="row measurement-actions" id="measurementActions" hidden>
           <Button className="btn sm" id="roundDistancePixel">Round to pixel</Button><Button className="btn sm" id="roundDistanceSnap">Round to snap</Button>
         </div><p className="lbl" id="measurementHint">Select an object or two or more anchors.</p>
       </div>
-    </section>
-    <section className="panel" aria-labelledby="pvH">
-      <h2 id="pvH">Previews</h2>
+    </details>
+    <details className="panel disclosure-panel" data-collapse="pvH" aria-labelledby="pvH" open>
+      <summary id="pvH">Previews</summary>
       <div className="pv-grid" id="pvGrid">
         <div className="pv-tile light" id="pvLight" aria-label="Light tile"></div>
         <div className="pv-tile dark" id="pvDark" aria-label="Dark tile"></div>
@@ -248,13 +256,13 @@ export function WorkbenchShell() {
           <label className="swatch">accent <input type="color" id="swAccL" defaultValue="#0267e0" aria-label="Accent, light" /><input type="color" id="swAccD" defaultValue="#4b94f0" aria-label="Accent, dark" /></label>
         </div>
       </div>
-    </section>
-    <section className="panel" aria-labelledby="ctxH">
-      <h2 id="ctxH">In context</h2>
+    </details>
+    <details className="panel disclosure-panel" data-collapse="ctxH" aria-labelledby="ctxH" open>
+      <summary id="ctxH">In context</summary>
       <div className="ctx" id="ctx"></div>
-    </section>
-    <section className="panel io" aria-labelledby="ioH">
-      <h2 id="ioH">Export / Import</h2>
+    </details>
+    <details className="panel io disclosure-panel" data-collapse="ioH" aria-labelledby="ioH" open>
+      <summary id="ioH">Export / Import</summary>
       <div className="row">
         <Button className="btn sm" id="expJson" data-icon-ui="export">JSON</Button><Button className="btn sm" id="expSvg" data-icon-ui="export">SVG (runtime vars)</Button><Button className="btn sm" id="expBaked" data-icon-ui="export">SVG (baked)</Button>
         <Button className="btn sm" id="downloadSvg" data-icon-ui="export">Download SVG</Button><Button className="btn sm" id="downloadPng" data-icon-ui="export">PNG</Button>
@@ -262,7 +270,7 @@ export function WorkbenchShell() {
       </div>
       <div className="pad"><textarea id="ioText" spellCheck="false" aria-label="Export / import text" rows="8"></textarea></div>
       <div className="pad lbl mono" id="statsLine"></div>
-    </section>
+    </details>
   </div>
 </main>
 
