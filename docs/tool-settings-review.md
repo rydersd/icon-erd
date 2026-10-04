@@ -15,3 +15,5 @@ A read-only experiment on disposable copies of the ignored phone-outline source 
 ## Unbounded cleanup tolerance follow-up
 
 Owner requested no upper cap. Removed it from the number input, setter and saved-preference restoration; finite values at least 0.001 remain valid. Added 1 and 5 presets. A physical regression sets 10, runs cleanup, checks the reported fit budget and resulting geometry, restores geometry through Undo, reloads the saved tolerance, and rejects a negative value. It failed against the preceding production build. Merge distance retains its independent interaction range. This remains adversarial self-review.
+
+Primary toolbar follow-up: shapes now share the selection-tool row; Handles is aligned to its far right. Narrow rows scroll horizontally instead of adding a shape row or pushing the canvas away. More forms uses a positioned disclosure, closes after shape creation/outside click/Escape, and retains keyboard access. Physical coverage checks row alignment, right-edge placement, shape insertion and narrow-screen containment.

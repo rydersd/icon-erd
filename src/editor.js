@@ -2951,11 +2951,15 @@ function syncToggles() {
 // ---------- wiring ----------
 decorate();
 const pal = $('palette');
-const palBtn = (k, parent) => { const b = document.createElement('button'); b.className = 'btn'; b.title = k === 'pen' ? 'Pen tool (P)' : 'Add ' + k; b.dataset.palette = k; b.innerHTML = `${uiIcon(k)}<span>${k}</span>`; b.onclick = () => addShape(k); parent.appendChild(b); };
+const palBtn = (k, parent) => { const b = document.createElement('button'); b.className = 'btn'; b.title = k === 'pen' ? 'Pen tool (P)' : 'Add ' + k; b.dataset.palette = k; b.innerHTML = `${uiIcon(k)}<span>${k}</span>`; b.onclick = () => {addShape(k);moreLbl.open=false;}; parent.appendChild(b); };
 PRIMARY_TOOLS.forEach(k => palBtn(k, pal));
 const moreLbl = document.createElement('details');moreLbl.className='more-forms';const moreSummary=document.createElement('summary');moreSummary.textContent='More forms';moreLbl.appendChild(moreSummary);pal.appendChild(moreLbl);
 const more = document.createElement('div'); more.className = 'more'; moreLbl.appendChild(more);
 MORE_TOOLS.forEach(k => palBtn(k, more));
+listen(moreLbl,'toggle',()=>{if(!moreLbl.open)return;const bounds=moreSummary.getBoundingClientRect();more.style.left=Math.max(8,Math.min(bounds.left,window.innerWidth-Math.min(430,window.innerWidth-32)-8))+'px';more.style.top=Math.min(bounds.bottom+6,window.innerHeight-more.getBoundingClientRect().height-8)+'px';});
+listen(moreLbl,'keydown',event=>{if(event.key==='Escape'){event.preventDefault();moreLbl.open=false;moreSummary.focus({preventScroll:true});}});
+listen(document,'pointerdown',event=>{if(moreLbl.open && !moreLbl.contains(event.target))moreLbl.open=false;}, {capture:true});
+
 root.querySelectorAll('[data-group]').forEach(b => b.onclick = () => group(b.dataset.group));
 root.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
 root.querySelectorAll('[data-hmode]').forEach(b => b.onclick = () => { S.hmode = b.dataset.hmode; syncToggles(); renderSelection(); });

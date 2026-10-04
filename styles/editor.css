@@ -383,7 +383,7 @@ button.glyph-tag { background: transparent; cursor: pointer; }
 .cleanup-tolerance { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
 .cleanup-tolerance input { width: 76px; }
 .cleanup-presets { margin: 8px 0; flex-wrap: wrap; }
-.shape-toolbar { width: 100%; display: flex; flex-wrap: wrap; padding: 0; align-items: start; }
+.shape-toolbar { width: auto; display: flex; flex-wrap: nowrap; padding: 0; align-items: start; }
 .shape-toolbar > .btn { height: 30px; flex-direction: row; padding: 4px 7px; }
 .shape-toolbar .more-forms { min-width: 110px; }
 .shape-toolbar .more-forms > summary { padding: 6px; font-size: 11px; }
@@ -396,3 +396,9 @@ button.glyph-tag { background: transparent; cursor: pointer; }
 .studio-field input[type=number] { width: 85px; }
 .studio-field select { max-width: 170px; }
 .gradient-stop { min-width: 0; margin: 0; border: 1px solid var(--border); padding: 8px; display: grid; gap: 6px; }
+
+.canvas-tools .primary-tool-row { width: 100%; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; align-items: center; min-width: 0; padding-bottom: 3px; }
+.primary-tool-row > *, .primary-tool-row .seg, .shape-toolbar > * { flex-shrink: 0; }
+.canvas-tools .primary-tool-row .seg { flex-wrap: nowrap; }
+.handle-tools { margin-left: auto; display: flex; align-items: center; gap: 6px; padding-left: 8px; }
+.shape-toolbar .more { position: fixed; z-index: 50; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 5px 16px #0003; width: min(430px, calc(100vw - 32px)); }
