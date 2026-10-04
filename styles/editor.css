@@ -423,3 +423,7 @@ button.glyph-tag { background: transparent; cursor: pointer; }
 .repair-toolbar[hidden] { display:none; }
 .canvas-wrap:has(.repair-toolbar:not([hidden])) { display:flex; flex-direction:column; }
 .canvas-wrap:has(.repair-toolbar:not([hidden])) .stage { flex:1; min-height:0; width:100%; height:auto; }
+.component-row{display:flex;align-items:center;gap:6px;margin:6px 0;flex-wrap:wrap}
+.component-preview{display:inline-flex;width:40px;height:40px;color:var(--text);flex:none}
+#componentsCount{float:right}
+#iconThickness{width:70px}

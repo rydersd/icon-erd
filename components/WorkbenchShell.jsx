@@ -80,6 +80,10 @@ export function WorkbenchShell() {
     </details>
     <div id="appIconStudio" hidden></div>
     <LibraryPanel />
+    <details id="componentsPanel" className="panel disclosure-panel component-library" data-collapse="componentsH" open>
+      <summary id="componentsH">Components <span id="componentsCount" className="num">0</span></summary>
+      <div className="pad"><p className="lbl">Reusable vector forms. Edit any instance to update them all; Insert adds one to the current icon.</p><div id="componentList"></div></div>
+    </details>
     <details className="panel set-settings" aria-label="Library properties" open>
       <summary id="libraryTokensTitle">Library tokens</summary>
       <div className="pad set-settings-fields">
@@ -253,6 +257,7 @@ export function WorkbenchShell() {
       </div>
       <div className="ctrls">
         <div className="ctrl"><label className="lbl" htmlFor="wRange">Weight</label><input type="range" id="wRange" min="0.8" max="2" step="0.1" /><span className="num" id="wVal"></span></div>
+        <div className="row"><label><input id="iconThicknessOverride" type="checkbox" /> Override library thickness for this icon</label><input id="iconThickness" aria-label="Icon thickness" type="number" min="0.1" max="8" step="0.1" defaultValue="1.2" /></div>
         <div className="warn" id="wWarn" hidden>2.0 and heavier: small counters start to close at 12–16px.</div>
         <div className="ctrl"><span className="lbl">Linecap</span><div className="seg" role="group" aria-label="Linecap" id="capSeg"><Button className="btn sm" data-cap="round">Round</Button><Button className="btn sm" data-cap="butt">Butt</Button><Button className="btn sm" data-cap="square">Square</Button></div><span></span></div>
         <div className="ctrl"><span className="lbl">Linejoin</span><div className="seg" role="group" aria-label="Linejoin" id="joinSeg"><Button className="btn sm" data-join="round">Round</Button><Button className="btn sm" data-join="miter">Miter</Button><Button className="btn sm" data-join="bevel">Bevel</Button></div><span></span></div>

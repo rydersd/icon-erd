@@ -1,3 +1,4 @@
+import {componentTarget,createSelectedComponent} from './component-creation.js';
 import {cleanImportedLibrary,auditDerivedFills} from './import-cleanup.js';
 import {compareMasks,svgMask} from './inset-conversion.js';
 import {createGuidedRepair} from './guided-repair.js';
@@ -2083,6 +2084,7 @@ function openCanvasMenu(event) {
     if(S.sel.length>1)for(const op of ['union','subtract','intersect','exclude'])menuAction(op[0].toUpperCase()+op.slice(1),op,()=>group(op));
     if(node?.component)menuAction('Detach shared instance','ungroup',()=>{delete node.component;commit();refresh(true);});
   } else menuAction('Select all objects','select',()=>{S.sel=S.glyph.layers.map((_,l)=>({l,p:[]}));refresh(true);});
+  if(S.sel.length)componentMenuAction(selection);
   const wholeContours=!anchors || S.sel.every(s=>s.p!==null && getNode(s)?.shape==='pen' && getNode(s).pts.every((_,i)=>anchorSelected(s,i)));
   if(wholeContours && S.sel.length && S.sel.every(s=>s.p!==null && regularEllipse(getNode(s),core)))menuAction('Convert to circle/ellipse (4 anchors)','circle',()=>regularizeSelections());
   const bounds=cv.getBoundingClientRect();
@@ -2110,6 +2112,7 @@ function openTreeMenu(selection, event) {
   }
   if (node && regularEllipse(node,core)) menuAction('Convert to circle/ellipse (4 anchors)','circle',()=>regularizeSelections([selection]));
   if (node) menuAction('Use as cutter', 'cutter', cutterAction, !!selection.p.length && getParent(selection).op === 'subtract' && selection.p.at(-1) > 0, !selection.p.length || getParent(selection).children.length < 2);
+  componentMenuAction(selection);
   const row = treeRow(selection), bounds = row.getBoundingClientRect();
   openPopup(itemMenu, row, event.type === 'contextmenu' ? event.clientX : bounds.left, event.type === 'contextmenu' ? event.clientY : bounds.bottom, () => treeRow(selection));
 }
@@ -2315,6 +2318,16 @@ function move(dir) {
   }
   commit(); refresh(true);
 }
+function componentMenuAction(selection) {
+  if(guidedRepair?.active || S.sel.length!==1)return;
+  const target=componentTarget(S.glyph,selection,core);if(!target)return;
+  menuAction('Create component','duplicate',()=>{
+    const suggested=target.node.name || layerOf(target.selection).name || S.glyph.name;
+    const name=prompt(target.expanded?'Component name — includes the complete symmetry / transform group':'Component name',suggested);
+    if(!name?.trim())return;
+    try{S.sel=[createSelectedComponent(S.glyph,selection,name,core,crypto.randomUUID())];S.anchor=null;S.selectedAnchors=[];commit();refresh(true);$('componentsPanel').open=true;status(`Created component ${name.trim()}. Insert it into another icon from Components.`);}catch(error){status(error.message,true);}
+  });
+}
 function duplicate() {
   const s = primarySel(); if (!s) return;
   const node = s.p === null ? layerOf(s).node : getNode(s);
@@ -2486,20 +2499,26 @@ function renderInspectorTransformOnly() {
   set('ox', r4(t.origin[0])); set('oy', r4(t.origin[1])); set('rot', t.rotate || 0); set('sx', r4((t.scaleX || 1) * 100)); set('sy', r4((t.scaleY || 1) * 100));
 }
 function renderComponents() {
-  const list = $('componentList'); list.replaceChildren();
-  for (const component of S.components.values()) {
-    const instances = S.lib.flatMap(formsIn).filter(f=>f.node.component?.id === component.id);
-    const button = document.createElement('button'); button.type = 'button'; button.className = 'btn sm';
-    button.textContent = `${component.name} · ${instances.length}`;
-    button.setAttribute('aria-label', `Edit component ${component.name}, ${instances.length} instances`);
-    button.onclick = () => {
-      const first = instances[0]; if (!first) return;
-      loadGlyph(idx(first.glyph.name)); S.sel = [{l:first.l,p:first.p}]; refresh(true);
-    };
-    list.appendChild(button);
+  const list=$('componentList');list.replaceChildren();$('componentsCount').textContent=S.components.size;
+  for(const component of S.components.values()) {
+    const instances=S.lib.flatMap(formsIn).filter(f=>f.node.component?.id===component.id),first=instances[0];
+    const row=document.createElement('div');row.className='component-row';row.dataset.componentId=component.id;
+    const preview=document.createElement('span');preview.className='component-preview';preview.setAttribute('aria-hidden','true');
+    if(first)try{preview.innerHTML=core.toSVG({...first.glyph,name:component.name,symmetry:{rotate:1},layers:[{...first.glyph.layers[first.l],symmetry:false,node:clone(first.node)}]},{mode:'baked',size:40});}catch{}
+    row.appendChild(preview);
+    const edit=smallBtn(`${component.name} · ${instances.length}`,()=>{if(!first)return;loadGlyph(idx(first.glyph.name));S.sel=[{l:first.l,p:first.p}];setTool('select');refresh(true);},`Edit component ${component.name}, ${instances.length} instances`);
+    edit.setAttribute('aria-label',`Edit component ${component.name}, ${instances.length} instances`);row.appendChild(edit);
+    const insert=smallBtn('Insert',()=>{
+      if(!first||!S.lib.length||guidedRepair?.active)return;
+      const sourceLayer=first.glyph.layers[first.l];
+      S.glyph.layers.push({...clone(sourceLayer),id:`component-${crypto.randomUUID()}`,name:component.name,symmetry:false,node:clone(first.node)});
+      S.sel=[{l:S.glyph.layers.length-1,p:[]}];S.anchor=null;S.selectedAnchors=[];commit();refresh(true);status(`Inserted ${component.name} into ${S.glyph.name}. All instances share geometry and symmetry.`);
+    },`Insert ${component.name} into current icon`);
+    insert.setAttribute('aria-label',`Insert ${component.name} into current icon`);insert.disabled=!first||!S.lib.length||!!guidedRepair?.active;row.appendChild(insert);list.appendChild(row);
   }
-  if (!list.children.length) list.textContent = 'Duplicate a shape to create its component.';
+  if(!list.children.length)list.textContent='Right-click a path or group and choose Create component, or duplicate a shape.';
 }
+
 let sharedCandidates = [];
 function linkFormGroup(candidate,name) {
   if(!candidate?.members.length)return;
@@ -2723,7 +2742,10 @@ function renderPreviews() {
   $('ctx').querySelector('.cbtn span').textContent = label.charAt(0).toUpperCase() + label.slice(1);
   $('ctx').querySelector('.nav .on span').textContent = label;
   $('ctx').classList.toggle('rtl', S.rt.rtl);
+  $('wRange').min=S.glyph.strokeOverride!=null?.1:.8;$('wRange').max=S.glyph.strokeOverride!=null?8:2;
   $('wVal').textContent = S.rt.weight.toFixed(1); $('wRange').value = S.rt.weight;
+  $('iconThicknessOverride').checked=S.glyph.strokeOverride!=null;$('iconThicknessOverride').disabled=!!guidedRepair?.active||!S.lib.length;
+  $('iconThickness').disabled=S.glyph.strokeOverride==null||!!guidedRepair?.active;if(document.activeElement!==$('iconThickness'))$('iconThickness').value=strokeWeight(S.glyph);
   $('wWarn').hidden = S.rt.weight < 2.0;
 }
 
@@ -3115,6 +3137,18 @@ root.querySelectorAll('[data-show]').forEach(b => b.onclick = () => { S.show[b.d
   }
   renderGrid(); renderCanvas(); syncToggles(); });
 $('wRange').oninput = () => { S.rt.weight = +$('wRange').value; renderCanvas(); renderPreviews(); };
+function setIconThickness(value) {
+  S.glyph.strokeOverride=value;
+  if(S.glyph.insetConversion)S.glyph.insetConversion={...S.glyph.insetConversion,stroke:value,strokeBinding:'override'};
+  if(S.glyph.setStyle)S.glyph.setStyle.thickness=value;
+  S.rt.weight=value;commit();refresh(true);status('Icon thickness overrides the library; other library settings still apply.');
+}
+$('iconThicknessOverride').onchange=()=>{
+  if($('iconThicknessOverride').checked)setIconThickness(strokeWeight(S.glyph));
+  else {delete S.glyph.strokeOverride;if(S.glyph.insetConversion)S.glyph.insetConversion.strokeBinding='library';if(S.libraryProperties)S.glyph.setStyle=libraryStyle(S.glyph,tokenStyle(S.libraryProperties));else if(S.glyph.setStyle)S.glyph.setStyle.thickness=S.glyph.weight;S.rt.weight=strokeWeight(S.glyph);commit();refresh(true);status('Icon thickness follows the library.');}
+};
+$('iconThickness').onchange=()=>{const input=$('iconThickness');if(!input.checkValidity()||!Number.isFinite(input.valueAsNumber)){input.value=strokeWeight(S.glyph);return;}setIconThickness(input.valueAsNumber);};
+$('wRange').onchange=()=>{if(S.glyph.strokeOverride!=null&&!guidedRepair?.active)setIconThickness(S.rt.weight);};
 root.querySelectorAll('[data-cap]').forEach(b => b.onclick = () => { S.rt.cap = b.dataset.cap;if(guidedRepair?.active||S.glyph.strokeCap!=null){S.glyph.strokeCap=S.rt.cap;commit();} refresh(false); });
 root.querySelectorAll('[data-join]').forEach(b => b.onclick = () => { S.rt.join = b.dataset.join;if(guidedRepair?.active||S.glyph.strokeJoin!=null){S.glyph.strokeJoin=S.rt.join;commit();} refresh(false); });
 $('hintBtn').onclick = () => { S.rt.hint = !S.rt.hint; refresh(false); };
@@ -3427,7 +3461,7 @@ const resizeObserver = new ResizeObserver(() => { if (!S.glyph || disposed) retu
 resizeObserver.observe(cv);
 
 appStudio=createAppIconStudio({root:$('appIconStudio'),getGlyph:()=>S.glyph,getLayer:()=>primarySel()?.l ?? 0,setLayer:l=>{S.sel=[{l,p:null}];S.selectedAnchors=[];S.anchor=null;refresh(true);},commit:()=>commit(),refresh:()=>refresh(true),status});
-const repairLocked=[...root.querySelectorAll('.library-panel,.set-settings,.io,#appIconStudio,#drawingMode,#exportSize,#hdrEdited,#revertBtn')];
+const repairLocked=[...root.querySelectorAll('#componentsPanel,.library-panel,.set-settings,.io,#appIconStudio,#drawingMode,#exportSize,#hdrEdited,#revertBtn')];
 function repairWorking(glyph){S.glyph=clone(glyph);S.sel=[];S.selectedAnchors=[];S.anchor=null;S.sourceAnchor=null;S.iso=null;penDraft=null;penHover=null;penCloseHover=null;S.rt.weight=strokeWeight(S.glyph);S.rt.cap=S.glyph.strokeCap||'round';S.rt.join=S.glyph.strokeJoin||'round';}
 guidedRepair=createGuidedRepair({root,core,getGlyph:()=>S.glyph,getLibrary:()=>S.lib,getStyle:()=>S.libraryProperties?tokenStyle(S.libraryProperties):null,
   enter:glyph=>{repairContext={name:S.glyph.name,lastSnap,tool:S.tool,rt:clone(S.rt),original:S.show.original};closeGroupReview();root.querySelector('.stage').hidden=false;for(const el of repairLocked)el.inert=true;S.show.original=false;repairWorking(glyph);setTool('direct');setSaveState('draft');},

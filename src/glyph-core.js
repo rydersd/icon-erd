@@ -520,7 +520,7 @@ export function createGlyphCore(paper) {
     if (!n || !n.shape) return null;
     if (n.shape === 'pen' && !(n.deform?.length) && !(n.pts || []).some(point => point.r > 0)) return JSON.parse(JSON.stringify(n));
     const keep = {};
-    for (const key of ['name', 'transform', 'symmetry', 'edge', 'cap', 'hidden', 'fillRule', 'roundingAnchors', 'component']) if (n[key] != null) keep[key] = JSON.parse(JSON.stringify(n[key]));
+    for (const key of ['name', 'transform', 'symmetry', 'symmetryStage', 'edge', 'cap', 'hidden', 'fillRule', 'roundingAnchors', 'component']) if (n[key] != null) keep[key] = JSON.parse(JSON.stringify(n[key]));
     // Bake the visible local geometry once; deformers and parametric radii must not run again afterward.
     let items = shapeItems(n);
     for (const deformer of n.deform || []) if (DEFORMERS[deformer.type]) items = DEFORMERS[deformer.type](items, deformer);
@@ -613,14 +613,25 @@ export function createGlyphCore(paper) {
   const radiusAt = (radius, excluded) => point => excluded.some(other => other.isClose(point, 1e-4)) ? 0 : radius;
 
   function evalLayer(layer, glyph) {
-    const base = evalNode(layer.node);
+    // A promoted component retains the original layer-stage symmetry order:
+    // fillet closed source contours first, then mirror the complete form.
+    const deferred = layer.node.symmetryStage === 'layer';
+    const source = deferred ? {...layer.node,symmetry:false,transform:undefined} : layer.node;
+    const base = evalNode(source);
     const rounding = Math.max(0, num(glyph.setStyle?.rounding));
     const excluded = roundingExcluded(layer.node);
     if (rounding > 0) {
-      if (base.closed) base.closed = fillet(base.closed, radiusAt(rounding, excluded));
+      if (base.closed) base.closed = fillet(base.closed, radiusAt(rounding, deferred ? roundingExcluded(source) : excluded));
     }
     const useSym = layer.symmetry !== false;
     let closed = base.closed, open = base.open;
+    if(deferred) {
+      ({closed,open}=applySym({closed,open},layer.node.symmetry));
+      if(hasTransform(layer.node.transform)) {
+        const result={closed,open},bounds=layer.node.transform.origin?null:resultBounds(result);
+        applyMatrix(result,transformMatrix(layer.node.transform,bounds?bounds.center:null));
+      }
+    }
     if (useSym && glyph.symmetry && symmetryGroup(glyph.symmetry).length > 1) ({ closed, open } = applySym(base, glyph.symmetry));
     open = joinOpen(open);
     if (rounding > 0) open = open.map(path => filletCurves(path, radiusAt(rounding, layer.symmetry === false ? excluded : excluded.flatMap(point => symMatrices(glyph.symmetry).map(matrix => matrix.transform(point))))));

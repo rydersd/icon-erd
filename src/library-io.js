@@ -44,6 +44,7 @@ export function normalizeGlyph(input) {
   const walk = (node, depth = 0, linkedAncestor = false) => {
     if (!node || typeof node !== 'object' || depth > 32 || ++count > 10000) throw new Error(`${glyph.name}: invalid or oversized form tree`);
     validateSymmetry(node.symmetry);
+    if(node.symmetryStage!=null && node.symmetryStage!=='layer')throw Error(`${glyph.name}: invalid symmetry stage`);
     if(node.component != null) {
       if(linkedAncestor)throw new Error(`${glyph.name}: nested shared forms are unsupported`);
       const c=node.component;
