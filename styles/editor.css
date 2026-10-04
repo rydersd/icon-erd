@@ -402,3 +402,6 @@ button.glyph-tag { background: transparent; cursor: pointer; }
 .canvas-tools .primary-tool-row .seg { flex-wrap: nowrap; }
 .handle-tools { margin-left: auto; display: flex; align-items: center; gap: 6px; padding-left: 8px; }
 .shape-toolbar .more { position: fixed; z-index: 50; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 5px 16px #0003; width: min(430px, calc(100vw - 32px)); }
+
+.numeric-scrub-label { cursor: ew-resize; }
+.numeric-scrubbing, .numeric-scrubbing * { cursor: ew-resize !important; user-select: none !important; }
