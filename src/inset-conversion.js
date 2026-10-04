@@ -20,7 +20,7 @@ export function insetOutline(source,core,{inset=.6,stroke=1.2}={}) {
   }
   if(!layers.length)throw Error('No surviving outline contours.');
   const candidate=structuredClone(source);delete candidate.reconstruction;delete candidate.solidReview;delete candidate.referenceImage;
-  return normalizeGlyph({...candidate,name:source.name.endsWith('-outline')?source.name:`${source.name}-outline`,layers,weight:stroke,strokeOverride:stroke,setStyle:{thickness:stroke,rounding:0,endRounding:0},symmetry:{rotate:1},provenance:'converted-stroke',insetConversion:{source:source.name,inset,stroke}});
+  return normalizeGlyph({...candidate,name:source.variantFamily?source.name:source.name.endsWith('-outline')?source.name:`${source.name}-outline`,...(source.variantFamily?{variantFamily:{canonical:'outline',status:'ready',reason:''}}:{}),layers,weight:stroke,strokeOverride:stroke,setStyle:{thickness:stroke,rounding:0,endRounding:0},symmetry:{rotate:1},provenance:'converted-stroke',insetConversion:{source:source.name,inset,stroke}});
 }
 export function compareMasks(a,b,size) {
   const topology=mask=>{const seen=new Uint8Array(mask.length);let parts=0,holes=0;

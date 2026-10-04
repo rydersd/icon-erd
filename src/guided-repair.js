@@ -64,7 +64,7 @@ export function createGuidedRepair({root,core,getGlyph,getLibrary,getStyle,enter
       try{
         finishPen();useWidth();recordCommit();check();
         const d=draft,accepted=normalizeGlyph(getGlyph());
-        if(!core.resolve(accepted).some(l=>l.visible&&l.d))throw Error('Draw at least one path before accepting.');accepted.name=d.initial.name;
+        if(!core.resolve(accepted).some(l=>l.visible&&l.d))throw Error('Draw at least one path before accepting.');accepted.name=d.initial.name;if(accepted.variantFamily)accepted.variantFamily={canonical:'outline',status:'ready',reason:''};
         accepted.insetConversion={...accepted.insetConversion,strokeBinding:d.linked?'library':'override'};
         if(d.linked)delete accepted.strokeOverride;
         const editingIdentity=JSON.stringify(getGlyph()),settingsIdentity=JSON.stringify(d.settings);
@@ -86,7 +86,7 @@ export function createGuidedRepair({root,core,getGlyph,getLibrary,getStyle,enter
     else{
       if(localStorage.getItem(REPAIR_DRAFT_KEY))throw Error('A saved repair draft already exists. Resume or discard it before starting another.');
       const width=getStyle()?.thickness??entry.settings.stroke??1.2,settings={inset:entry.settings.inset,stroke:width};
-      let initial=entry.candidate?copy(entry.candidate):{...copy(entry.source),name:entry.source.name.endsWith('-outline')?entry.source.name:`${entry.source.name}-outline`,layers:[{id:'repair',name:'Redrawn outline',paint:'stroke',node:{op:'union',children:[]}}],symmetry:{rotate:1}};
+      let initial=entry.candidate?copy(entry.candidate):{...copy(entry.source),name:entry.source.variantFamily||entry.source.name.endsWith('-outline')?entry.source.name:`${entry.source.name}-outline`,layers:[{id:'repair',name:'Redrawn outline',paint:'stroke',node:{op:'union',children:[]}}],symmetry:{rotate:1}};
       delete initial.referenceImage;delete initial.reconstruction;delete initial.solidReview;initial.provenance='converted-stroke';
       draft={schemaVersion:1,source:copy(entry.source),sourceIdentity:JSON.stringify(entry.source),targetIdentity:entry.targetIdentity??null,reference:entry.reference?copy(entry.reference):null,initial:copy(initial),candidate:initial,settings,linked:true,opacity:.2,showSource:true,showInset:true,showDifference:false,intent:entry.intent==='redesign'?'redesign':'faithful',generationScore:entry.score||null,edits:[],undo:[],redo:[]};
       try{check();}catch(error){draft=null;throw error;}

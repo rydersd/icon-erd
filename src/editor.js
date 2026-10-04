@@ -1,3 +1,4 @@
+import {cleanImportedLibrary,auditDerivedFills} from './import-cleanup.js';
 import {compareMasks,svgMask} from './inset-conversion.js';
 import {createGuidedRepair} from './guided-repair.js';
 import {exampleState,learnedInset,geometryIdentity,contentHashes} from './reconstruction-records.js';
@@ -342,7 +343,7 @@ async function applyInsetCandidate(candidate,source,correction=null,intent='unsp
   try {
     const libraryBefore=S.lib,sourceBefore=JSON.stringify(S.lib[idx(source.name)]),targetBefore=idx(candidate.name)>=0?JSON.stringify(S.lib[idx(candidate.name)]):null;
     if(!correction){
-      const reference=idx(candidate.name)>=0?clone(S.lib[idx(candidate.name)]):null;
+      const reference=idx(candidate.name)>=0&&candidate.name!==source.name?clone(S.lib[idx(candidate.name)]):null;
       const preview=g=>core.toSVG(g,{mode:'baked',mono:true,size:192});
       const [a,b]=await Promise.all([svgMask(preview(candidate)),svgMask(preview(reference||source))]);
       const score=compareMasks(a,b,192);
@@ -401,7 +402,7 @@ async function showLibraryVersions() {
     list.appendChild(row);
   }
 }
-async function restoreLibraryVersion(version, {checkpointName, message} = {}) {
+async function restoreLibraryVersion(version, {checkpointName, message, retainedVersions=[]} = {}) {
   if (penDraft) finishPen();
   await flushSaves();
   const archive = version.document.glyphs.length ? parseLibraryArchive(JSON.stringify(version.document)) : {glyphs:[],originals:new Map(),components:new Map(),libraryProperties:validateLibraryProperties(version.document.libraryProperties)};
@@ -413,7 +414,7 @@ async function restoreLibraryVersion(version, {checkpointName, message} = {}) {
   for (const name of SHIPPED.keys()) if (!names.has(name)) records.push({name,deleted:true,savedAt:Date.now()});
   await DB.run('readwrite',(store,tx)=>{
     store.clear();records.forEach(record=>store.put(record));
-    const snapshots=tx.objectStore('snapshots');snapshots.put(safety);
+    const snapshots=tx.objectStore('snapshots');snapshots.put(safety);retainedVersions.forEach(version=>snapshots.put(version));
     snapshots.put({id:'edit-history',undo:[],redo:[]});snapshots.put({id:'component-definitions',components:[...archive.components.values()]});
     snapshots.put({id:'library-trash',entries:[]}); snapshots.delete('library-reset'); snapshots.delete('library-organization');
   },'edits',['snapshots']);
@@ -3138,7 +3139,8 @@ const tokenControls={thickness:['setThickness','setThicknessEnabled'],rounding:[
 function renderLibraryTokens() {
   const properties=S.libraryProperties, source=properties?.source;
   const output=properties?.output || DEFAULT_OUTPUT;
-  for(const [id,key] of [['libraryVariant','variant'],['libraryColorMode','colorMode'],['libraryFillColor','fillColor'],['libraryStrokeColor','strokeColor'],['libraryOutputProfile','profile']])$(id).value=output[key];
+  for(const [id,key] of [['libraryVariant','variant'],['libraryColorMode','colorMode'],['libraryFillColor','fillColor'],['libraryStrokeColor','strokeColor'],['libraryAccentColor','accentColor'],['libraryOutputProfile','profile']])$(id).value=output[key];
+  $('libraryAccentToken').value=output.colorTokens?.accent || '--icon-accent';
   $('libraryUseColorTokens').checked=output.useColorTokens ?? false;$('libraryFillToken').value=output.colorTokens?.fill || '--icon-fill';$('libraryStrokeToken').value=output.colorTokens?.stroke || '--icon-stroke';
   $('libraryFamilyView').checked=output.familyView;$('libraryOutputSizes').value=output.sizes.join(', ');
   $('libraryOutputHint').textContent=output.profile==='menu-bar'?'Black template artwork, transparent background. Editable 18 / 36 px preset.': 'Vector artwork scales from the 24-unit drawing plane. PNG sizes are pixels.';
@@ -3175,11 +3177,11 @@ function applyLibraryProperties(input) {
 }
 function applyOutputSettings(profileChanged=false) {
   try {const previous=S.libraryProperties?.output || DEFAULT_OUTPUT,profile=$('libraryOutputProfile').value;
-    const output=validateOutput({...previous,profile,variant:$('libraryVariant').value,familyView:$('libraryFamilyView').checked,colorMode:$('libraryColorMode').value,fillColor:$('libraryFillColor').value,strokeColor:$('libraryStrokeColor').value,useColorTokens:$('libraryUseColorTokens').checked,colorTokens:{fill:$('libraryFillToken').value.trim(),stroke:$('libraryStrokeToken').value.trim()},sizes:profileChanged?OUTPUT_PROFILES[profile].sizes:$('libraryOutputSizes').value.split(',').map(value=>Number(value.trim()))});
+    const output=validateOutput({...previous,profile,variant:$('libraryVariant').value,familyView:$('libraryFamilyView').checked,colorMode:$('libraryColorMode').value,fillColor:$('libraryFillColor').value,strokeColor:$('libraryStrokeColor').value,accentColor:$('libraryAccentColor').value,useColorTokens:$('libraryUseColorTokens').checked,colorTokens:{fill:$('libraryFillToken').value.trim(),stroke:$('libraryStrokeToken').value.trim(),accent:$('libraryAccentToken').value.trim()},sizes:profileChanged?OUTPUT_PROFILES[profile].sizes:$('libraryOutputSizes').value.split(',').map(value=>Number(value.trim()))});
     applyLibraryProperties({...S.libraryProperties,values:tokenStyle(S.libraryProperties || {values:S.glyph.setStyle || {}}),output});
   }catch(error){renderLibraryTokens();status(error.message,true);}
 }
-for(const id of ['libraryVariant','libraryFamilyView','libraryColorMode','libraryFillColor','libraryStrokeColor','libraryOutputSizes','libraryUseColorTokens','libraryFillToken','libraryStrokeToken'])$(id).onchange=()=>applyOutputSettings();
+for(const id of ['libraryVariant','libraryFamilyView','libraryColorMode','libraryFillColor','libraryStrokeColor','libraryAccentColor','libraryAccentToken','libraryOutputSizes','libraryUseColorTokens','libraryFillToken','libraryStrokeToken'])$(id).onchange=()=>applyOutputSettings();
 $('libraryOutputProfile').onchange=()=>applyOutputSettings(true);
 $('testSolidVariantsBtn').onclick=async()=>{
   const button=$('testSolidVariantsBtn');button.disabled=true;
@@ -3255,6 +3257,7 @@ let pendingImport = null;
 function requestLibraryImport(text, fileName) {
   try {
     const data=JSON.parse(text);
+    $('importCleanupChoices').hidden=true;
     if(data?.format==='iconerd-solid-review'){
       if(data.version!==1 || !Array.isArray(data.entries) || data.entries.length>10000)throw new Error('Invalid solid report');const names=new Set();
       for(const entry of data.entries){if(typeof entry.name!=='string' || names.has(entry.name))throw new Error('Invalid or duplicate solid entry');names.add(entry.name);normalizeGlyph({name:entry.name,layers:[{id:'check',node:{shape:'circle',r:1}}],solidReview:entry});}
@@ -3267,6 +3270,7 @@ function requestLibraryImport(text, fileName) {
       pendingImport={report:data};$('importSummary').textContent=`${fileName}: ${data.entries.length} reconstruction results. Attach review flags and candidates; current drawings stay intact.`;$('importReplace').closest('label').hidden=true;$('confirmImportBtn').textContent='Attach review results';$('importDialog').showModal();return;
     }
     $('importReplace').closest('label').hidden=false;
+    $('importCleanupChoices').hidden=false;$('importOnly').checked=true;$('importCleanup').checked=false;
     const archive = parseLibraryArchive(text);
     $('importTokensRow').hidden=!archive.libraryProperties;$('importLibraryTokens').checked=false;
     for (const glyph of [...archive.glyphs, ...archive.originals.values()]) {
@@ -3283,20 +3287,21 @@ function requestLibraryImport(text, fileName) {
     $('importReplace').focus();
   } catch (error) { status(`Import: ${error.message}`, true); }
 }
-$('importReplace').onchange = () => { $('confirmImportBtn').textContent = $('importReplace').checked ? 'Replace library' : 'Add icons'; };
+const importActionLabel=()=>{const cleanup=$('importCleanup').checked; $('confirmImportBtn').textContent=$('importReplace').checked?(cleanup?'Replace and clean up':'Replace library'):(cleanup?'Add and clean up':'Add icons');};
+$('importReplace').onchange=importActionLabel;$('importOnly').onchange=importActionLabel;$('importCleanup').onchange=importActionLabel;
 $('cancelImportBtn').onclick = () => $('importDialog').close();
 listen($('importDialog'), 'close', () => { pendingImport = null; });
 $('confirmImportBtn').onclick = async () => {
   if (!pendingImport) return;
-  const { text, fileName, report,solidReport } = pendingImport, mode = $('importReplace').checked ? 'replace' : 'add', useTokens=$('importLibraryTokens').checked;
+  const { text, fileName, report,solidReport } = pendingImport, mode = $('importReplace').checked ? 'replace' : 'add', useTokens=$('importLibraryTokens').checked, cleanup=$('importCleanup').checked && !$('importCleanupChoices').hidden;
   pendingImport = null;
   $('importDialog').close();
   if(solidReport){const peers=[];let count=0;for(const entry of solidReport.entries){const at=idx(entry.name);if(at<0)continue;const result={...clone(entry),stale:entry.sourceSignature!==sourceSignature(S.lib[at],core)};if(at===S.cur)S.glyph.solidReview=result;else{peers.push(clone(S.lib[at]));S.lib[at]={...S.lib[at],solidReview:result};}count++;}if(count){commit(peers);for(const glyph of S.lib)if(glyph.solidReview)queueSave(glyph.name);renderLibrary();await flushSaves();}status(`Attached ${count} solid results. Drawings and references retained.`);}
-  else if(report)await attachReconstructionReport(report);else await importLibraryText(text, fileName, mode,useTokens);
+  else if(report)await attachReconstructionReport(report);else {root.inert=true;try{const result=await importLibraryText(text,fileName,mode,useTokens,cleanup);if(result?.cleanup?.pending){librarySelection.clear();for(const name of result.names)if(S.lib[idx(name)]?.variantFamily?.status==='needs-review')librarySelection.add(name);root.inert=false;await insetReview.open();}}catch(error){status(`Import: ${error.message}`,true);}finally{root.inert=false;}}
 };
-async function importLibraryText(text, fileName, mode = 'add', useTokens = false) {
+async function importLibraryText(text, fileName, mode = 'add', useTokens = false, cleanup = false) {
   if(guidedRepair?.active)throw Error('Save or discard the repair before importing a library.');
-  let result, archive;
+  let result, archive, cleanupResult, rawVersion;
   try {
     archive = parseLibraryArchive(text);
     const { glyphs } = archive;
@@ -3309,8 +3314,29 @@ async function importLibraryText(text, fileName, mode = 'add', useTokens = false
     if (archive.components.size) projectComponents(glyphs,archive.components,core);
     const ids=remapSharedForms(glyphs,()=>crypto.randomUUID());
     for(const original of archive.originals.values())for(const {node} of formsIn(original))if(node.component && ids.has(node.component.id))node.component.id=ids.get(node.component.id);
-    result = mergeLibrary(mode==='replace' ? [] : S.lib, glyphs, mode==='replace' ? 'add' : mode);
+    if(cleanup){
+      rawVersion={id:`version-${crypto.randomUUID()}`,name:`Untouched import ${fileName || 'icons'}`,createdAt:Date.now(),current:glyphs[0]?.name,document:libraryDocument(glyphs,'all',archive.originals,collectComponents(glyphs,core),archive.libraryProperties)};
+      const chosenProperties=useTokens?archive.libraryProperties:mode==='add'?S.libraryProperties:null;
+      cleanupResult=cleanImportedLibrary({...archive,libraryProperties:chosenProperties});
+      archive={...archive,...cleanupResult};
+      if(mode==='add'&&!useTokens&&S.libraryProperties)archive.libraryProperties=clone(S.libraryProperties);
+    }
+    result = mergeLibrary(mode==='replace' ? [] : S.lib, archive.glyphs, mode==='replace' ? 'add' : mode);
   } catch (error) { status(`Import: ${error.message}`, true); return null; }
+  if(cleanup){
+    try{
+      const originals=mode==='add'?new Map(ORIG):new Map();
+      result.names.forEach((name,i)=>{const source=archive.glyphs[i];originals.set(name,{...clone(archive.originals.get(source.name)||source),name});});
+      const style=tokenStyle(archive.libraryProperties);
+      const imported=new Set(result.names);
+      let library=result.library.map(g=>{if(!imported.has(g.name)||g.kind==='app-icon')return g;const copy={...g};if(useTokens||(mode==='add'&&S.libraryProperties))copy.setStyle=libraryStyle(g,style);if(archive.libraryProperties.output)copy.output=clone(archive.libraryProperties.output);else delete copy.output;return copy;});
+      library=library.map(g=>imported.has(g.name)?auditDerivedFills([g],core)[0]:g);
+      const fillProblems=library.filter(g=>imported.has(g.name)&&g.variantFamily?.status==='ready'&&g.solidReview?.status==='needs-review').length;
+      const document=libraryDocument(library,'all',originals,collectComponents(library,core),archive.libraryProperties);
+      await restoreLibraryVersion({name:fileName || 'Cleaned import',current:result.names[0],document},{checkpointName:`Before importing and cleaning ${fileName || 'icons'}`,retainedVersions:[rawVersion],message:`Imported and cleaned: ${cleanupResult.paired} pairs consolidated; ${cleanupResult.outlined} editable outlines; ${cleanupResult.pending} need reconstruction; ${fillProblems} generated fills need review. Untouched import retained in Library versions.`});
+      return {...result,cleanup:cleanupResult};
+    }catch(error){status(`Import cleanup: ${error.message}`,true);return null;}
+  }
   if (mode==='replace') {
     const removed=S.lib.length;
     try {
@@ -3354,7 +3380,7 @@ try { const f = localStorage.getItem('gw-lib-filter'); if (f && [...$('libFilter
 $('libSearchIcon').innerHTML = uiIcon('search-outline');
 listen(document, 'keydown', e => {
   if (!root.contains(document.activeElement) && document.activeElement !== document.body) return;
-  if(guidedRepair?.busy){e.preventDefault();return;}
+  if(root.inert||guidedRepair?.busy){e.preventDefault();return;}
   const t = e.target;
   if(reviewingDeleted && (groupReview.contains(t) || t===document.body)){
     if(e.key==='Escape'){e.preventDefault();closeDeletedReview();return;}
