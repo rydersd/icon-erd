@@ -29,7 +29,6 @@ export function LibraryPanel() {
         <input id="sharedFormsSearch" type="search" aria-label="Search shared forms" placeholder="Filter by form or icon name" />
         <div id="sharedFormsList"></div><Button className="btn" id="closeSharedFormsBtn">Close</Button>
       </dialog>
-      <details className="component-library"><summary>Components</summary><div id="componentList" className="pad"></div></details>
       <div className="row"><Button className="btn sm" id="libraryVersionsBtn">Library versions</Button></div>
       <dialog id="libraryVersionsDialog" className="import-dialog" aria-labelledby="versionsHeading"><h2 id="versionsHeading">Library versions</h2><p>Named checkpoints include all icons, components, groups and reset originals. Restore saves the current set as a safety version first. Download a ZIP for a backup outside this browser.</p><label htmlFor="versionName">Version name</label><input id="versionName" type="text" placeholder="Before cloud cleanup" /><Button className="btn" id="saveLibraryVersionBtn">Save checkpoint</Button><div id="libraryVersionsList"></div><Button className="btn" id="closeLibraryVersionsBtn">Close</Button></dialog>
       <div className="lib-selection" aria-label="Library selection">
