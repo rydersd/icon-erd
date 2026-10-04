@@ -47,7 +47,7 @@ test('fill and stroke use adjacent previews which update from the saved colors',
   await expect(page.locator('#libraryFillColor')).toHaveCSS('border-top-width', '0px');
   await page.locator('#libraryStrokeColor').fill('#00ff00'); await page.locator('#libraryStrokeColor').dispatchEvent('change');
   await expect(page.locator('#libraryStrokeColor')).toHaveValue('#00ff00');
-  await expect(page.locator('.library-paint-row input[type="color"]')).toHaveCount(2);
+  await expect(page.locator('.library-paint-row input[type="color"]')).toHaveCount(3);
 });
 test('pixel rounding follows export size in transformed paths and never collapses a short range', async ({ page }) => {
   await ready(page);

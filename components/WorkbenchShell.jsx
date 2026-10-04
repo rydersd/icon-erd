@@ -103,15 +103,17 @@ export function WorkbenchShell() {
         <fieldset className="library-output-fields"><legend>Variants &amp; colors</legend>
           <label>Output variant <select id="libraryVariant" defaultValue="source"><option value="source">As drawn</option><option value="outline">Outline</option><option value="solid">Generated solid</option><option value="both">Outline + solid files</option><option value="fill-stroke">Filled with stroke</option></select></label>
           <label><input id="libraryFamilyView" type="checkbox" /> One icon per EDS family</label>
-          <label>Colors <select id="libraryColorMode" defaultValue="original"><option value="original">Keep layer colors</option><option value="single">Single color</option><option value="multicolor">Separate fill / stroke</option></select></label>
+          <label>Colors <select id="libraryColorMode" defaultValue="original"><option value="original">Keep layer colors</option><option value="single">Single color</option><option value="multicolor">Fill / stroke / accent</option></select></label>
           <div className="library-paint-row">
             <label>Fill <input id="libraryFillColor" aria-label="Fill" type="color" defaultValue="#0267e0" /></label>
             <label>Stroke <input id="libraryStrokeColor" aria-label="Stroke" type="color" defaultValue="#1d2430" /></label>
+            <label>Accent <input id="libraryAccentColor" aria-label="Accent" type="color" defaultValue="#ffb300" /></label>
           </div>
           <label className="row"><input id="libraryUseColorTokens" type="checkbox" /> Export SVG color tokens</label>
           <label>Fill token <input id="libraryFillToken" type="text" defaultValue="--icon-fill" /></label>
           <label>Stroke token <input id="libraryStrokeToken" type="text" defaultValue="--icon-stroke" /></label>
-          <p className="lbl">CSS custom properties with fallback colors. Applies to solid paint; gradients keep their stop colors. PNG uses the fallback colors.</p>
+          <label>Accent token <input id="libraryAccentToken" type="text" defaultValue="--icon-accent" /></label>
+          <p className="lbl">Accent applies to layers with the Accent color role. CSS custom properties with fallback colors. Applies to solid paint; gradients keep their stop colors. PNG uses the fallback colors.</p>
           <Button className="btn sm" id="testSolidVariantsBtn">Test solid variants</Button><span className="lbl" id="solidTestProgress" role="status" aria-live="polite"></span>
         </fieldset>
         <fieldset className="library-output-fields"><legend>Output target</legend>
@@ -278,6 +280,20 @@ export function WorkbenchShell() {
     </details>
   </div>
 </main>
+        <dialog id="importDialog" className="import-dialog" aria-labelledby="importHeading" aria-describedby="importSummary">
+          <h2 id="importHeading">Import icons</h2>
+          <p id="importSummary"></p>
+          <fieldset id="importCleanupChoices">
+            <legend>Import preparation</legend>
+            <label className="row"><input type="radio" name="importPreparation" id="importOnly" defaultChecked /> Just import — keep artwork and variants</label>
+            <label className="row"><input type="radio" name="importPreparation" id="importCleanup" /> Import and clean up</label>
+            <p id="importCleanupHelp">Cleanup keeps one editable outline per family, removes -outline from library names and generates fills on export. Existing outlines are preferred. Missing outlines stay intact and flagged for guided inset / Pen repair. Groups, layer names and color roles are kept; the untouched import is saved in Library versions. This does not simplify anchors or guess that two different drawings are equivalent. Choose single or multicolor / accent output in Library properties.</p>
+          </fieldset>
+          <label className="row"><input type="checkbox" id="importReplace" /> Replace entire library</label>
+          <label className="row" id="importTokensRow" hidden><input type="checkbox" id="importLibraryTokens" /> Use imported library properties / tokens</label>
+          <p>Replace removes all current icons, components and library settings. The previous library is saved in Library versions. Add keeps existing icons and renames conflicting incoming names.</p>
+          <div className="row"><Button className="btn" id="cancelImportBtn">Cancel</Button><Button className="btn" id="confirmImportBtn">Add icons</Button></div>
+        </dialog>
 
 
   </>;

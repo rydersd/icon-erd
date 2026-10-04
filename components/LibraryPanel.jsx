@@ -55,14 +55,7 @@ export function LibraryPanel() {
           </div>
         </details>
         </div>
-        <dialog id="importDialog" className="import-dialog" aria-labelledby="importHeading" aria-describedby="importSummary">
-          <h2 id="importHeading">Import icons</h2>
-          <p id="importSummary"></p>
-          <label className="row"><input type="checkbox" id="importReplace" /> Replace entire library</label>
-          <label className="row" id="importTokensRow" hidden><input type="checkbox" id="importLibraryTokens" /> Use imported library properties / tokens</label>
-          <p>Replace removes all current icons, components and library settings. The previous library is saved in Library versions. Add keeps existing icons and renames conflicting incoming names.</p>
-          <div className="row"><Button className="btn" id="cancelImportBtn">Cancel</Button><Button className="btn" id="confirmImportBtn">Add icons</Button></div>
-        </dialog>
+
         <div className="row"><Button className="btn sm" id="newLibraryBtn" title="Start an empty library; the current library is saved in Library versions">New library</Button></div>
         <div className="row"><Button className="btn sm" id="resetLibraryBtn" title="Restore imported originals; undo restores your edits">Revert library</Button><Button className="btn sm" id="undoLibraryResetBtn" disabled>Undo library revert</Button></div>
         <input type="file" id="impFile" accept="application/zip,.zip,application/json,.json" hidden />

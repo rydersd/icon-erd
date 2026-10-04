@@ -17,14 +17,14 @@ export function createInsetReview({root,core,getLibrary,getSelection,activate,cl
     try{
       if(JSON.stringify(getLibrary().find(g=>g.name===e.source.name))!==JSON.stringify(e.source))throw Error('Source changed; reopen the conversion review.');
       const candidate=insetOutline(e.source,core,e.settings);e.preview.innerHTML=svg(candidate);
-      const reference=getLibrary().find(g=>g.name===candidate.name);
-      // A filled-outline source is its own fidelity reference. Broad solids use
-      // their paired outline, or a filled round-trip when no outline exists.
+      const reference=getLibrary().find(g=>g.name===candidate.name && g.name!==e.source.name);
+      // Only a separate paired outline is a fidelity reference. Same-name
+      // sources and canonical pending families always require manual review.
       const compare=reference || generateSolid(candidate,core,{edge:'outside',holes:'preserve'});
       const left=reference?candidate:compare,right=reference||e.source;
       const [a,b]=await Promise.all([svgMask(svg(left)),svgMask(svg(right))]);
       if(run!==generation||revision!==e.revision)return;
-      e.candidate=candidate;e.targetSignature=reference?JSON.stringify(reference):null;e.score={...compareMasks(a,b,192),manual:!reference};
+      e.candidate=candidate;e.targetSignature=JSON.stringify(getLibrary().find(g=>g.name===candidate.name))||null;e.score={...compareMasks(a,b,192),manual:!reference};
       e.note.textContent=`${Math.round(e.score.iou*1000)/10}% ${reference?'outline match':'filled round-trip match'} · ${e.score.topology?'matching':'different'} parts/holes${!reference?' · Needs manual review: no paired outline':e.score.iou<threshold/100||!e.score.topology?' · Needs review':''}`;
       e.apply.disabled=false;e.export.disabled=false;
       try{localStorage.setItem(key(e.signature),JSON.stringify({signature:e.signature,...e.settings}));}catch{}
@@ -50,7 +50,7 @@ export function createInsetReview({root,core,getLibrary,getSelection,activate,cl
       const signature=sourceSignature(source,core);let settings={inset:(getStyle()?.thickness??1.2)/2,stroke:getStyle()?.thickness??1.2};try{const saved=JSON.parse(localStorage.getItem(key(signature))||'null');if(saved?.signature===signature)settings={inset:saved.inset,stroke:saved.stroke};}catch{}
       const e={source:structuredClone(source),signature,settings,card,preview,revision:0,applied:false};entries.push(e);
       for(const [field,min,max]of [['inset',0,null],['stroke',.1,8]]){const row=make('label',field==='inset'?'Inset':'Stroke',card,{class:'studio-field'}),input=make('input','',row,{type:'number',step:.01,min,'aria-label':`${source.name} ${field}`});if(max!=null)input.max=max;input.value=settings[field];input.onchange=()=>{if(!input.checkValidity()||!Number.isFinite(input.valueAsNumber)){input.value=e.settings[field];return;}e.settings[field]=input.valueAsNumber;e.applied=false;e.dirty=true;update(e,run);};}
-      const repairButton=make('button','Repair on canvas',card,{type:'button',class:'btn sm'});repairButton.onclick=()=>{try{const target=getLibrary().find(g=>g.name===(e.candidate?.name||(e.source.name.endsWith('-outline')?e.source.name:`${e.source.name}-outline`)));repair({source:e.source,candidate:e.candidate,settings:e.settings,score:e.score,intent:e.intent,reference:target,targetIdentity:target?JSON.stringify(target):null});}catch(error){status(error.message,true);}};
+      const repairButton=make('button','Repair on canvas',card,{type:'button',class:'btn sm'});repairButton.onclick=()=>{try{const target=getLibrary().find(g=>g.name===(e.candidate?.name||(e.source.variantFamily||e.source.name.endsWith('-outline')?e.source.name:`${e.source.name}-outline`)));repair({source:e.source,candidate:e.candidate,settings:e.settings,score:e.score,intent:e.intent,reference:target?.name===e.source.name?null:target,targetIdentity:target?JSON.stringify(target):null});}catch(error){status(error.message,true);}};
       const learnedButton=make('button','Use learned inset',card,{type:'button',class:'btn sm'});learnedButton.onclick=async()=>{try{const suggestion=await suggestInset(e.source,e.settings.stroke);if(!suggestion){status('No current accepted recovery examples in this group yet.');return;}e.settings.inset=suggestion.inset;card.querySelector(`[aria-label="${CSS.escape(source.name)} inset"]`).value=suggestion.inset;e.dirty=true;await update(e,run);status(`Inset suggested from ${suggestion.count} accepted recovery examples; review before applying.`);}catch(error){status(error.message,true);}};
       const intentLabel=make('label','Acceptance intent',card,{class:'studio-field'}),intent=make('select','',intentLabel,{'aria-label':`${source.name} acceptance intent`});for(const [value,text]of [['unspecified','Unspecified'],['faithful','Recover original'],['redesign','New outline design']])make('option',text,intent,{value});e.intent='unspecified';intent.onchange=()=>e.intent=intent.value;
       e.note=make('p','Waiting…',card,{role:'status'});e.apply=make('button','Apply outline',card,{type:'button',class:'btn sm',disabled:''});e.export=make('button','Download outline ZIP',card,{type:'button',class:'btn sm',disabled:''});
