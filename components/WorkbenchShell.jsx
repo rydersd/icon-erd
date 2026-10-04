@@ -46,7 +46,7 @@ export function WorkbenchShell() {
   <label className="lbl" htmlFor="exportSize">Export px</label><input id="exportSize" type="number" min="16" max="4096" step="1" defaultValue="24" />
   <span className="lbl" id="modeHint"></span>
   <span className="save-state" id="saveState" role="status" aria-live="polite" data-state="saved">Saved</span>
-  <Button className="btn sm" id="revertBtn" title="Put this glyph back to its library original (undo brings your edit back)" data-icon-ui="undo">Reset icon</Button>
+  <Button className="btn sm" id="revertBtn" title="Put this glyph back to its library original (undo brings your edit back)" data-icon-ui="undo">Revert icon</Button>
   <div className="seg" role="group" aria-label="History">
     <Button className="btn sm icon" id="undoBtn" title="Undo (⌘Z)" aria-label="Undo" data-icon-ui="undo"></Button>
     <Button className="btn sm icon" id="redoBtn" title="Redo (⇧⌘Z)" aria-label="Redo" data-icon-ui="redo"></Button>
@@ -105,8 +105,8 @@ export function WorkbenchShell() {
           <label><input id="libraryFamilyView" type="checkbox" /> One icon per EDS family</label>
           <label>Colors <select id="libraryColorMode" defaultValue="original"><option value="original">Keep layer colors</option><option value="single">Single color</option><option value="multicolor">Separate fill / stroke</option></select></label>
           <div className="library-paint-row">
-            <label><span className="paint-preview filled" id="fillPaintPreview" aria-hidden="true" />Fill <input id="libraryFillColor" aria-label="Fill" type="color" defaultValue="#0267e0" /></label>
-            <label><span className="paint-preview outlined" id="strokePaintPreview" aria-hidden="true" />Stroke <input id="libraryStrokeColor" aria-label="Stroke" type="color" defaultValue="#1d2430" /></label>
+            <label>Fill <input id="libraryFillColor" aria-label="Fill" type="color" defaultValue="#0267e0" /></label>
+            <label>Stroke <input id="libraryStrokeColor" aria-label="Stroke" type="color" defaultValue="#1d2430" /></label>
           </div>
           <Button className="btn sm" id="testSolidVariantsBtn">Test solid variants</Button><span className="lbl" id="solidTestProgress" role="status" aria-live="polite"></span>
         </fieldset>

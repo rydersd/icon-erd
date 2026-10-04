@@ -366,10 +366,14 @@ button.glyph-tag { background: transparent; cursor: pointer; }
 
 .library-paint-row { display: flex; align-items: center; gap: 10px; }
 .library-paint-row label { display: inline-flex; align-items: center; gap: 4px; }
-.library-paint-row input[type="color"] { width: 30px; }
-.paint-preview { display: inline-block; width: 12px; height: 12px; flex: none; }
-.paint-preview.filled { background: var(--paint-preview, #0267e0); }
-.paint-preview.outlined { border: 2px solid var(--paint-preview, #1d2430); }
+.library-paint-row input[type="color"] { width: 48px; height: 26px; border: 0; padding: 0; background: none; border-radius: 0; cursor: pointer; }
+.library-paint-row input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.library-paint-row input[type="color"]::-webkit-color-swatch { border: 0; }
+.library-paint-row input[type="color"]::-moz-color-swatch { border: 0; }
+.library-transfer-row { position: relative; width: 100%; }
+.library-transfer-row > #impFileBtn { position: absolute; top: 0; left: 0; }
+.library-transfer-row > .export-options { border: 0; padding: 0; min-width: 0; width: 100%; }
+.library-transfer-row > .export-options > summary { display: flex; width: max-content; margin-left: auto; }
 .measurement-details { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; font-variant-numeric: tabular-nums; }
 .measurement-details output { font-family: ui-monospace, monospace; }
 .measurement-actions { margin-top: 8px; }

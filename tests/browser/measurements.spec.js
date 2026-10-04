@@ -43,9 +43,11 @@ test('fill and stroke use adjacent previews which update from the saved colors',
   const fill = await page.locator('#libraryFillColor').boundingBox(), stroke = await page.locator('#libraryStrokeColor').boundingBox();
   expect(fill.y).toBe(stroke.y);
   await page.locator('#libraryFillColor').fill('#ff0000'); await page.locator('#libraryFillColor').dispatchEvent('change');
-  await expect(page.locator('#fillPaintPreview')).toHaveCSS('background-color', 'rgb(255, 0, 0)');
+  await expect(page.locator('#libraryFillColor')).toHaveValue('#ff0000');
+  await expect(page.locator('#libraryFillColor')).toHaveCSS('border-top-width', '0px');
   await page.locator('#libraryStrokeColor').fill('#00ff00'); await page.locator('#libraryStrokeColor').dispatchEvent('change');
-  await expect(page.locator('#strokePaintPreview')).toHaveCSS('border-top-color', 'rgb(0, 255, 0)');
+  await expect(page.locator('#libraryStrokeColor')).toHaveValue('#00ff00');
+  await expect(page.locator('.library-paint-row input[type="color"]')).toHaveCount(2);
 });
 test('pixel rounding follows export size in transformed paths and never collapses a short range', async ({ page }) => {
   await ready(page);

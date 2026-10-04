@@ -16,7 +16,7 @@ test('fresh launch, Font Awesome controls, remembered library collapse, metadata
   await page.locator('#libSearch').fill('ballot'); await expect(page.locator('.lib-item:visible')).toHaveCount(1);
   expect(errors).toEqual([]);
 });
-test('file import add/overwrite, atomic rejection, and single/all downloads', async ({ page }) => {
+test('file import add/replace library, atomic rejection, and single/all downloads', async ({ page }) => {
   await ready(page);
   const source = await page.evaluate(() => structuredClone(window.__gw.S.lib[0])); source.aliases = ['ballot'];
   await page.locator('#impFile').setInputFiles({ name: 'one.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(source)) });
@@ -30,11 +30,11 @@ test('file import add/overwrite, atomic rejection, and single/all downloads', as
   source.description = 'Updated';
   await page.locator('#impFile').setInputFiles({ name: 'replace.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(source)) });
   await page.locator('#importReplace').check();await page.locator('#confirmImportBtn').click();
-  await expect(page.locator('.lib-item')).toHaveCount(5);
+  await expect(page.locator('.lib-item')).toHaveCount(1);
   await expect.poll(()=>page.evaluate(() => window.__gw.S.lib[0].description)).toBe('Updated');
   await page.locator('#ioText').fill(JSON.stringify([source, { name: 'invalid', layers: [{}] }])); await page.locator('#importBtn').click();
-  await expect(page.locator('#status')).toContainText('Import:'); await expect(page.locator('.lib-item')).toHaveCount(5);
-  for (const [id, count] of [['expOne', 1], ['expAll', 5]]) {
+  await expect(page.locator('#status')).toContainText('Import:'); await expect(page.locator('.lib-item')).toHaveCount(1);
+  for (const [id, count] of [['expOne', 1], ['expAll', 1]]) {
     await page.locator('.export-options').evaluate(el=>el.open=true);const downloadPromise = page.waitForEvent('download'); await page.locator(`#${id}`).click(); const download = await downloadPromise;
     const data = JSON.parse(readLibraryZIP(await readFile(await download.path()))); expect(data.count).toBe(count); expect(data.glyphs).toHaveLength(count);
   }
