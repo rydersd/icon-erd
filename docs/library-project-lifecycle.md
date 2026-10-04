@@ -1,0 +1,9 @@
+# New, Revert and full-library imports
+
+New icon adds one icon to the current set. New library starts an empty set with cleared library tokens/output, components, edit history, deletion trash and organization/revert backups. The old set is retained as a Library versions checkpoint. Empty libraries stay empty after reload; creating an icon afterwards does not resurrect the previous set. Revert icon/library restores imported originals rather than clearing the project.
+
+Import ZIP is left-aligned; Export ZIP is right-aligned at the same height and opens settings at full panel width. Replace entire library removes unrelated icons as well as matching names. Whole-set archives and multi-icon files default to replacement; single icons default to Add. Add retains other artwork and renames colliding incoming names. Incoming library tokens are checked by default for whole-set replacement when present; unchecking starts the new set without prior library properties. Replacement validates geometry, remaps imported component identities, and uses the existing atomic checkpoint restoration transaction, including shipped-icon tombstones. It clears pending single-icon/component/set-style journals so stale artwork or style cannot return after reload.
+
+Fill and Stroke each use a single 48×26 borderless native color control. Native keyboard focus and labels remain; redundant preview chips are removed.
+
+Adversarial self-review covers replacement across three independent ZIP sets, retention of originals and recovery checkpoints, empty-library reload and later icon creation, tokens/history cleanup, atomic rejection of malformed artwork, Add mode, real private packs, and transfer/paint alignment. These are self-review and local/hosted browser checks, not independent approval or native Swift validation. Saved checkpoints remain available across projects deliberately; they are not active artwork or components.

@@ -11,7 +11,7 @@ export function LibraryPanel() {
     <Collapsible.Root className="panel library-panel" open={open} onOpenChange={changeOpen} aria-labelledby="libH">
       <h2 id="libH"><Collapsible.Trigger className="panel-toggle" id="libToggle"><span className="disclosure-arrow" aria-hidden="true">▾</span>Library</Collapsible.Trigger> <span className="h-actions">
         <select id="tplSel" aria-label="Template"><option value="blank">Blank</option><option value="app">App icon</option><option value="document">Document</option><option value="person">Person</option></select>
-        <Button className="btn sm" id="newBtn">New</Button></span></h2>
+        <Button className="btn sm" id="newBtn">New icon</Button></span></h2>
       <Collapsible.Panel id="libBody" keepMounted hidden={!open}>
       <div className="lib-tools">
         <label className="lib-search"><span className="sr">Search glyphs</span><span id="libSearchIcon"></span><input type="search" id="libSearch" placeholder="Search" autoComplete="off" spellCheck="false" /></label>
@@ -39,7 +39,9 @@ export function LibraryPanel() {
       </div>
       <div className="lib-list" id="lib" aria-label="Glyphs"></div>
       <div className="lib-io">
-        <details className="export-options"><summary>Export ZIP</summary>
+        <div className="library-transfer-row">
+        <Button className="btn sm" id="impFileBtn" title="Load a ZIP library or legacy JSON file" data-icon-ui="import">Import ZIP</Button>
+        <details className="export-options"><summary className="btn sm">Export ZIP</summary>
           <div className="export-settings">
             <label htmlFor="exportStructure">Folder structure</label><select id="exportStructure"><option value="group">By primary group</option><option value="flat">Flat — all icons together</option></select>
             <label htmlFor="exportRoot">Root folder (optional)</label><input id="exportRoot" type="text" placeholder="icons" />
@@ -51,16 +53,17 @@ export function LibraryPanel() {
             <Button className="btn sm" id="expAll" data-icon-ui="export">Export all ZIP</Button>
           </div>
         </details>
-        <Button className="btn sm" id="impFileBtn" title="Load a ZIP library or legacy JSON file" data-icon-ui="import">Import ZIP</Button>
+        </div>
         <dialog id="importDialog" className="import-dialog" aria-labelledby="importHeading" aria-describedby="importSummary">
           <h2 id="importHeading">Import icons</h2>
           <p id="importSummary"></p>
-          <label className="row"><input type="checkbox" id="importReplace" /> Replace matching icons</label>
+          <label className="row"><input type="checkbox" id="importReplace" /> Replace entire library</label>
           <label className="row" id="importTokensRow" hidden><input type="checkbox" id="importLibraryTokens" /> Use imported library properties / tokens</label>
-          <p>Replace keeps other icons in your library. Add renames incoming icons when a name is already in use.</p>
+          <p>Replace removes all current icons, components and library settings. The previous library is saved in Library versions. Add keeps existing icons and renames conflicting incoming names.</p>
           <div className="row"><Button className="btn" id="cancelImportBtn">Cancel</Button><Button className="btn" id="confirmImportBtn">Add icons</Button></div>
         </dialog>
-        <div className="row"><Button className="btn sm" id="resetLibraryBtn" title="Restore imported originals; undo restores your edits">Reset library</Button><Button className="btn sm" id="undoLibraryResetBtn" disabled>Undo library reset</Button></div>
+        <div className="row"><Button className="btn sm" id="newLibraryBtn" title="Start an empty library; the current library is saved in Library versions">New library</Button></div>
+        <div className="row"><Button className="btn sm" id="resetLibraryBtn" title="Restore imported originals; undo restores your edits">Revert library</Button><Button className="btn sm" id="undoLibraryResetBtn" disabled>Undo library revert</Button></div>
         <input type="file" id="impFile" accept="application/zip,.zip,application/json,.json" hidden />
       </div>
       </Collapsible.Panel>

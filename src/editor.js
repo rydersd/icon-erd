@@ -305,7 +305,7 @@ function revert() {
   const o = ORIG.get(S.glyph.name);
   if (!o || !isEdited(S.glyph)) return;
   penDraft = null; S.glyph = clone(o); S.sel = []; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
-  commit(); renderAll(); status('Reset to the imported original. Undo brings your edit back.');
+  commit(); renderAll(); status('Reverted to the imported original. Undo brings your edit back.');
 }
 function currentLibraryVersion(name) {
   return { id: `version-${crypto.randomUUID()}`, name, createdAt: Date.now(), current: S.glyph.name,
@@ -334,13 +334,13 @@ async function showLibraryVersions() {
     list.appendChild(row);
   }
 }
-async function restoreLibraryVersion(version) {
+async function restoreLibraryVersion(version, {checkpointName, message} = {}) {
   if (penDraft) finishPen();
   await flushSaves();
   const archive = version.document.glyphs.length ? parseLibraryArchive(JSON.stringify(version.document)) : {glyphs:[],originals:new Map(),components:new Map(),libraryProperties:validateLibraryProperties(version.document.libraryProperties)};
   projectComponents(archive.glyphs,archive.components,core);
   for (const glyph of archive.glyphs) if (core.resolve(glyph).some(layer=>layer.error)) throw new Error(`Invalid geometry in ${glyph.name}`);
-  const safety = currentLibraryVersion(`Before restoring ${version.name}`);
+  const safety = currentLibraryVersion(checkpointName || `Before restoring ${version.name}`);
   const names = new Set(archive.glyphs.map(g=>g.name));
   const records = archive.glyphs.map(g=>({name:g.name,glyph:clone(g),original:archive.originals.get(g.name) || clone(g),savedAt:Date.now()}));
   for (const name of SHIPPED.keys()) if (!names.has(name)) records.push({name,deleted:true,savedAt:Date.now()});
@@ -355,10 +355,19 @@ async function restoreLibraryVersion(version) {
   EDITS.clear();records.forEach(record=>EDITS.set(record.name,record));deletedIcons.clear();records.filter(r=>r.deleted).forEach(r=>deletedIcons.add(r.name));
   S.undo=[];S.redo=[];S.iconHistories={};libraryTrash=[];libraryResetBackup=null;organizationBackup=null;librarySelection.clear();
   $('undoLibraryResetBtn').disabled=true;$('undoOrganizationBtn').disabled=true;
-  try { localStorage.removeItem('gw-open-pending-glyph');localStorage.removeItem('gw-open-pending-components'); } catch {}
+  try { localStorage.removeItem('gw-open-pending-glyph');localStorage.removeItem('gw-open-pending-components');localStorage.removeItem('gw-open-pending-set-style'); } catch {}
+  $('libSearch').value='';$('libFilter').value='all';
   renderLibrary();loadGlyph(Math.max(0,idx(version.current)));setSaveState('saved');
-  status(`Restored ${version.name}. The previous library is retained as a safety checkpoint.`);
+  status(message || `Restored ${version.name}. The previous library is retained as a safety checkpoint.`);
 }
+$('newLibraryBtn').onclick = async () => {
+  const button=$('newLibraryBtn');button.disabled=true;
+  try {
+    await restoreLibraryVersion({name:'New library',current:'',document:{glyphs:[],libraryProperties:null}}, {
+      checkpointName:'Before starting a new library',message:'New empty library. The previous library is saved in Library versions.'});
+  } catch(error) { status(`New library: ${error.message}`,true); }
+  finally { button.disabled=false; }
+};
 $('libraryVersionsBtn').onclick = async()=>{try { await showLibraryVersions();$('libraryVersionsDialog').showModal(); }catch(error){status(error.message,true);} };
 $('saveLibraryVersionBtn').onclick = async()=>{
   const name=$('versionName').value.trim();if(!name){$('versionName').focus();return;}
@@ -368,7 +377,7 @@ $('closeLibraryVersionsBtn').onclick = ()=>$('libraryVersionsDialog').close();
 async function resetLibrary() {
   if (penDraft) finishPen();
   if (!DB.db) { status('Reset needs browser storage so your edits can be restored.', true); return; }
-  try { await saveLibraryVersion('Before resetting library'); } catch(error) { status(error.message,true);return; }
+  try { await saveLibraryVersion('Before reverting library'); } catch(error) { status(error.message,true);return; }
   const current = S.glyph.name;
   const snapshot = { id: 'library-reset', glyphs: clone(S.lib), originals: [...ORIG.values()].map(clone), current };
   try { await DB.run('readwrite', store => store.put(snapshot), 'snapshots'); }
@@ -378,7 +387,7 @@ async function resetLibrary() {
   if(S.libraryProperties)S.lib=S.lib.map(glyph=>({...glyph,setStyle:tokenStyle(S.libraryProperties)}));
   for (const glyph of S.lib) queueSave(glyph.name);
   await flushSaves(); renderLibrary(); loadGlyph(Math.max(0, idx(current))); $('undoLibraryResetBtn').disabled = false;
-  status('Library restored to imported originals. Undo library reset restores your edits.');
+  status('Library reverted to imported originals. Undo library revert restores your edits.');
 }
 async function undoLibraryReset() {
   if (!libraryResetBackup) return;
@@ -3046,8 +3055,6 @@ function renderLibraryTokens() {
   const properties=S.libraryProperties, source=properties?.source;
   const output=properties?.output || DEFAULT_OUTPUT;
   for(const [id,key] of [['libraryVariant','variant'],['libraryColorMode','colorMode'],['libraryFillColor','fillColor'],['libraryStrokeColor','strokeColor'],['libraryOutputProfile','profile']])$(id).value=output[key];
-  $('fillPaintPreview').style.setProperty('--paint-preview',output.fillColor);
-  $('strokePaintPreview').style.setProperty('--paint-preview',output.strokeColor);
   $('libraryFamilyView').checked=output.familyView;$('libraryOutputSizes').value=output.sizes.join(', ');
   $('libraryOutputHint').textContent=output.profile==='menu-bar'?'Black template artwork, transparent background. Editable 18 / 36 px preset.': 'Vector artwork scales from the 24-unit drawing plane. PNG sizes are pixels.';
   $('libraryTokensTitle').textContent=source ? `Library tokens · ${source.name}` : 'Library tokens';
@@ -3184,18 +3191,19 @@ function requestLibraryImport(text, fileName) {
     const matches = archive.glyphs.filter(glyph => idx(glyph.name) >= 0).length;
     pendingImport = { text, fileName };
     $('importSummary').textContent = `${fileName}: ${archive.glyphs.length} icon${archive.glyphs.length === 1 ? '' : 's'}, ${matches} matching existing name${matches === 1 ? '' : 's'}.`;
-    $('importReplace').checked = false;
-    $('confirmImportBtn').textContent = 'Add icons';
+    $('importReplace').checked = data?.scope==='all' || archive.glyphs.length>1;
+    $('importLibraryTokens').checked = $('importReplace').checked && !!archive.libraryProperties;
+    $('confirmImportBtn').textContent = $('importReplace').checked ? 'Replace library' : 'Add icons';
     $('importDialog').showModal();
     $('importReplace').focus();
   } catch (error) { status(`Import: ${error.message}`, true); }
 }
-$('importReplace').onchange = () => { $('confirmImportBtn').textContent = $('importReplace').checked ? 'Replace matching icons' : 'Add icons'; };
+$('importReplace').onchange = () => { $('confirmImportBtn').textContent = $('importReplace').checked ? 'Replace library' : 'Add icons'; };
 $('cancelImportBtn').onclick = () => $('importDialog').close();
 listen($('importDialog'), 'close', () => { pendingImport = null; });
 $('confirmImportBtn').onclick = async () => {
   if (!pendingImport) return;
-  const { text, fileName, report,solidReport } = pendingImport, mode = $('importReplace').checked ? 'overwrite' : 'add', useTokens=$('importLibraryTokens').checked;
+  const { text, fileName, report,solidReport } = pendingImport, mode = $('importReplace').checked ? 'replace' : 'add', useTokens=$('importLibraryTokens').checked;
   pendingImport = null;
   $('importDialog').close();
   if(solidReport){const peers=[];let count=0;for(const entry of solidReport.entries){const at=idx(entry.name);if(at<0)continue;const result={...clone(entry),stale:entry.sourceSignature!==sourceSignature(S.lib[at],core)};if(at===S.cur)S.glyph.solidReview=result;else{peers.push(clone(S.lib[at]));S.lib[at]={...S.lib[at],solidReview:result};}count++;}if(count){commit(peers);for(const glyph of S.lib)if(glyph.solidReview)queueSave(glyph.name);renderLibrary();await flushSaves();}status(`Attached ${count} solid results. Drawings and references retained.`);}
@@ -3215,8 +3223,18 @@ async function importLibraryText(text, fileName, mode = 'add', useTokens = false
     if (archive.components.size) projectComponents(glyphs,archive.components,core);
     const ids=remapSharedForms(glyphs,()=>crypto.randomUUID());
     for(const original of archive.originals.values())for(const {node} of formsIn(original))if(node.component && ids.has(node.component.id))node.component.id=ids.get(node.component.id);
-    result = mergeLibrary(S.lib, glyphs, mode);
+    result = mergeLibrary(mode==='replace' ? [] : S.lib, glyphs, mode==='replace' ? 'add' : mode);
   } catch (error) { status(`Import: ${error.message}`, true); return null; }
+  if (mode==='replace') {
+    const removed=S.lib.length;
+    try {
+      const document=libraryDocument(archive.glyphs,'all',archive.originals,collectComponents(archive.glyphs,core),useTokens ? archive.libraryProperties : null);
+      await restoreLibraryVersion({name:fileName || 'Imported library',current:result.names[0],document}, {
+        checkpointName:`Before replacing library with ${fileName || 'icons'}`,
+        message:`Replaced library with ${result.added} icons from ${fileName || 'JSON'}; ${removed} previous icons retained in Library versions.`});
+      return {...result,removed};
+    } catch(error) { status(`Import: ${error.message}`,true);return null; }
+  }
   if (penDraft) finishPen();
   const current = S.glyph.name;
   try { await saveLibraryVersion(`Before importing ${fileName || 'icons'}`); } catch(error) { status(error.message,true); return null; }
