@@ -21,7 +21,7 @@ test('whole-project ZIP replacements remove unrelated icons, retain originals an
  await page.locator('#libraryVersionsBtn').click();const rows=page.locator('.version-row').filter({hasText:'Before replacing library with project.zip'});await rows.nth(1).getByRole('button',{name:'Restore',exact:true}).click();await expect.poll(()=>page.evaluate(()=>window.__gw.S.lib.map(g=>g.name))).toEqual(['eds-one','eds-two']);
 });
 test('Import and Export align; paint uses a single borderless color rectangle per field',async({page})=>{
- await ready(page);const a=await page.locator('#impFileBtn').boundingBox(),b=await page.locator('.export-options > summary').boundingBox();expect(a.y).toBe(b.y);expect(a.x+a.width).toBeLessThan(b.x);
+ await ready(page);await expect(page.locator('header h1')).toContainText('ICONERD');await expect(page.locator('.app-version')).toHaveText(/^0\.1 r\d+$/);const a=await page.locator('#impFileBtn').boundingBox(),b=await page.locator('.export-options > summary').boundingBox();expect(a.y).toBe(b.y);expect(a.x+a.width).toBeLessThan(b.x);
  await expect(page.locator('.paint-preview')).toHaveCount(0);await expect(page.locator('#libraryFillColor')).toHaveCSS('border-top-width','0px');await expect(page.locator('#libraryFillColor')).toHaveCSS('width','48px');
  await page.locator('.export-options > summary').click();await expect(page.locator('#expAll')).toBeVisible();await expect(page.locator('#impFileBtn')).toBeVisible();
 });

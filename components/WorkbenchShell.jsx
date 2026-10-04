@@ -27,7 +27,7 @@ export function WorkbenchShell() {
   }, [openPane]);
   return <>
 <header className="bar">
-  <h1>ICONERD</h1><a className="lbl credits-link" href="/third-party-notices.txt" target="_blank" rel="noreferrer">Credits</a>
+  <h1>ICONERD <span className="app-version" aria-label={`Version ${process.env.NEXT_PUBLIC_ICONERD_VERSION}`}>{process.env.NEXT_PUBLIC_ICONERD_VERSION}</span></h1><a className="lbl credits-link" href="/third-party-notices.txt" target="_blank" rel="noreferrer">Credits</a>
   <span className="glyph-name mono" id="hdrName"></span>
   <span className="glyph-tag" id="hdrProv"></span><Button className="glyph-tag edited" id="hdrEdited" hidden aria-label="Scrub edit history" aria-haspopup="dialog" aria-controls="historyPalette" aria-expanded="false">edited</Button>
   <div id="historyPalette" className="floating-panel history-palette" role="dialog" aria-label="Edit history" hidden>

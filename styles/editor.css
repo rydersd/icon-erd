@@ -408,4 +408,5 @@ button.glyph-tag { background: transparent; cursor: pointer; }
 .shape-toolbar .more { position: fixed; z-index: 50; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 5px 16px #0003; width: min(430px, calc(100vw - 32px)); }
 
 .numeric-scrub-label { cursor: ew-resize; }
+.app-version { font-size: 11px; font-weight: 400; letter-spacing: 0; color: var(--text-2); white-space: nowrap; }
 .numeric-scrubbing, .numeric-scrubbing * { cursor: ew-resize !important; user-select: none !important; }
