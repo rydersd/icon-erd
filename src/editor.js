@@ -1,3 +1,5 @@
+import {gradientSVG,referenceSVG} from './app-icon-paint.js';
+import {createAppIconStudio} from './app-icon-studio.js';
 import { formsIn, findSharedForms, linkSharedForms, publishSharedForms, remapSharedForms, collectComponents, projectComponents, makeComponent } from './shared-forms.js';
 import { mountControlTooltips } from './control-tooltips.js';
 import { createGlyphCore } from './glyph-core.js';
@@ -78,6 +80,7 @@ try {
 } catch {}
 let penDraft = null; // { s } while the pen is placing anchors
 let areaPolygon = null;
+let appStudio=null;
 try { const scope=localStorage.getItem('gw-area-scope');if(['anchors','objects'].includes(scope))S.areaScope=scope; }catch{}
 try { const mode=localStorage.getItem('gw-area-mode');if(['marquee','lasso','polygon'].includes(mode))S.areaMode=mode; }catch{}
 function idx(name) { return S.lib.findIndex(g => g.name === name); }
@@ -738,6 +741,7 @@ function leafList() {
 }
 function renderCanvas() {
   applyView();
+  $('gReference').innerHTML=referenceSVG(S.glyph,true);
   const gL = $('gLayers'); gL.innerHTML = '';
   gL.setAttribute('opacity', S.show.original && ORIG.has(S.glyph.name) ? 0.45 : 1);
   const W = S.rt.weight;
@@ -745,6 +749,8 @@ function renderCanvas() {
     if (!L.visible) return;
     const col = L.color || ROLE_CANVAS[L.role] || 'var(--text)';
     const paint=paintColors(L,S.glyph,{colors:ROLE_CANVAS,fallback:col});
+    const gradient=gradientSVG(L,S.glyph,`canvas-fill-${li}`);
+    if(gradient){gL.insertAdjacentHTML('beforeend',`<defs>${gradient.defs}</defs>`);paint.fill=gradient.fill;}
     const dim = S.iso && !(S.iso.l === li && S.iso.p === null) ? 0.15 : 1;
     for (const part of L.parts) {
       const a = { d: part.d, fill: 'none', 'fill-rule': 'nonzero', opacity: L.opacity * dim };
@@ -763,6 +769,7 @@ function renderCanvas() {
     if (fm) {
       const col = L.color || ROLE_CANVAS[L.role || 'primary'] || 'var(--text)', paint = L.paint || 'stroke';
       const colors=paintColors(L,S.glyph,{colors:ROLE_CANVAS,fallback:col});
+      const gradient=gradientSVG(S.resolved[S.iso.l],S.glyph,`canvas-fill-${S.iso.l}`);if(gradient)colors.fill=gradient.fill;
       const items = [].concat(fm.closed ? [{ d: core.itemD(fm.closed) }] : [], fm.open.map(o => ({ d: core.itemD(o), cap: o.data && o.data.cap })));
       for (const it of items) {
         const a = { d: it.d, fill: paint !== 'stroke' ? colors.fill : 'none', 'data-iso': '1' };
@@ -864,6 +871,7 @@ function renderOverlays() {
   renderAxes(scopes);
   renderGeometryInspection();
   renderMeasurements();
+  appStudio?.render();
   $('cleanupSelectedBtn').disabled=!S.selectedAnchors.length && S.anchor==null;
   $('cleanupSelectionHint').textContent=S.selectedAnchors.length ? `${S.selectedAnchors.length} selected anchors. Undo restores the original.` : 'Select anchors to clean up. Undo restores the original.';
   renderIsoBar();
@@ -2584,11 +2592,12 @@ function renderInspector() {
 const SIZES = [12, 16, 20, 24, 32, 48];
 function previewSVG(size, extraClass, glyph=S.glyph, resolved=S.resolved) {
   const W = S.rt.weight;
-  const parts = [];
+  const parts = [referenceSVG(glyph)],defs=[];
   for (const [layerIndex, L] of resolved.entries()) {
     if (!L.visible || !L.d) continue;
     const col = L.color || core.ROLE_VARS[L.role] || 'currentColor';
     const colors=paintColors(L,glyph,{colors:core.ROLE_VARS,fallback:col});
+    const gradient=gradientSVG(L,glyph,`preview-${glyph.name}-${size}-${extraClass}-${layerIndex}`);if(gradient){defs.push(gradient.defs);colors.fill=gradient.fill;}
     for (const part of L.parts) {
       let d = part.d, w = W;
       if (S.rt.hint && size <= 20) { const h = core.hintD(d, size, W, L.paint); d = h.d; w = h.weight; }
@@ -2598,7 +2607,7 @@ function previewSVG(size, extraClass, glyph=S.glyph, resolved=S.resolved) {
       if (stroke) parts.push(core.strokeTipsSVG(glyph, d, { mode: S.rt.hint && size <= 20 ? 'baked' : 'runtime', weight: w, color: colors.stroke, opacity: L.opacity, layerIndex }));
     }
   }
-  return `<svg class="icon ${extraClass || ''}" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${parts.join('')}</svg>`;
+  return `<svg class="icon ${extraClass || ''}" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${defs.length?`<defs>${defs.join('')}</defs>`:''}${parts.join('')}</svg>`;
 }
 let outputPreviewCache=null;
 function renderPreviews() {
@@ -3278,6 +3287,8 @@ listen(document, 'keydown', e => {
 });
 const resizeObserver = new ResizeObserver(() => { if (!S.glyph || disposed) return; renderGrid(); renderRulers(); renderSelection(); });
 resizeObserver.observe(cv);
+
+appStudio=createAppIconStudio({root:$('appIconStudio'),getGlyph:()=>S.glyph,getLayer:()=>primarySel()?.l ?? 0,setLayer:l=>{S.sel=[{l,p:null}];S.selectedAnchors=[];S.anchor=null;refresh(true);},commit:()=>commit(),refresh:()=>refresh(true),status});
 
 // ---------- boot: saved edits applied, then the last-open glyph (or camera) loaded ----------
 window.__gw = { S, core, refresh, group, addShape, commit, setTool, setOrigin, getNode, fullMatrix, loadGlyph, idx, paintUI, isoEnter, isoExit,

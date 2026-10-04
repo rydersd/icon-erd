@@ -1,0 +1,34 @@
+import {test,expect} from '@playwright/test';
+const setup=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await page.evaluate(async()=>{const w=window.__gw;await w.importLibraryText(JSON.stringify({name:'app-paint',kind:'app-icon',exportSize:1024,layers:[{id:'background',paint:'fill',node:{shape:'rect',x:2,y:2,w:20,h:20}}]}),'app.json');});};
+test('app studio linear/radial gradients agree across canvas, previews, SVG, Undo and saved documents',async({page})=>{
+ await setup(page);await page.getByLabel('App icon fill type',{exact:true}).selectOption('linear');
+ await expect(page.locator('#gLayers linearGradient')).toHaveCount(1);await expect(page.locator('#pvLight linearGradient')).toHaveCount(6);
+ await page.getByLabel('Stop 2 color',{exact:true}).fill('#ff2200');await page.getByLabel('Stop 2 color',{exact:true}).press('Tab');
+ await expect(page.locator('#gLayers stop').last()).toHaveAttribute('stop-color','#ff2200');
+ await page.getByRole('button',{name:'Add gradient stop',exact:true}).click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].fillGradient.stops.length)).toBe(3);
+ await page.locator('#expBaked').click();await expect(page.locator('#ioText')).toHaveValue(/linearGradient/);
+ const pixels=await page.evaluate(async()=>{const svg=document.querySelector('#ioText').value,url=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'})),image=new Image();image.src=url;await image.decode();const c=document.createElement('canvas');c.width=24;c.height=24;const ctx=c.getContext('2d');ctx.drawImage(image,0,0,24,24);URL.revokeObjectURL(url);return [[4,4],[19,19]].map(([x,y])=>[...ctx.getImageData(x,y,1,1).data]);});
+ expect(pixels[0][2]).toBeGreaterThan(pixels[1][2]);expect(pixels[1][0]).toBeGreaterThan(pixels[0][0]);
+ await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].fillGradient.stops.length)).toBe(2);
+ await page.getByLabel('App icon fill type',{exact:true}).selectOption('radial');await expect(page.locator('#gLayers radialGradient')).toHaveCount(1);
+ await page.evaluate(()=>window.__gw.flushSaves());await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.getByLabel('App icon fill type',{exact:true})).toHaveValue('radial');
+ await page.locator('#drawingMode').selectOption('interface');await expect(page.locator('#appIconStudio')).toBeHidden();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].fillGradient.type)).toBe('radial');
+ await page.locator('#undoBtn').click();await expect(page.locator('#appIconStudio')).toBeVisible();
+});
+test('bitmap imports behind vectors with explicit placement, opacity and opt-in export and survives Undo/reload',async({page})=>{
+ await setup(page);
+ const src=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=8;c.height=4;const ctx=c.getContext('2d');ctx.fillStyle='#0088ff';ctx.fillRect(0,0,8,4);return c.toDataURL();});
+ await page.getByLabel('Import bitmap reference',{exact:true}).setInputFiles({name:'reference.png',mimeType:'image/png',buffer:Buffer.from(src.split(',')[1],'base64')});
+ await expect(page.locator('#gReference image')).toHaveAttribute('width','24');await expect(page.locator('#gReference image')).toHaveAttribute('height','12');
+ await expect(page.getByLabel('Reference x',{exact:true})).toBeDisabled();
+ await page.getByLabel('Lock reference placement',{exact:true}).uncheck();await page.getByLabel('Reference x',{exact:true}).fill('1');await page.getByLabel('Reference x',{exact:true}).press('Tab');
+ await expect(page.locator('#gReference image')).toHaveAttribute('x','1');
+ await page.getByLabel('Reference opacity',{exact:true}).fill('0.6');await page.getByLabel('Reference opacity',{exact:true}).press('Tab');await expect(page.locator('#gReference image')).toHaveAttribute('opacity','0.6');
+ await page.locator('#expBaked').click();await expect(page.locator('#ioText')).not.toHaveValue(/<image/);
+ await page.getByLabel('Include reference in export',{exact:true}).check();await page.locator('#expBaked').click();await expect(page.locator('#ioText')).toHaveValue(/data-reference-image/);
+ const download=page.waitForEvent('download');await page.locator('#downloadPng').click();const png=await download;const fs=await import('node:fs/promises');const bytes=await fs.readFile(await png.path());expect(bytes.readUInt32BE(16)).toBe(1024);expect(bytes.readUInt32BE(20)).toBe(1024);
+ await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.referenceImage.includeInExport)).toBe(false);
+ await page.getByLabel('Show reference',{exact:true}).uncheck();await expect(page.locator('#gReference image')).toHaveCount(0);await page.locator('#undoBtn').click();await expect(page.locator('#gReference image')).toHaveCount(1);
+ await page.evaluate(()=>window.__gw.flushSaves());await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('#gReference image')).toHaveAttribute('href',src);
+ await page.getByRole('button',{name:'Remove reference',exact:true}).click();await expect(page.locator('#gReference image')).toHaveCount(0);await page.locator('#undoBtn').click();await expect(page.locator('#gReference image')).toHaveCount(1);
+});
