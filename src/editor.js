@@ -1,5 +1,6 @@
 import {gradientSVG,referenceSVG} from './app-icon-paint.js';
 import {createAppIconStudio} from './app-icon-studio.js';
+import {mountNumericScrub} from './numeric-scrub.js';
 import { formsIn, findSharedForms, linkSharedForms, publishSharedForms, remapSharedForms, collectComponents, projectComponents, makeComponent } from './shared-forms.js';
 import { mountControlTooltips } from './control-tooltips.js';
 import { createGlyphCore } from './glyph-core.js';
@@ -36,6 +37,7 @@ let disposed = false;
 const listen = (target, event, handler, options = {}) => target.addEventListener(event, handler, { ...options, signal: abort.signal });
 const core = createGlyphCore(paper);
 mountControlTooltips(root, listen);
+mountNumericScrub(root, listen);
 const $ = id => root.querySelector(`#${id}`);
 const SVGNS = 'http://www.w3.org/2000/svg';
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -2305,6 +2307,7 @@ function field(parent, label, value, onInput, opts = {}) {
   else if (opts.text) { inp = document.createElement('input'); inp.type = 'text'; inp.value = value == null ? '' : value; inp.oninput = () => { onInput(inp.value); refresh(false); }; inp.onchange = () => { commit(); refresh(true); }; if (opts.mono) inp.className = 'mono'; }
   else {
     inp = document.createElement('input'); inp.type = 'number'; inp.step = opts.step || (S.snap || 0.1); inp.value = value == null ? '' : value;
+    inp.dataset.scrubLive = 'true';
     inp.oninput = () => { const v = parseFloat(inp.value); if (isFinite(v)) { onInput(v); refresh(false); } };
     inp.onchange = () => { commit(); refresh(false); renderTree(); };
   }
