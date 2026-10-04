@@ -1,3 +1,4 @@
+import {validateGradient,validateReferenceImage} from './app-icon-paint.js';
 import {validateLibraryProperties} from './library-tokens.js';
 import {validateOutput} from './library-output.js';
 // Versioned JSON interchange; no dependency on the DOM, storage, or a particular icon vendor.
@@ -19,6 +20,7 @@ export function normalizeGlyph(input) {
   if (!input || typeof input !== 'object' || typeof input.name !== 'string' || !input.name.trim()) throw new Error('Each icon needs a name');
   if (!Array.isArray(input.layers) || !input.layers.length || input.layers.length > 128) throw new Error(`${input.name}: expected 1–128 layers`);
   const glyph = clone(input);
+  if(glyph.referenceImage!=null)glyph.referenceImage=validateReferenceImage(glyph.referenceImage);
   if(glyph.solidReview!=null){const review=glyph.solidReview;if(!['candidate','approved','needs-review'].includes(review.status) || typeof review.sourceSignature!=='string' || review.sourceSignature.length>2000000 || (['candidate','approved'].includes(review.status) && !review.recipe) || (review.iou!=null && (!Number.isFinite(review.iou) || review.iou<0 || review.iou>1.0001)) || (review.topology!=null && typeof review.topology!=='boolean') || (review.recipe && (!['outside','center','inside'].includes(review.recipe.edge) || !['preserve','fill'].includes(review.recipe.holes))) || (review.reason!=null && typeof review.reason!=='string'))throw new Error(`${glyph.name}: invalid solid review`);}
   if(glyph.output!=null)glyph.output=validateOutput(glyph.output);
   if (glyph.aliases != null && (!Array.isArray(glyph.aliases) || !glyph.aliases.every(term => typeof term === 'string'))) throw new Error(`${glyph.name}: search terms must be strings`);
@@ -82,6 +84,7 @@ export function normalizeGlyph(input) {
   for (const [index, layer] of glyph.layers.entries()) {
     if (!layer || typeof layer !== 'object') throw new Error(`${glyph.name}: invalid layer`);
     if (layer.role != null && !['primary', 'secondary', 'accent'].includes(layer.role)) throw new Error(`${glyph.name}: invalid color role`);
+    if(layer.fillGradient!=null)layer.fillGradient=validateGradient(layer.fillGradient);
     if (layer.paint != null && !['stroke', 'fill', 'both'].includes(layer.paint)) throw new Error(`${glyph.name}: invalid paint mode`);
     for(const key of ['color','fillColor','strokeColor'])if(layer[key]!=null && !/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(layer[key]))throw new Error(`${glyph.name}: ${key} must be a hex color`);
     if (layer.opacity != null && (!Number.isFinite(layer.opacity) || layer.opacity < 0 || layer.opacity > 1)) throw new Error(`${glyph.name}: invalid opacity`);

@@ -1,3 +1,4 @@
+import {gradientSVG,referenceSVG} from './app-icon-paint.js';
 import {paintColors} from './library-output.js';
 /* Shared Paper.js geometry evaluator for the editor and headless tests. */
 export function createGlyphCore(paper) {
@@ -661,7 +662,7 @@ export function createGlyphCore(paper) {
       for (const p of r.open) if (p.data.cap) (byCap[p.data.cap] = byCap[p.data.cap] || []).push(itemD(p));
       for (const cap in byCap) parts.push({ d: byCap[cap].join(''), cap });
       return {
-        id: layer.id, name: layer.name, role: layer.role || 'primary', paint: layer.paint || 'stroke', color: layer.color || null, fillColor:layer.fillColor || null,strokeColor:layer.strokeColor || null,
+        id: layer.id, name: layer.name, role: layer.role || 'primary', paint: layer.paint || 'stroke', color: layer.color || null, fillColor:layer.fillColor || null,strokeColor:layer.strokeColor || null,fillGradient:layer.fillGradient || null,
         opacity: layer.opacity == null ? 1 : layer.opacity, visible: layer.visible !== false,
         d: parts.map(p => p.d).join(''), parts, error: r.error || null,
       };
@@ -722,11 +723,14 @@ export function createGlyphCore(paper) {
     const weight = opts.weight != null ? opts.weight : (glyph.setStyle?.thickness ?? glyph.weight ?? 1.2);
     const layers = opts.resolved || resolve(glyph);
     const colours = Object.assign({}, ROLE_DEFAULTS, opts.colors || {});
-    const body = [];
+    const body = [],defs=[];
+    if(!opts.mono)body.push(referenceSVG(glyph));
     for (const [layerIndex, L] of layers.entries()) {
       if (!L.visible || !L.d) continue;
       const col = L.color || (mode === 'baked' ? (opts.mono ? '#000' : colours[L.role] || '#000') : ROLE_VARS[L.role] || 'currentColor');
       const paint=paintColors(L,glyph,{mode,mono:opts.mono,colors:mode==='baked'?colours:ROLE_VARS,fallback:col});
+      const gradient=gradientSVG(L,glyph,`export-${glyph.name}-${layerIndex}`,opts.mono);
+      if(gradient){defs.push(gradient.defs);paint.fill=gradient.fill;}
       for (const part of L.parts) {
         const stroke = L.paint === 'stroke' || L.paint === 'both';
         const fill = L.paint === 'fill' || L.paint === 'both';
@@ -745,7 +749,7 @@ export function createGlyphCore(paper) {
         if (stroke) body.push(strokeTipsSVG(glyph, part.d, { mode, weight, color: paint.stroke, opacity: L.opacity, layerIndex }));
       }
     }
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${opts.size || glyph.exportSize || 24}" height="${opts.size || glyph.exportSize || 24}"${glyph.name ? ` data-icon="${esc(glyph.name)}"` : ''}>${body.join('')}</svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${opts.size || glyph.exportSize || 24}" height="${opts.size || glyph.exportSize || 24}"${glyph.name ? ` data-icon="${esc(glyph.name)}"` : ''}>${defs.length?`<defs>${defs.join('')}</defs>`:''}${body.join('')}</svg>`;
   }
 
   // ---------- stats ----------

@@ -388,3 +388,11 @@ button.glyph-tag { background: transparent; cursor: pointer; }
 .shape-toolbar .more-forms { min-width: 110px; }
 .shape-toolbar .more-forms > summary { padding: 6px; font-size: 11px; }
 .shape-toolbar .more { grid-template-columns: repeat(auto-fit, minmax(75px, 1fr)); max-width: 430px; padding: 4px; }
+
+#appIconStudio { display: flex; flex-direction: column; gap: 12px; }
+#appIconStudio[hidden] { display: none; }
+.studio-fields { display: grid; gap: 8px; }
+.studio-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.studio-field input[type=number] { width: 85px; }
+.studio-field select { max-width: 170px; }
+.gradient-stop { min-width: 0; margin: 0; border: 1px solid var(--border); padding: 8px; display: grid; gap: 6px; }

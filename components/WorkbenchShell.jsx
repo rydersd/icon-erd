@@ -78,6 +78,7 @@ export function WorkbenchShell() {
         <p className="lbl" id="cleanupSelectionHint">Select anchors to clean up. Undo restores the original.</p>
       </div>
     </details>
+    <div id="appIconStudio" hidden></div>
     <LibraryPanel />
     <details className="panel set-settings" aria-label="Library properties" open>
       <summary id="libraryTokensTitle">Library tokens</summary>
@@ -173,7 +174,7 @@ export function WorkbenchShell() {
         <svg id="rulerLeft" className="ruler left" xmlns="http://www.w3.org/2000/svg" aria-label="Left ruler: drag right to add a vertical guide"></svg>
         <svg id="canvas" xmlns="http://www.w3.org/2000/svg" tabIndex="0" aria-label="Glyph canvas, 24 by 24 units">
           <rect id="artboard" x="0" y="0" width="24" height="24" fill="var(--canvas-bg)"></rect>
-          <g id="gGrid"></g><g id="gKey"></g><g id="gOrig"></g><g id="gLayers"></g><g id="gIso"></g><g id="gForms"></g><g id="gGhost" pointerEvents="none"></g><g id="gCut"></g><g id="gSym"></g><g id="gGuides"></g><g id="gPoints" pointerEvents="none"></g><g id="gSel"></g>
+          <g id="gGrid"></g><g id="gKey"></g><g id="gOrig"></g><g id="gReference" pointerEvents="none"></g><g id="gLayers"></g><g id="gIso"></g><g id="gForms"></g><g id="gGhost" pointerEvents="none"></g><g id="gCut"></g><g id="gSym"></g><g id="gGuides"></g><g id="gPoints" pointerEvents="none"></g><g id="gSel"></g>
         </svg>
       </div></div>
       <div className="canvas-tools view-controls" aria-label="View controls">
