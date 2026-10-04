@@ -70,9 +70,9 @@ export function WorkbenchShell() {
     <details className="panel tool-settings" data-collapse="tool-settings" open>
       <summary>Contextual Tool Settings</summary>
       <div className="pad">
-        <label className="cleanup-tolerance" htmlFor="cleanupTolerance">Cleanup tolerance <input id="cleanupTolerance" type="number" min="0.001" max="2" step="0.001" defaultValue="0.03" /> units</label>
+        <label className="cleanup-tolerance" htmlFor="cleanupTolerance">Cleanup tolerance <input id="cleanupTolerance" type="number" min="0.001" step="0.001" defaultValue="0.03" /> units</label>
         <label className="cleanup-tolerance" htmlFor="mergeDistance">Merge distance <input id="mergeDistance" type="number" min="1" max="64" step="1" defaultValue="8" /> screen px</label>
-        <div className="row cleanup-presets" role="group" aria-label="Cleanup tolerance presets"><Button className="btn sm" data-cleanup-tolerance="0.03">0.03</Button><Button className="btn sm" data-cleanup-tolerance="0.1">0.1</Button><Button className="btn sm" data-cleanup-tolerance="0.25">0.25</Button><Button className="btn sm" data-cleanup-tolerance="0.5">0.5</Button></div>
+        <div className="row cleanup-presets" role="group" aria-label="Cleanup tolerance presets"><Button className="btn sm" data-cleanup-tolerance="0.03">0.03</Button><Button className="btn sm" data-cleanup-tolerance="0.1">0.1</Button><Button className="btn sm" data-cleanup-tolerance="0.25">0.25</Button><Button className="btn sm" data-cleanup-tolerance="0.5">0.5</Button><Button className="btn sm" data-cleanup-tolerance="1">1</Button><Button className="btn sm" data-cleanup-tolerance="5">5</Button></div>
         <p className="lbl">Maximum outline deviation on the 24-unit canvas. Higher values allow more simplification.</p>
         <Button className="btn sm" id="cleanupSelectedBtn" disabled>Cleanup selected anchors</Button>
         <p className="lbl" id="cleanupSelectionHint">Select anchors to clean up. Undo restores the original.</p>
@@ -140,13 +140,13 @@ export function WorkbenchShell() {
   <div className="col-centre">
     <section className="panel" aria-label="Canvas">
       <div className="canvas-tools">
-        <div className="row"><span className="lbl">Tool</span>
+        <div className="row primary-tool-row"><span className="lbl">Tool</span>
           <div className="seg" role="group" aria-label="Tool"><Button className="btn sm icon" data-tool="select" data-control-tooltip="Select (V)" aria-label="Select" title="Select (V)" data-icon-ui="select"></Button><Button className="btn sm icon" data-tool="direct" data-control-tooltip="Direct selection (A)" aria-label="Direct selection" title="Direct selection (A)" data-icon-ui="direct"></Button><Button className="btn sm icon" data-tool="pen" data-control-tooltip="Pen (P)" aria-label="Pen" title="Pen (P): click an outline to add a point; Alt-click an anchor to remove it; click empty space to draw" data-icon-ui="pen"></Button></div>
           <div className="seg" role="group" aria-label="Area selection"><Button className="btn sm icon" id="areaSelectBtn" aria-label="Marquee selection" aria-pressed="false" data-control-tooltip="Marquee selection" data-icon-ui="marquee"></Button><Button className="btn sm icon" id="areaSelectToggle" aria-label="Choose area selection tool" aria-haspopup="menu" aria-expanded="false" data-control-tooltip="Choose marquee, lasso or polygon lasso" data-icon-ui="chevron"></Button></div>
           <div id="areaSelectionMenu" className="floating-panel item-menu" role="menu" aria-label="Area selection tools" hidden><div role="group" aria-label="Selection shape"><Button className="menu-item" role="menuitemradio" data-area-choice="marquee" aria-checked="true" data-icon-ui="marquee">Marquee</Button><Button className="menu-item" role="menuitemradio" data-area-choice="lasso" aria-checked="false" data-icon-ui="lasso">Lasso</Button><Button className="menu-item" role="menuitemradio" data-area-choice="polygon" aria-checked="false" data-icon-ui="polygon-lasso">Polygon lasso</Button></div><div role="separator" /><div role="group" aria-label="Selection target"><Button className="menu-item" role="menuitemradio" data-area-scope="anchors" aria-checked="true">Select anchors</Button><Button className="menu-item" role="menuitemradio" data-area-scope="objects" aria-checked="false">Select objects</Button></div></div>
-          <span className="lbl">Handles</span>
-          <div className="seg" role="group" aria-label="Handle mode"><Button className="btn sm" data-hmode="shape" title="Edit the form's own parameters" data-icon-ui="path">Shape</Button><Button className="btn sm" data-hmode="transform" title="Rotate / scale about the anchor point (T)" data-icon-ui="transform">Transform</Button></div></div>
         <div className="palette shape-toolbar" id="palette" role="group" aria-label="Shapes"></div>
+          <div className="handle-tools"><span className="lbl">Handles</span>
+          <div className="seg" role="group" aria-label="Handle mode"><Button className="btn sm" data-hmode="shape" title="Edit the form's own parameters" data-icon-ui="path">Shape</Button><Button className="btn sm" data-hmode="transform" title="Rotate / scale about the anchor point (T)" data-icon-ui="transform">Transform</Button></div></div></div>
         <div className="canvas-options" data-expanded={drawingControls}>
         <Button className="btn sm canvas-options-toggle" aria-expanded={drawingControls} aria-controls="canvasOptions" onClick={() => setDrawingControls(!drawingControls)}><span className="disclosure-arrow" aria-hidden="true">▾</span>Drawing controls</Button>
         <div id="canvasOptions" className="canvas-options-content">
