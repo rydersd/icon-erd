@@ -1,3 +1,6 @@
+import {compareMasks,svgMask} from './inset-conversion.js';
+import {createGuidedRepair} from './guided-repair.js';
+import {exampleState,learnedInset,geometryIdentity,contentHashes} from './reconstruction-records.js';
 import {strokeWeight,libraryStyle} from './stroke-weight.js';
 import {createInsetReview} from './inset-review.js';
 import {gradientSVG,referenceSVG} from './app-icon-paint.js';
@@ -36,6 +39,7 @@ export function mountEditor(root) {
 const project = new paper.Project();
 const abort = new AbortController();
 let disposed = false;
+let guidedRepair=null,repairContext=null;
 const listen = (target, event, handler, options = {}) => target.addEventListener(event, handler, { ...options, signal: abort.signal });
 const core = createGlyphCore(paper);
 mountControlTooltips(root, listen);
@@ -129,7 +133,9 @@ function isEdited(g) { const o = ORIG.get(g.name); return !o || JSON.stringify(o
 function setSaveState(state, detail) {
   const el = $('saveState'); el.dataset.state = state;
   const n = S.lib.filter(isEdited).length, edited = n ? ` · ${n} edited` : '';
-  el.textContent = state === 'saved' ? 'Saved' + edited : state === 'saving' ? 'Saving…' : state === 'unsaved' ? 'Unsaved changes'
+  if(guidedRepair?.active && state==='saved')state='draft';
+  el.dataset.state=state;
+  el.textContent = state === 'draft' ? 'Repair draft · library unchanged' : state === 'saved' ? 'Saved' + edited : state === 'saving' ? 'Saving…' : state === 'unsaved' ? 'Unsaved changes'
     : state === 'nostore' ? 'Not saving: browser storage unavailable — use Export' : 'Save failed — use Export';
   el.title = state === 'saved' ? 'Every edit is kept in this browser (IndexedDB) and survives a reload. Export to move them elsewhere.' : (detail ? String(detail.message || detail) : '');
 }
@@ -220,12 +226,14 @@ function scrubIconHistory(position) {
   } finally { scrubbingIcon = false; }
 }
 function saveHistory() {
+  if(guidedRepair?.active)return;
   if (!DB.db) return;
   S.components = collectComponents(S.lib,core); renderComponents();
   const snapshot = { id: 'edit-history', undo: clone(S.undo), redo: clone(S.redo), iconHistories: clone(S.iconHistories) };
   DB.run('readwrite', (store)=>{ store.put({id:'component-definitions',components:[...S.components.values()].map(clone)}); return store.put(snapshot); }, 'snapshots').catch(error=>status(`Undo history could not be saved: ${error.message}`,true));
 }
 function commit(peerHistory = [], libraryBefore) {
+  if(guidedRepair?.active){ensureLayerNames(S.glyph);guidedRepair.recordCommit();updateHistoryBtns();return;}
   if(S.libraryProperties)S.glyph.setStyle=libraryStyle(S.glyph,tokenStyle(S.libraryProperties));
   if(S.libraryProperties?.output)S.glyph.output=clone(S.libraryProperties.output);
   if(S.glyph.solidReview)S.glyph.solidReview.stale=S.glyph.solidReview.sourceSignature!==sourceSignature(S.glyph,core);
@@ -276,6 +284,7 @@ function storeCurrent() {
   queueSave(S.glyph.name);
 }
 function restoreHistory(from,to) {
+  if(guidedRepair?.active){guidedRepair.history(from===S.redo);updateHistoryBtns();return;}
   if(!from.length)return;
   if(insetApplyActive)return;
   penDraft=null;
@@ -298,6 +307,7 @@ function restoreHistory(from,to) {
   for(const peer of entry.peers){const at=idx(peer.name);if(at>=0){S.lib[at]=clone(peer);queueSave(peer.name);updateLibItem(peer.name);}}
   const oldWeight=strokeWeight(S.glyph);
   S.glyph=JSON.parse(entry.glyph);if(S.libraryProperties)S.glyph.setStyle=libraryStyle(S.glyph,tokenStyle(S.libraryProperties));if(S.libraryProperties?.output)S.glyph.output=clone(S.libraryProperties.output);lastSnap=JSON.stringify(S.glyph);storeCurrent();
+  if(S.glyph.strokeCap)S.rt.cap=S.glyph.strokeCap;if(S.glyph.strokeJoin)S.rt.join=S.glyph.strokeJoin;
   const restoredWeight=strokeWeight(S.glyph);
   if(oldWeight!==restoredWeight)S.rt.weight=restoredWeight;
   journalSharedChanges(entry.peers.map(g=>g.name));
@@ -326,24 +336,38 @@ async function restoreLibraryIconHistory(from,to) {
     renderLibrary();loadGlyph(Math.max(0,idx(entry.glyph?entry.name:current===entry.name?entry.sourceName:current)));saveHistory();setSaveState('saved');
   } finally {insetApplyActive=false;updateHistoryBtns();}
 }
-async function applyInsetCandidate(candidate,source) {
+async function applyInsetCandidate(candidate,source,correction=null,intent='unspecified') {
   if(insetApplyActive)throw Error('An outline change is already being saved.');
   insetApplyActive=true;
   try {
     const libraryBefore=S.lib,sourceBefore=JSON.stringify(S.lib[idx(source.name)]),targetBefore=idx(candidate.name)>=0?JSON.stringify(S.lib[idx(candidate.name)]):null;
+    if(!correction){
+      const reference=idx(candidate.name)>=0?clone(S.lib[idx(candidate.name)]):null;
+      const preview=g=>core.toSVG(g,{mode:'baked',mono:true,size:192});
+      const [a,b]=await Promise.all([svgMask(preview(candidate)),svgMask(preview(reference||source))]);
+      const score=compareMasks(a,b,192);
+      correction={id:`correction-${crypto.randomUUID()}`,schemaVersion:1,status:'accepted',kind:'automatic-acceptance',acceptedAt:new Date().toISOString(),generator:'boundary-inset-v1',build:process.env.NEXT_PUBLIC_ICONERD_VERSION||'dev',source:clone(source),initial:clone(candidate),accepted:clone(candidate),acceptedIdentity:geometryIdentity(candidate),group:source.group||'Ungrouped',settings:{...candidate.insetConversion,cap:candidate.strokeCap||'round',join:candidate.strokeJoin||'round'},strokeBinding:'override',intent,comparison:reference?'paired-outline':'source-silhouette',before:score,after:score,edits:[]};
+      correction.hashes=await contentHashes({...correction,reference});
+    }
+    if(correction){const keys=await DB.run('readonly',store=>store.getAllKeys(),'snapshots');if(keys.filter(k=>String(k).startsWith('correction-')).length>=500)throw Error('500 correction examples saved. Export and clear examples before accepting another.');}
     await flushSaves();if(pendingSave.size)throw Error('Save current edits before applying an outline.');
     await saveLibraryVersion(`Before applying outline ${candidate.name}`);
     if(S.lib!==libraryBefore || idx(source.name)<0 || JSON.stringify(S.lib[idx(source.name)])!==sourceBefore || (idx(candidate.name)>=0?JSON.stringify(S.lib[idx(candidate.name)]):null)!==targetBefore)throw Error('Source, target or library changed while saving; reopen the review.');
-    const at=idx(candidate.name);
-    if(at>=0){loadGlyph(at);S.glyph=clone(candidate);commit();S.rt.weight=strokeWeight(S.glyph);refresh(true);}
-    else {
-      const original={...clone(source),name:candidate.name},entry={kind:'library-icon',name:candidate.name,sourceName:source.name,glyph:null,original:null};
-      const undo=[...S.undo,entry].slice(-300);
-      await DB.run('readwrite',(store,tx)=>{store.put({name:candidate.name,glyph:clone(candidate),original,savedAt:Date.now()});tx.objectStore('snapshots').put({id:'edit-history',undo,redo:[],iconHistories:clone(S.iconHistories)});},'edits',['snapshots']);
-      S.lib.push(clone(candidate));ORIG.set(candidate.name,original);deletedIcons.delete(candidate.name);S.undo=undo;S.redo=[];EDITS.set(candidate.name,{glyph:clone(candidate),original});renderLibrary();loadGlyph(S.lib.length-1);saveHistory();setSaveState('saved');
-    }
+    const at=idx(candidate.name),original=at>=0?clone(ORIG.get(candidate.name)||S.lib[at]):{...clone(source),name:candidate.name};
+    const entry=at>=0?{name:candidate.name,glyph:JSON.stringify(S.lib[at]),peers:[]}:{kind:'library-icon',name:candidate.name,sourceName:source.name,glyph:null,original:null};
+    const undo=[...S.undo,entry].slice(-300);
+    await DB.run('readwrite',(store,tx)=>{
+      store.put({name:candidate.name,glyph:clone(candidate),original,savedAt:Date.now()});
+      const snapshots=tx.objectStore('snapshots');
+      snapshots.put({id:'edit-history',undo,redo:[],iconHistories:clone(S.iconHistories)});
+      if(correction)snapshots.put(correction);
+    },'edits',['snapshots']);
+    if(at>=0)S.lib[at]=clone(candidate);else S.lib.push(clone(candidate));
+    ORIG.set(candidate.name,original);deletedIcons.delete(candidate.name);S.undo=undo;S.redo=[];EDITS.set(candidate.name,{glyph:clone(candidate),original});renderLibrary();loadGlyph(idx(candidate.name));
+    if(!guidedRepair?.active)saveHistory();setSaveState('saved');
   }finally{insetApplyActive=false;updateHistoryBtns();}
 }
+
 function revert() {
   const o = ORIG.get(S.glyph.name);
   if (!o || !isEdited(S.glyph)) return;
@@ -466,6 +490,7 @@ $('undoOrganizationBtn').onclick=async()=>{
   for(const glyph of S.lib)queueSave(glyph.name);await flushSaves();renderLibrary();loadGlyph(Math.max(0,idx(current)));status('Previous grouping restored; artwork edits retained.');
 };
 function updateHistoryBtns() {
+  if(guidedRepair?.active){$('undoBtn').disabled=!guidedRepair.canUndo;$('redoBtn').disabled=!guidedRepair.canRedo;return;}
   $('undoBtn').disabled = insetApplyActive || !S.undo.length; $('redoBtn').disabled = insetApplyActive || !S.redo.length;
   const timeline = iconTimeline();
   const total = Math.max(0,timeline.states.length-1), position = timeline.position;
@@ -483,6 +508,7 @@ function status(msg, err) { const el = $('status'); el.textContent = msg || ''; 
 
 // ---------- load ----------
 function loadGlyph(i) {
+  if(guidedRepair?.active&&!insetApplyActive){status('Save or discard the repair draft before switching icons.',true);return;}
   areaPolygon=null;drag=null;$('anchorMarquee')?.remove();
   closeGroupReview();
   S.cur = i; S.glyph = clone(S.lib[i] || TEMPLATES.blank()); S.sel = []; lastSnap = JSON.stringify(S.glyph); penDraft = null;penHover=null;penCloseHover=null; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
@@ -490,7 +516,7 @@ function loadGlyph(i) {
   if(S.libraryProperties?.output)S.glyph.output=clone(S.libraryProperties.output);
   ensureLayerNames(S.glyph); lastSnap = JSON.stringify(S.glyph); alignIconTimeline();
   S.components = collectComponents(S.lib,core); renderComponents();
-  S.rt.weight = strokeWeight(S.glyph);
+  S.rt.weight = strokeWeight(S.glyph);if(S.glyph.strokeCap)S.rt.cap=S.glyph.strokeCap;if(S.glyph.strokeJoin)S.rt.join=S.glyph.strokeJoin;
   renderAll(); markCurrent(); updateHistoryBtns(); updateGlyphTags(); status('');
   try { localStorage.setItem('gw-current', S.glyph.name); } catch (e) {}
 }
@@ -796,6 +822,7 @@ function leafList() {
 function renderCanvas() {
   applyView();
   $('gReference').innerHTML=referenceSVG(S.glyph,true);
+  guidedRepair?.drawGuide();
   const gL = $('gLayers'); gL.innerHTML = '';
   gL.setAttribute('opacity', S.show.original && ORIG.has(S.glyph.name) ? 0.45 : 1);
   const W = S.rt.weight;
@@ -1692,6 +1719,8 @@ function penDown(pos, ev) {
   } else {
     penHover=null;penCloseHover=null;
     const n = { shape: 'pen', pts: [], closed: false };
+    // Compound fill groups close open children; redraw strokes need an independent layer.
+    if(guidedRepair?.active)addLayer(false);
     insertNode(n);
     penDraft = { s: primarySel() };
     const raw = ap(inv(fullMatrix(penDraft.s)), p); n.pts.push({ x: r4(raw.x), y: r4(raw.y) });
@@ -2986,7 +3015,7 @@ function refresh(full) {
   syncToggles();
   if (full) renderLibraryThumb();
 }
-function renderLibraryThumb() { const b = LIBEL.get(S.glyph.name); if (b) { b.querySelector('.thumb').innerHTML = core.toSVG(S.glyph, { size: 24, resolved: S.resolved }); b.dataset.painted = '1'; } updateGlyphTags(); }
+function renderLibraryThumb() { if(guidedRepair?.active){$('hdrEdited').hidden=true;$('revertBtn').disabled=true;return;} const b = LIBEL.get(S.glyph.name); if (b) { b.querySelector('.thumb').innerHTML = core.toSVG(S.glyph, { size: 24, resolved: S.resolved }); b.dataset.painted = '1'; } updateGlyphTags(); }
 function renderAll() { renderGrid(); refresh(true); }
 function symmetryTarget() {
   if ($('symScope').value === 'glyph') return S.glyph;
@@ -3085,8 +3114,8 @@ root.querySelectorAll('[data-show]').forEach(b => b.onclick = () => { S.show[b.d
   }
   renderGrid(); renderCanvas(); syncToggles(); });
 $('wRange').oninput = () => { S.rt.weight = +$('wRange').value; renderCanvas(); renderPreviews(); };
-root.querySelectorAll('[data-cap]').forEach(b => b.onclick = () => { S.rt.cap = b.dataset.cap; refresh(false); });
-root.querySelectorAll('[data-join]').forEach(b => b.onclick = () => { S.rt.join = b.dataset.join; refresh(false); });
+root.querySelectorAll('[data-cap]').forEach(b => b.onclick = () => { S.rt.cap = b.dataset.cap;if(guidedRepair?.active||S.glyph.strokeCap!=null){S.glyph.strokeCap=S.rt.cap;commit();} refresh(false); });
+root.querySelectorAll('[data-join]').forEach(b => b.onclick = () => { S.rt.join = b.dataset.join;if(guidedRepair?.active||S.glyph.strokeJoin!=null){S.glyph.strokeJoin=S.rt.join;commit();} refresh(false); });
 $('hintBtn').onclick = () => { S.rt.hint = !S.rt.hint; refresh(false); };
 $('rtlBtn').onclick = () => { S.rt.rtl = !S.rt.rtl; refresh(false); };
 const sw = () => { const st = $('pvGrid').style; st.setProperty('--sw-secondary-light', $('swSecL').value); st.setProperty('--sw-secondary-dark', $('swSecD').value); st.setProperty('--sw-accent-light', $('swAccL').value); st.setProperty('--sw-accent-dark', $('swAccD').value); };
@@ -3266,6 +3295,7 @@ $('confirmImportBtn').onclick = async () => {
   else if(report)await attachReconstructionReport(report);else await importLibraryText(text, fileName, mode,useTokens);
 };
 async function importLibraryText(text, fileName, mode = 'add', useTokens = false) {
+  if(guidedRepair?.active)throw Error('Save or discard the repair before importing a library.');
   let result, archive;
   try {
     archive = parseLibraryArchive(text);
@@ -3324,6 +3354,7 @@ try { const f = localStorage.getItem('gw-lib-filter'); if (f && [...$('libFilter
 $('libSearchIcon').innerHTML = uiIcon('search-outline');
 listen(document, 'keydown', e => {
   if (!root.contains(document.activeElement) && document.activeElement !== document.body) return;
+  if(guidedRepair?.busy){e.preventDefault();return;}
   const t = e.target;
   if(reviewingDeleted && (groupReview.contains(t) || t===document.body)){
     if(e.key==='Escape'){e.preventDefault();closeDeletedReview();return;}
@@ -3370,7 +3401,14 @@ const resizeObserver = new ResizeObserver(() => { if (!S.glyph || disposed) retu
 resizeObserver.observe(cv);
 
 appStudio=createAppIconStudio({root:$('appIconStudio'),getGlyph:()=>S.glyph,getLayer:()=>primarySel()?.l ?? 0,setLayer:l=>{S.sel=[{l,p:null}];S.selectedAnchors=[];S.anchor=null;refresh(true);},commit:()=>commit(),refresh:()=>refresh(true),status});
-insetReview=createInsetReview({root:groupReview,core,getLibrary:()=>S.lib,getSelection:()=>new Set(librarySelection),activate:()=>{closeGroupReview({keepInset:true});root.querySelector('.stage').hidden=true;groupReview.hidden=false;},close:closeGroupReview,apply:applyInsetCandidate,status,download:async(candidate,source)=>{
+const repairLocked=[...root.querySelectorAll('.library-panel,.set-settings,.io,#appIconStudio,#drawingMode,#exportSize,#hdrEdited,#revertBtn')];
+function repairWorking(glyph){S.glyph=clone(glyph);S.sel=[];S.selectedAnchors=[];S.anchor=null;S.sourceAnchor=null;S.iso=null;penDraft=null;penHover=null;penCloseHover=null;S.rt.weight=strokeWeight(S.glyph);S.rt.cap=S.glyph.strokeCap||'round';S.rt.join=S.glyph.strokeJoin||'round';}
+guidedRepair=createGuidedRepair({root,core,getGlyph:()=>S.glyph,getLibrary:()=>S.lib,getStyle:()=>S.libraryProperties?tokenStyle(S.libraryProperties):null,
+  enter:glyph=>{repairContext={name:S.glyph.name,lastSnap,tool:S.tool,rt:clone(S.rt),original:S.show.original};closeGroupReview();root.querySelector('.stage').hidden=false;for(const el of repairLocked)el.inert=true;S.show.original=false;repairWorking(glyph);setTool('direct');setSaveState('draft');},
+  leave:name=>{for(const el of repairLocked)el.inert=false;const context=repairContext;repairContext=null;S.show.original=context.original;S.rt=context.rt;lastSnap=context.lastSnap;loadGlyph(Math.max(0,idx(name||context.name)));setTool(context.tool);setSaveState('saved');},
+  replace:repairWorking,refresh:()=>{S.rt.weight=strokeWeight(S.glyph);refresh(true);updateHistoryBtns();},finishPen:()=>{if(penDraft)finishPen();},publish:applyInsetCandidate,status,listen});
+const correctionRecords=async()=>{const rows=await DB.run('readonly',store=>store.getAll(),'snapshots');return rows.filter(r=>r.id.startsWith('correction-')&&r.schemaVersion===1);};
+insetReview=createInsetReview({root:groupReview,core,getStyle:()=>S.libraryProperties?tokenStyle(S.libraryProperties):null,repair:entry=>guidedRepair.begin(entry),resume:()=>guidedRepair.resume(),hasDraft:()=>guidedRepair.hasDraft(),discardDraft:()=>guidedRepair.discardSaved(),clearExamples:async()=>{const records=await correctionRecords();await DB.run('readwrite',store=>{for(const r of records)store.delete(r.id);},'snapshots');status('Local correction examples cleared; artwork unchanged.');},suggestInset:async(source,stroke)=>learnedInset(await correctionRecords(),S.lib,source,stroke),exportExamples:async()=>{const records=await correctionRecords();downloadBlob('iconerd-correction-examples.json',new Blob([JSON.stringify({schemaVersion:1,exportedAt:new Date().toISOString(),examples:records.map(r=>({...r,state:exampleState(r,S.lib)}))},null,2)],{type:'application/json'}));status(`Exported ${records.length} local correction examples. Superseded examples are labeled.`);},getLibrary:()=>S.lib,getSelection:()=>new Set(librarySelection),activate:()=>{closeGroupReview({keepInset:true});root.querySelector('.stage').hidden=true;groupReview.hidden=false;},close:closeGroupReview,apply:applyInsetCandidate,status,download:async(candidate,source)=>{
   try{const originals=new Map([[candidate.name,{...clone(source),name:candidate.name}]]),document=libraryDocument([candidate],'one',originals,new Map());const bytes=await libraryZIP(document,g=>core.toSVG(g,{mode:'baked'}));downloadBlob(`${candidate.name}.zip`,new Blob([bytes],{type:'application/zip'}));}catch(error){status(error.message,true);}
 }});
 $('insetReviewBtn').onclick=()=>insetReview.open().catch(error=>status(error.message,true));
@@ -3402,6 +3440,7 @@ return {
   ready,
   dispose() {
     disposed = true;
+    guidedRepair?.dispose();
     insetReview?.cancel();
     abort.abort(); resizeObserver.disconnect(); thumbObserver?.disconnect();
     clearTimeout(saveTimer);

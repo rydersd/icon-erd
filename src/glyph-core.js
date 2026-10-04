@@ -688,10 +688,10 @@ export function createGlyphCore(paper) {
     const rounded = num(glyph.setStyle?.rounding) > 0;
     const roundedEnds = num(glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding) > 0;
     return {
-      cap: roundedEnds ? 'butt' : partCap || opts.cap || 'round',
-      join: rounded ? 'round' : opts.join || 'round',
-      runtimeCap: roundedEnds ? 'butt' : partCap || 'var(--icon-stroke-linecap,round)',
-      runtimeJoin: rounded ? 'round' : 'var(--icon-stroke-linejoin,round)',
+      cap: roundedEnds ? 'butt' : partCap || glyph.strokeCap || opts.cap || 'round',
+      join: rounded ? 'round' : glyph.strokeJoin || opts.join || 'round',
+      runtimeCap: roundedEnds ? 'butt' : partCap || glyph.strokeCap || 'var(--icon-stroke-linecap,round)',
+      runtimeJoin: rounded ? 'round' : glyph.strokeJoin || 'var(--icon-stroke-linejoin,round)',
     };
   }
   // SVG round caps cannot express a corner radius. Draw the two tip corners explicitly,
