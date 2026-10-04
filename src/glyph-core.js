@@ -1,3 +1,4 @@
+import {strokeWeight} from './stroke-weight.js';
 import {gradientSVG,referenceSVG} from './app-icon-paint.js';
 import {paintColors} from './library-output.js';
 /* Shared Paper.js geometry evaluator for the editor and headless tests. */
@@ -698,7 +699,7 @@ export function createGlyphCore(paper) {
   function strokeTipsSVG(glyph, d, opts = {}) {
     const radius = Math.max(0, num(glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding));
     if (!radius || !d) return '';
-    const weight = opts.weight ?? glyph.setStyle?.thickness ?? glyph.weight ?? 1.2;
+    const weight = opts.weight ?? strokeWeight(glyph);
     const excluded = excludedForGlyph(glyph, opts.layerIndex);
     const makeTip = r => { const h = 0.5, k = 0.5522847498; return `M0 ${-h}L${fmt(h - r)} ${-h}C${fmt(h - r + k * r)} ${-h} ${h} ${fmt(-h + r - k * r)} ${h} ${fmt(-h + r)}L${h} ${fmt(h - r)}C${h} ${fmt(h - r + k * r)} ${fmt(h - r + k * r)} ${h} ${fmt(h - r)} ${h}L0 ${h}Z`; };
     const compound = new paper.CompoundPath(d), tips = [];
@@ -720,7 +721,7 @@ export function createGlyphCore(paper) {
    */
   function toSVG(glyph, opts = {}) {
     const mode = opts.mode || 'runtime';
-    const weight = opts.weight != null ? opts.weight : (glyph.setStyle?.thickness ?? glyph.weight ?? 1.2);
+    const weight = opts.weight != null ? opts.weight : (strokeWeight(glyph));
     const layers = opts.resolved || resolve(glyph);
     const colours = Object.assign({}, ROLE_DEFAULTS, opts.colors || {});
     const body = [],defs=[];
@@ -728,7 +729,7 @@ export function createGlyphCore(paper) {
     for (const [layerIndex, L] of layers.entries()) {
       if (!L.visible || !L.d) continue;
       const col = L.color || (mode === 'baked' ? (opts.mono ? '#000' : colours[L.role] || '#000') : ROLE_VARS[L.role] || 'currentColor');
-      const paint=paintColors(L,glyph,{mode,mono:opts.mono,colors:mode==='baked'?colours:ROLE_VARS,fallback:col});
+      const paint=paintColors(L,glyph,{mode,mono:opts.mono,colors:mode==='baked'?colours:ROLE_VARS,fallback:col,useColorTokens:opts.useColorTokens});
       const gradient=gradientSVG(L,glyph,`export-${glyph.name}-${layerIndex}`,opts.mono);
       if(gradient){defs.push(gradient.defs);paint.fill=gradient.fill;}
       for (const part of L.parts) {
@@ -741,7 +742,7 @@ export function createGlyphCore(paper) {
           a.push(`stroke="${esc(paint.stroke)}"`);
           const style = strokeStyle(glyph, opts, part.cap);
           if (mode === 'baked') a.push(`stroke-width="${weight}" stroke-linecap="${style.cap}" stroke-linejoin="${style.join}"`);
-          else a.push(`style="stroke-width:var(--icon-stroke-width,${glyph.setStyle?.thickness ?? glyph.weight ?? 1.2});stroke-linecap:${style.runtimeCap};stroke-linejoin:${style.runtimeJoin}"`);
+          else a.push(`style="stroke-width:var(--icon-stroke-width,${strokeWeight(glyph)});stroke-linecap:${style.runtimeCap};stroke-linejoin:${style.runtimeJoin}"`);
         }
         if (L.opacity !== 1) a.push(`opacity="${L.opacity}"`);
         if (mode === 'runtime') a.push(`data-layer="${esc(L.id)}" data-role="${L.role}"`);

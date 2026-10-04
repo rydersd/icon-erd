@@ -1,3 +1,4 @@
+import {strokeWeight} from './stroke-weight.js';
 import paper from 'paper';
 import {offset,offsetStroke} from 'paperjs-offset';
 
@@ -5,13 +6,13 @@ const paths=item=>item.children || [item];
 const combine=(a,b,op='unite')=>{if(!a)return b;const result=a[op](b,{insert:false});a.remove();b.remove();return result;};
 const parse=d=>new paper.CompoundPath({pathData:d,insert:false});
 export const solidName=name=>name.endsWith('-outline') ? name.slice(0,-8) : `${name}-solid`;
-export function sourceSignature(glyph,core) {return JSON.stringify({width:glyph.setStyle?.thickness ?? glyph.weight ?? 1.2,endRounding:glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding ?? 0,style:core.strokeStyle(glyph,{}),layers:core.resolve(glyph).map(layer=>({id:layer.id,paint:layer.paint,visible:layer.visible,opacity:layer.opacity,d:layer.d,parts:layer.parts.map(part=>({cap:part.cap}))}))});}
+export function sourceSignature(glyph,core) {return JSON.stringify({width:strokeWeight(glyph),endRounding:glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding ?? 0,style:core.strokeStyle(glyph,{}),layers:core.resolve(glyph).map(layer=>({id:layer.id,paint:layer.paint,visible:layer.visible,opacity:layer.opacity,d:layer.d,parts:layer.parts.map(part=>({cap:part.cap}))}))});}
 
 // Offset closed centerlines to the chosen stroke boundary. Open paths retain
 // their expanded stroke; no invented closure is inserted across a real gap.
 export function generateSolid(glyph,core,{edge='outside',holes='preserve'}={}) {
   if(!['outside','center','inside'].includes(edge) || !['preserve','fill'].includes(holes))throw new Error('Invalid solid recipe');
-  const width=glyph.setStyle?.thickness ?? glyph.weight ?? 1.2;
+  const width=strokeWeight(glyph);
   const distance=({outside:1,center:0,inside:-1})[edge]*width/2;
   const layers=[];
   for(const layer of core.resolve(glyph)) {

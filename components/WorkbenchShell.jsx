@@ -108,6 +108,10 @@ export function WorkbenchShell() {
             <label>Fill <input id="libraryFillColor" aria-label="Fill" type="color" defaultValue="#0267e0" /></label>
             <label>Stroke <input id="libraryStrokeColor" aria-label="Stroke" type="color" defaultValue="#1d2430" /></label>
           </div>
+          <label className="row"><input id="libraryUseColorTokens" type="checkbox" /> Export SVG color tokens</label>
+          <label>Fill token <input id="libraryFillToken" type="text" defaultValue="--icon-fill" /></label>
+          <label>Stroke token <input id="libraryStrokeToken" type="text" defaultValue="--icon-stroke" /></label>
+          <p className="lbl">CSS custom properties with fallback colors. Applies to solid paint; gradients keep their stop colors. PNG uses the fallback colors.</p>
           <Button className="btn sm" id="testSolidVariantsBtn">Test solid variants</Button><span className="lbl" id="solidTestProgress" role="status" aria-live="polite"></span>
         </fieldset>
         <fieldset className="library-output-fields"><legend>Output target</legend>

@@ -1,3 +1,5 @@
+import {strokeWeight,libraryStyle} from './stroke-weight.js';
+import {createInsetReview} from './inset-review.js';
 import {gradientSVG,referenceSVG} from './app-icon-paint.js';
 import {createAppIconStudio} from './app-icon-studio.js';
 import {mountNumericScrub} from './numeric-scrub.js';
@@ -213,7 +215,7 @@ function scrubIconHistory(position) {
     S.glyph = JSON.parse(snapshot);
     timeline.position = position;
     // A restore is a normal publication: shared geometry propagates, unrelated icons do not revert.
-    commit(); pruneSel(); S.rt.weight = S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
+    commit(); pruneSel(); S.rt.weight = strokeWeight(S.glyph);
     renderAll(); saveHistory(); updateHistoryBtns();
   } finally { scrubbingIcon = false; }
 }
@@ -224,7 +226,7 @@ function saveHistory() {
   DB.run('readwrite', (store)=>{ store.put({id:'component-definitions',components:[...S.components.values()].map(clone)}); return store.put(snapshot); }, 'snapshots').catch(error=>status(`Undo history could not be saved: ${error.message}`,true));
 }
 function commit(peerHistory = [], libraryBefore) {
-  if(S.libraryProperties)S.glyph.setStyle=tokenStyle(S.libraryProperties);
+  if(S.libraryProperties)S.glyph.setStyle=libraryStyle(S.glyph,tokenStyle(S.libraryProperties));
   if(S.libraryProperties?.output)S.glyph.output=clone(S.libraryProperties.output);
   if(S.glyph.solidReview)S.glyph.solidReview.stale=S.glyph.solidReview.sourceSignature!==sourceSignature(S.glyph,core);
   ensureLayerNames(S.glyph);
@@ -275,14 +277,16 @@ function storeCurrent() {
 }
 function restoreHistory(from,to) {
   if(!from.length)return;
+  if(insetApplyActive)return;
   penDraft=null;
   const entry=from[from.length-1];
+  if(entry.kind==='library-icon'){restoreLibraryIconHistory(from,to).catch(error=>status(error.message,true));return;}
   if(entry.kind==='library-properties') {
     from.pop();to.push({kind:'library-properties',libraryProperties:clone(S.libraryProperties)});
     S.libraryProperties=clone(entry.libraryProperties);saveLibraryProperties();
     const style=S.libraryProperties ? tokenStyle(S.libraryProperties) : {thickness:null,rounding:0,endRounding:0};
-    for(const glyph of S.lib){glyph.setStyle=clone(style);if(S.libraryProperties?.output)glyph.output=clone(S.libraryProperties.output);else delete glyph.output;queueSave(glyph.name);}
-    S.glyph.setStyle=clone(style);if(S.libraryProperties?.output)S.glyph.output=clone(S.libraryProperties.output);else delete S.glyph.output;lastSnap=JSON.stringify(S.glyph);S.rt.weight=style.thickness ?? S.glyph.weight ?? 1.2;
+    for(const glyph of S.lib){glyph.setStyle=libraryStyle(glyph,style);if(S.libraryProperties?.output)glyph.output=clone(S.libraryProperties.output);else delete glyph.output;queueSave(glyph.name);}
+    S.glyph.setStyle=libraryStyle(S.glyph,style);if(S.libraryProperties?.output)S.glyph.output=clone(S.libraryProperties.output);else delete S.glyph.output;lastSnap=JSON.stringify(S.glyph);S.rt.weight=strokeWeight(S.glyph);
     renderAll();renderLibrary();saveHistory();updateHistoryBtns();return;
   }
   const target = idx(entry.name || JSON.parse(entry.glyph).name);
@@ -292,15 +296,54 @@ function restoreHistory(from,to) {
   to.push({name:JSON.parse(entry.glyph).name,glyph:lastSnap,peers:entry.peers.map(g=>S.lib[idx(g.name)]).filter(Boolean).map(clone),...(Object.hasOwn(entry,'libraryProperties')?{libraryProperties:clone(S.libraryProperties)}:{})});
   if(Object.hasOwn(entry,'libraryProperties')){S.libraryProperties=clone(entry.libraryProperties);saveLibraryProperties();}
   for(const peer of entry.peers){const at=idx(peer.name);if(at>=0){S.lib[at]=clone(peer);queueSave(peer.name);updateLibItem(peer.name);}}
-  const oldWeight=S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
-  S.glyph=JSON.parse(entry.glyph);if(S.libraryProperties)S.glyph.setStyle=tokenStyle(S.libraryProperties);if(S.libraryProperties?.output)S.glyph.output=clone(S.libraryProperties.output);lastSnap=JSON.stringify(S.glyph);storeCurrent();
-  const restoredWeight=S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
+  const oldWeight=strokeWeight(S.glyph);
+  S.glyph=JSON.parse(entry.glyph);if(S.libraryProperties)S.glyph.setStyle=libraryStyle(S.glyph,tokenStyle(S.libraryProperties));if(S.libraryProperties?.output)S.glyph.output=clone(S.libraryProperties.output);lastSnap=JSON.stringify(S.glyph);storeCurrent();
+  const restoredWeight=strokeWeight(S.glyph);
   if(oldWeight!==restoredWeight)S.rt.weight=restoredWeight;
   journalSharedChanges(entry.peers.map(g=>g.name));
   alignIconTimeline();pruneSel();renderAll();markCurrent();saveHistory();updateHistoryBtns();
 }
 function undo() {restoreHistory(S.undo,S.redo);}
 function redo() {restoreHistory(S.redo,S.undo);}
+async function restoreLibraryIconHistory(from,to) {
+  insetApplyActive=true;
+  try {
+    const libraryBefore=S.lib,expectedEntry=from.at(-1);
+    await flushSaves();if(pendingSave.size)throw Error('Save current edits before restoring an outline variant.');
+    if(S.lib!==libraryBefore || (from!==S.undo&&from!==S.redo) || from.at(-1)!==expectedEntry)throw Error('Library changed before the outline history action could finish.');
+    const entry=from.at(-1),at=idx(entry.name),current=S.glyph.name;
+    const inverse={kind:'library-icon',name:entry.name,sourceName:entry.sourceName,glyph:at>=0?clone(S.lib[at]):null,original:ORIG.has(entry.name)?clone(ORIG.get(entry.name)):null};
+    const library=S.lib.filter(g=>g.name!==entry.name);if(entry.glyph)library.splice(at>=0?at:library.length,0,clone(entry.glyph));
+    const nextFrom=from.slice(0,-1),nextTo=[...to,inverse];
+    await DB.run('readwrite',(store,tx)=>{
+      if(entry.glyph)store.put({name:entry.name,glyph:entry.glyph,original:entry.original,savedAt:Date.now()});
+      else if(SHIPPED.has(entry.name))store.put({name:entry.name,deleted:true,savedAt:Date.now()});else store.delete(entry.name);
+      tx.objectStore('snapshots').put({id:'edit-history',undo:from===S.undo?nextFrom:nextTo,redo:from===S.redo?nextFrom:nextTo,iconHistories:clone(S.iconHistories)});
+    },'edits',['snapshots']);
+    from.splice(0,from.length,...nextFrom);to.splice(0,to.length,...nextTo);S.lib=library;
+    if(entry.original)ORIG.set(entry.name,clone(entry.original));else ORIG.delete(entry.name);
+    if(entry.glyph){deletedIcons.delete(entry.name);EDITS.set(entry.name,{glyph:entry.glyph,original:entry.original});}else {deletedIcons.add(entry.name);EDITS.delete(entry.name);}
+    renderLibrary();loadGlyph(Math.max(0,idx(entry.glyph?entry.name:current===entry.name?entry.sourceName:current)));saveHistory();setSaveState('saved');
+  } finally {insetApplyActive=false;updateHistoryBtns();}
+}
+async function applyInsetCandidate(candidate,source) {
+  if(insetApplyActive)throw Error('An outline change is already being saved.');
+  insetApplyActive=true;
+  try {
+    const libraryBefore=S.lib,sourceBefore=JSON.stringify(S.lib[idx(source.name)]),targetBefore=idx(candidate.name)>=0?JSON.stringify(S.lib[idx(candidate.name)]):null;
+    await flushSaves();if(pendingSave.size)throw Error('Save current edits before applying an outline.');
+    await saveLibraryVersion(`Before applying outline ${candidate.name}`);
+    if(S.lib!==libraryBefore || idx(source.name)<0 || JSON.stringify(S.lib[idx(source.name)])!==sourceBefore || (idx(candidate.name)>=0?JSON.stringify(S.lib[idx(candidate.name)]):null)!==targetBefore)throw Error('Source, target or library changed while saving; reopen the review.');
+    const at=idx(candidate.name);
+    if(at>=0){loadGlyph(at);S.glyph=clone(candidate);commit();S.rt.weight=strokeWeight(S.glyph);refresh(true);}
+    else {
+      const original={...clone(source),name:candidate.name},entry={kind:'library-icon',name:candidate.name,sourceName:source.name,glyph:null,original:null};
+      const undo=[...S.undo,entry].slice(-300);
+      await DB.run('readwrite',(store,tx)=>{store.put({name:candidate.name,glyph:clone(candidate),original,savedAt:Date.now()});tx.objectStore('snapshots').put({id:'edit-history',undo,redo:[],iconHistories:clone(S.iconHistories)});},'edits',['snapshots']);
+      S.lib.push(clone(candidate));ORIG.set(candidate.name,original);deletedIcons.delete(candidate.name);S.undo=undo;S.redo=[];EDITS.set(candidate.name,{glyph:clone(candidate),original});renderLibrary();loadGlyph(S.lib.length-1);saveHistory();setSaveState('saved');
+    }
+  }finally{insetApplyActive=false;updateHistoryBtns();}
+}
 function revert() {
   const o = ORIG.get(S.glyph.name);
   if (!o || !isEdited(S.glyph)) return;
@@ -384,7 +427,7 @@ async function resetLibrary() {
   catch (error) { status(`Could not save reset backup: ${error.message}`, true); return; }
   libraryResetBackup = snapshot;
   S.lib = S.lib.map(glyph => clone(ORIG.get(glyph.name) || glyph));
-  if(S.libraryProperties)S.lib=S.lib.map(glyph=>({...glyph,setStyle:tokenStyle(S.libraryProperties)}));
+  if(S.libraryProperties)S.lib=S.lib.map(glyph=>({...glyph,setStyle:libraryStyle(glyph,tokenStyle(S.libraryProperties))}));
   for (const glyph of S.lib) queueSave(glyph.name);
   await flushSaves(); renderLibrary(); loadGlyph(Math.max(0, idx(current))); $('undoLibraryResetBtn').disabled = false;
   status('Library reverted to imported originals. Undo library revert restores your edits.');
@@ -393,7 +436,7 @@ async function undoLibraryReset() {
   if (!libraryResetBackup) return;
   const snapshot = libraryResetBackup;
   S.lib = mergeLibrary(S.lib, snapshot.glyphs, 'overwrite').library;
-  if(S.libraryProperties)S.lib=S.lib.map(glyph=>({...glyph,setStyle:tokenStyle(S.libraryProperties)}));
+  if(S.libraryProperties)S.lib=S.lib.map(glyph=>({...glyph,setStyle:libraryStyle(glyph,tokenStyle(S.libraryProperties))}));
   for (const original of snapshot.originals) ORIG.set(original.name, clone(original));
   for (const glyph of S.lib) queueSave(glyph.name);
   await flushSaves(); renderLibrary(); loadGlyph(Math.max(0, idx(snapshot.current))); status('Edits restored from the library reset backup.');
@@ -423,7 +466,7 @@ $('undoOrganizationBtn').onclick=async()=>{
   for(const glyph of S.lib)queueSave(glyph.name);await flushSaves();renderLibrary();loadGlyph(Math.max(0,idx(current)));status('Previous grouping restored; artwork edits retained.');
 };
 function updateHistoryBtns() {
-  $('undoBtn').disabled = !S.undo.length; $('redoBtn').disabled = !S.redo.length;
+  $('undoBtn').disabled = insetApplyActive || !S.undo.length; $('redoBtn').disabled = insetApplyActive || !S.redo.length;
   const timeline = iconTimeline();
   const total = Math.max(0,timeline.states.length-1), position = timeline.position;
   const slider = $('historyScrubber');
@@ -442,12 +485,12 @@ function status(msg, err) { const el = $('status'); el.textContent = msg || ''; 
 function loadGlyph(i) {
   areaPolygon=null;drag=null;$('anchorMarquee')?.remove();
   closeGroupReview();
-  S.cur = i; S.glyph = clone(S.lib[i] || TEMPLATES.blank()); S.sel = []; lastSnap = JSON.stringify(S.glyph); penDraft = null; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
-  if(S.libraryProperties)S.glyph.setStyle=tokenStyle(S.libraryProperties);
+  S.cur = i; S.glyph = clone(S.lib[i] || TEMPLATES.blank()); S.sel = []; lastSnap = JSON.stringify(S.glyph); penDraft = null;penHover=null;penCloseHover=null; S.iso = null; S.anchor = null; S.selectedAnchors = []; S.sourceAnchor = null;
+  if(S.libraryProperties)S.glyph.setStyle=libraryStyle(S.glyph,tokenStyle(S.libraryProperties));
   if(S.libraryProperties?.output)S.glyph.output=clone(S.libraryProperties.output);
   ensureLayerNames(S.glyph); lastSnap = JSON.stringify(S.glyph); alignIconTimeline();
   S.components = collectComponents(S.lib,core); renderComponents();
-  S.rt.weight = S.glyph.setStyle?.thickness ?? S.glyph.weight ?? 1.2;
+  S.rt.weight = strokeWeight(S.glyph);
   renderAll(); markCurrent(); updateHistoryBtns(); updateGlyphTags(); status('');
   try { localStorage.setItem('gw-current', S.glyph.name); } catch (e) {}
 }
@@ -859,6 +902,13 @@ function renderHandleHover() {
   el('circle', { ...attrs, stroke: 'var(--sel)', 'stroke-width': 2 }, overlay);
 }
 let penHover = null;
+let penCloseHover = null;
+function penClosingPoint(pos) {
+  const node=penDraft && getNode(penDraft.s);
+  if(!node?.pts || node.pts.length<2)return null;
+  const first=ap(fullMatrix(penDraft.s),node.pts[0]);
+  return Math.hypot(first.x-pos.x,first.y-pos.y)<=8/pxPerUnit() ? first : null;
+}
 let insertHover = null; // pen tool over an outline: where a click would add an anchor
 /** selection-dependent overlays: forms, symmetry ghosts, axes, isolation bar */
 function renderOverlays() {
@@ -1214,6 +1264,7 @@ function renderSelection() {
       const M = fullMatrix(penDraft.s);
       pn.pts.forEach((q, i) => { const d = ap(M, q); el('rect', Object.assign({ x: d.x - sz, y: d.y - sz, width: sz * 2, height: sz * 2, fill: i === 0 ? 'var(--sel)' : 'var(--canvas-bg)', stroke: 'var(--sel)', 'stroke-width': 1.5 }, NS), gS); });
       if (penHover) { const last = ap(M, pn.pts[pn.pts.length - 1]); el('path', Object.assign({ d: `M${last.x} ${last.y}L${penHover.x} ${penHover.y}`, stroke: 'var(--sel)', 'stroke-width': 1, 'stroke-dasharray': '3 3' }, NS), gS); }
+      if (penCloseHover) el('circle',Object.assign({cx:penCloseHover.x,cy:penCloseHover.y,r:sz*2.5,fill:'none',stroke:'var(--sel)','stroke-width':2,'data-close-preview':'true'},NS),gS);
     }
   }
   renderHandleHover(); renderMergePreview();
@@ -1462,7 +1513,7 @@ listen(cv, 'pointermove', ev => {
   handlePointer = pos; renderHandleHover();
   if (!drag) {
     if(areaPolygon){areaPolygon.cursor=pos;renderArea([...areaPolygon.points,pos]);return;}
-    if (S.tool === 'pen' && penDraft) { penHover = snapPt(pos); renderSelection(); }
+    if (S.tool === 'pen' && penDraft) { const next=penClosingPoint(pos);if(!!next!==!!penCloseHover)status(next?'Click the highlighted endpoint to close this path.':'Pen: click to add anchors; return to the first endpoint to close.');penCloseHover=next;penHover=next || snapPt(pos);renderSelection(); }
     else if (S.tool === 'pen') { const o = hitOutline(pos); const had = !!insertHover; insertHover = o ? { x: o.x, y: o.y } : null; cv.classList.toggle('insert', !!o); if (o || had) renderSelection(); }
     return;
   }
@@ -1597,7 +1648,7 @@ function endDrag(ev) {
 }
 listen(cv, 'pointerup', ev => { endDrag(ev); handlePointer = toUnits(ev); renderHandleHover(); });
 listen(cv, 'pointercancel', ev => { endDrag(ev); handlePointer = null; renderHandleHover(); });
-listen(cv, 'pointerleave', () => { handlePointer = null; renderHandleHover(); if (penHover || insertHover) { penHover = null; insertHover = null; renderSelection(); } });
+listen(cv, 'pointerleave', () => { handlePointer = null; renderHandleHover(); if (penHover || insertHover) { penHover = null;penCloseHover=null; insertHover = null; renderSelection(); } });
 listen(cv,'dblclick',()=>{if(S.tool==='area' && S.areaMode==='polygon')finishAreaPolygon();});
 // double-click is detected from pointerdowns: the canvas re-renders between the two clicks, so the native
 // dblclick (which needs both clicks on the same element) is unreliable here
@@ -1634,12 +1685,12 @@ function penDown(pos, ev) {
     const n = getNode(penDraft.s);
     if (!n) { penDraft = null; return penDown(pos, ev); }
     const M = fullMatrix(penDraft.s);
-    const first = ap(M, n.pts[0]);
-    if (n.pts.length >= 2 && Math.hypot(first.x - pos.x, first.y - pos.y) <= 8 / pxPerUnit()) {
+    if (penClosingPoint(pos)) {
       n.closed = true; commit(); finishPen('Path closed.'); return;
     }
     const raw = ap(inv(M), p); n.pts.push({ x: r4(raw.x), y: r4(raw.y) });
   } else {
+    penHover=null;penCloseHover=null;
     const n = { shape: 'pen', pts: [], closed: false };
     insertNode(n);
     penDraft = { s: primarySel() };
@@ -1669,7 +1720,7 @@ function finishPen(msg) {
   const n = getNode(penDraft.s);
   if (n && n.pts.length < 2) { del(); status('Pen path needs two anchors — removed.'); }
   else status(msg || 'Path finished — switch to Select to edit anchors and handles.');
-  penDraft = null; penHover = null; refresh(true);
+  penDraft = null; penHover = null;penCloseHover=null; refresh(true);
 }
 
 // ---------- rulers & guides ----------
@@ -2486,7 +2537,8 @@ function renderInspector() {
   if (!s) {
     const G = S.glyph;
     field(g, 'name', G.name, v => { G.name = v; }, { text: true, mono: true, wide: true });
-    field(g, 'weight (standard)', G.weight, v => { G.weight = v; S.rt.weight = v; }, { step: 0.1 });
+    field(g, 'weight (standard)', G.weight, v => { G.weight = v; S.rt.weight = strokeWeight(G); }, { step: 0.1 });
+    if(G.strokeOverride!=null)field(g,'stroke override',G.strokeOverride,v=>{G.strokeOverride=v;if(G.insetConversion)G.insetConversion.stroke=v;S.rt.weight=v;},{min:.1,max:8,step:.1});
     field(g, 'grid', G.grid, v => { G.grid = v; }, { step: 0.1 });
     sub(g, 'Symmetry (glyph)');
     symSection(g, G);
@@ -2769,9 +2821,10 @@ $('clearIconSelectionBtn').onclick=()=>{librarySelection.clear();librarySelectio
 $('deleteIconsBtn').onclick=deleteLibraryIcons;
 $('restoreIconsBtn').onclick=openDeletedReview;
 let reviewingGroup = null;
+let insetReview=null,insetApplyActive=false;
 const groupReview = document.createElement('section');groupReview.id='groupReview';groupReview.className='group-review';groupReview.hidden=true;groupReview.setAttribute('aria-label','Group drawing review');
 root.querySelector('.canvas-wrap').appendChild(groupReview);
-function closeGroupReview() { groupReview.hidden=true;root.querySelector('.stage').hidden=false;reviewingGroup=null;reviewingDeleted=false;deletedSelection.clear();groupReview.setAttribute('aria-label','Group drawing review');groupReview.removeAttribute('aria-labelledby'); }
+function closeGroupReview({keepInset=false}={}) { if(!keepInset&&!insetApplyActive)insetReview?.cancel();groupReview.hidden=true;root.querySelector('.stage').hidden=false;reviewingGroup=null;reviewingDeleted=false;deletedSelection.clear();groupReview.setAttribute('aria-label','Group drawing review');groupReview.removeAttribute('aria-labelledby'); }
 function closeDeletedReview(){closeGroupReview();$('restoreIconsBtn').focus();}
 function syncDeletedSelection(){
   if(!reviewingDeleted)return;
@@ -3039,7 +3092,9 @@ $('rtlBtn').onclick = () => { S.rt.rtl = !S.rt.rtl; refresh(false); };
 const sw = () => { const st = $('pvGrid').style; st.setProperty('--sw-secondary-light', $('swSecL').value); st.setProperty('--sw-secondary-dark', $('swSecD').value); st.setProperty('--sw-accent-light', $('swAccL').value); st.setProperty('--sw-accent-dark', $('swAccD').value); };
 ['swSecL', 'swSecD', 'swAccL', 'swAccD'].forEach(id => $(id).oninput = sw);
 mountAppearance({ root, listen, openPopup, closePopup, getPopup: () => popup, renderGrid, renderRulers });
-$('drawingMode').onchange = () => { S.glyph.kind = $('drawingMode').value === 'app-icon' ? 'app-icon' : 'interface'; S.glyph.exportSize = S.glyph.kind === 'app-icon' ? 1024 : 24; commit(); refresh(true); };
+$('drawingMode').onchange = () => { S.glyph.kind = $('drawingMode').value === 'app-icon' ? 'app-icon' : 'interface'; S.glyph.exportSize = S.glyph.kind === 'app-icon' ? 1024 : 24; commit(); refresh(true);
+  if(S.glyph.kind==='app-icon'){const button=root.querySelector('.responsive-pane-controls [aria-controls="pane-left"]');if(matchMedia('(max-width:1180px)').matches && button?.getAttribute('aria-expanded')!=='true')button?.click();requestAnimationFrame(()=>appStudio?.revealFill());}
+};
 $('exportSize').onchange = () => { S.glyph.exportSize = Math.max(16, Math.min(4096, Math.round(+$('exportSize').value || 24))); commit(); refresh(true); };
 $('newBtn').onclick = () => {
   const g = TEMPLATES[$('tplSel').value](); let name = $('tplSel').value === 'blank' ? 'untitled' : g.name + '-copy'; let k = 1;
@@ -3055,6 +3110,7 @@ function renderLibraryTokens() {
   const properties=S.libraryProperties, source=properties?.source;
   const output=properties?.output || DEFAULT_OUTPUT;
   for(const [id,key] of [['libraryVariant','variant'],['libraryColorMode','colorMode'],['libraryFillColor','fillColor'],['libraryStrokeColor','strokeColor'],['libraryOutputProfile','profile']])$(id).value=output[key];
+  $('libraryUseColorTokens').checked=output.useColorTokens ?? false;$('libraryFillToken').value=output.colorTokens?.fill || '--icon-fill';$('libraryStrokeToken').value=output.colorTokens?.stroke || '--icon-stroke';
   $('libraryFamilyView').checked=output.familyView;$('libraryOutputSizes').value=output.sizes.join(', ');
   $('libraryOutputHint').textContent=output.profile==='menu-bar'?'Black template artwork, transparent background. Editable 18 / 36 px preset.': 'Vector artwork scales from the 24-unit drawing plane. PNG sizes are pixels.';
   $('libraryTokensTitle').textContent=source ? `Library tokens · ${source.name}` : 'Library tokens';
@@ -3077,7 +3133,7 @@ function applyLibraryProperties(input) {
   const properties=validateLibraryProperties(input), style=tokenStyle(properties),before=clone(S.libraryProperties);
   S.libraryProperties=properties;saveLibraryProperties();
   const peers=S.lib.filter((glyph,i)=>i!==S.cur).map(clone);
-  const apply=glyph=>{const copy={...glyph,setStyle:clone(style)};if(properties.output)copy.output=clone(properties.output);else delete copy.output;if(copy.solidReview)copy.solidReview={...copy.solidReview,stale:copy.solidReview.sourceSignature!==sourceSignature(copy,core)};return copy;};
+  const apply=glyph=>{const copy={...glyph,setStyle:libraryStyle(glyph,style)};if(properties.output)copy.output=clone(properties.output);else delete copy.output;if(copy.solidReview)copy.solidReview={...copy.solidReview,stale:copy.solidReview.sourceSignature!==sourceSignature(copy,core)};return copy;};
   S.glyph=apply(S.glyph);S.lib=S.lib.map((glyph,i)=>i===S.cur?S.glyph:apply(glyph));
   if(S.lib.length)commit(peers,before);
   else {
@@ -3085,16 +3141,16 @@ function applyLibraryProperties(input) {
     S.redo=[];lastSnap=JSON.stringify(S.glyph);saveHistory();updateHistoryBtns();
   }
   for(const glyph of S.lib)queueSave(glyph.name);
-  S.rt.weight=style.thickness ?? S.glyph.weight ?? 1.2;
+  S.rt.weight=strokeWeight(S.glyph);
   refresh(true);renderLibrary();status(`Library tokens applied to ${S.lib.length} icons.`);
 }
 function applyOutputSettings(profileChanged=false) {
   try {const previous=S.libraryProperties?.output || DEFAULT_OUTPUT,profile=$('libraryOutputProfile').value;
-    const output=validateOutput({...previous,profile,variant:$('libraryVariant').value,familyView:$('libraryFamilyView').checked,colorMode:$('libraryColorMode').value,fillColor:$('libraryFillColor').value,strokeColor:$('libraryStrokeColor').value,sizes:profileChanged?OUTPUT_PROFILES[profile].sizes:$('libraryOutputSizes').value.split(',').map(value=>Number(value.trim()))});
+    const output=validateOutput({...previous,profile,variant:$('libraryVariant').value,familyView:$('libraryFamilyView').checked,colorMode:$('libraryColorMode').value,fillColor:$('libraryFillColor').value,strokeColor:$('libraryStrokeColor').value,useColorTokens:$('libraryUseColorTokens').checked,colorTokens:{fill:$('libraryFillToken').value.trim(),stroke:$('libraryStrokeToken').value.trim()},sizes:profileChanged?OUTPUT_PROFILES[profile].sizes:$('libraryOutputSizes').value.split(',').map(value=>Number(value.trim()))});
     applyLibraryProperties({...S.libraryProperties,values:tokenStyle(S.libraryProperties || {values:S.glyph.setStyle || {}}),output});
   }catch(error){renderLibraryTokens();status(error.message,true);}
 }
-for(const id of ['libraryVariant','libraryFamilyView','libraryColorMode','libraryFillColor','libraryStrokeColor','libraryOutputSizes'])$(id).onchange=()=>applyOutputSettings();
+for(const id of ['libraryVariant','libraryFamilyView','libraryColorMode','libraryFillColor','libraryStrokeColor','libraryOutputSizes','libraryUseColorTokens','libraryFillToken','libraryStrokeToken'])$(id).onchange=()=>applyOutputSettings();
 $('libraryOutputProfile').onchange=()=>applyOutputSettings(true);
 $('testSolidVariantsBtn').onclick=async()=>{
   const button=$('testSolidVariantsBtn');button.disabled=true;
@@ -3138,7 +3194,7 @@ for (const id of ['exportStructure','exportRoot','exportSVGs','exportPNGs']) {
 const io = $('ioText');
 $('expJson').onclick = () => { if (penDraft) finishPen(); io.value = JSON.stringify(libraryDocument([S.glyph], 'one', ORIG, S.components,S.libraryProperties), null, 2); status('Editable JSON and reset original in the box — Copy, or edit and Import.'); };
 $('expSvg').onclick = () => {try{io.value=core.toSVG(outputGlyph(),{size:outputSize()});status('Runtime SVG at the library output variant.');}catch(error){status(error.message,true);}};
-$('expBaked').onclick = () => {try{io.value=bakedSVG();status('Baked SVG at the library output variant.');}catch(error){status(error.message,true);}};
+$('expBaked').onclick = () => {try{io.value=bakedSVG(true);status('Baked SVG at the library output variant.');}catch(error){status(error.message,true);}};
 $('copyBtn').onclick = async () => {
   if (!io.value) $('expJson').onclick();
   try { await navigator.clipboard.writeText(io.value); status('Copied to clipboard.'); }
@@ -3147,8 +3203,8 @@ $('copyBtn').onclick = async () => {
 $('importBtn').onclick = () => requestLibraryImport(io.value, 'pasted JSON');
 const outputGlyph=()=>variantGlyphs([S.glyph],S.lib,core,S.libraryProperties?.output)[0];
 const outputSize=()=>{const output=S.libraryProperties?.output;return output ? (output.profile==='custom'?output.sizes.at(-1):OUTPUT_PROFILES[output.profile].size) : S.glyph.exportSize || 24;};
-const bakedSVG = () => core.toSVG(outputGlyph(), { mode: 'baked', weight: S.rt.weight, cap: S.rt.cap, join: S.rt.join,size:outputSize() });
-$('downloadSvg').onclick = () => {try{if (penDraft) finishPen();const glyph=outputGlyph();downloadBlob(`${glyph.name.replace(/[^a-z0-9_-]+/gi,'-')}.svg`, new Blob([bakedSVG()], { type: 'image/svg+xml' })); status('Downloaded SVG.');}catch(error){status(error.message,true);} };
+const bakedSVG = (useColorTokens=false) => core.toSVG(outputGlyph(), { mode: 'baked', weight: S.rt.weight, cap: S.rt.cap, join: S.rt.join,size:outputSize(),useColorTokens });
+$('downloadSvg').onclick = () => {try{if (penDraft) finishPen();const glyph=outputGlyph();downloadBlob(`${glyph.name.replace(/[^a-z0-9_-]+/gi,'-')}.svg`, new Blob([bakedSVG(true)], { type: 'image/svg+xml' })); status('Downloaded SVG.');}catch(error){status(error.message,true);} };
 $('downloadPng').onclick = async () => {
   if (penDraft) finishPen();
   try { const size = outputSize(); downloadBlob(`${outputGlyph().name.replace(/[^a-z0-9_-]+/gi,'-')}-${size}.png`, await svgToPNG(bakedSVG(), size)); status(`Downloaded ${size} × ${size} PNG.`); }
@@ -3161,7 +3217,7 @@ async function exportLibrary(scope) {
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
   try {
     const output=S.libraryProperties?.output,renderGlyphs=variantGlyphs(glyphs,S.lib,core,output);
-    const data = await libraryZIP(libraryDocument(glyphs, scope, ORIG, S.components,S.libraryProperties), glyph => core.toSVG(glyph, { mode: 'baked', weight: glyph.setStyle?.thickness ?? glyph.weight ?? 1.2,size:output ? (output.profile==='custom'?output.sizes.at(-1):OUTPUT_PROFILES[output.profile].size) : glyph.exportSize || 24 }), { structure: $('exportStructure').value, root: $('exportRoot').value, includeSVG: $('exportSVGs').checked,renderGlyphs,includePNG:$('exportPNGs').checked,rasterize:async(svg,size)=>new Uint8Array(await (await svgToPNG(svg,size)).arrayBuffer()) });
+    const data = await libraryZIP(libraryDocument(glyphs, scope, ORIG, S.components,S.libraryProperties), glyph => core.toSVG(glyph, { mode: 'baked', weight: strokeWeight(glyph),size:output ? (output.profile==='custom'?output.sizes.at(-1):OUTPUT_PROFILES[output.profile].size) : glyph.exportSize || 24,useColorTokens:true }), { structure: $('exportStructure').value, root: $('exportRoot').value, includeSVG: $('exportSVGs').checked,renderGlyphs,includePNG:$('exportPNGs').checked,rasterize:async(svg,size)=>new Uint8Array(await (await svgToPNG(svg.replace(/var\(--[\w-]+,\s*(#[0-9a-f]{6})\)/gi,'$1'),size)).arrayBuffer()) });
     downloadBlob(`glyph-library-${scope}-${stamp}.zip`, new Blob([data], { type: 'application/zip' }));
   } catch (error) { status(`Export: ${error.message}`, true); return; }
   status(`Exported ${glyphs.length} glyph${glyphs.length === 1 ? '' : 's'}.`);
@@ -3242,7 +3298,7 @@ async function importLibraryText(text, fileName, mode = 'add', useTokens = false
   if(useTokens && archive.libraryProperties){S.libraryProperties=archive.libraryProperties;saveLibraryProperties();}
   if(S.libraryProperties) {
     const style=tokenStyle(S.libraryProperties);
-    S.lib=S.lib.map(glyph=>{if(!useTokens && !result.names.includes(glyph.name))return glyph;const copy={...glyph,setStyle:clone(style)};if(S.libraryProperties.output)copy.output=clone(S.libraryProperties.output);else delete copy.output;return copy;});
+    S.lib=S.lib.map(glyph=>{if(!useTokens && !result.names.includes(glyph.name))return glyph;const copy={...glyph,setStyle:libraryStyle(glyph,style)};if(S.libraryProperties.output)copy.output=clone(S.libraryProperties.output);else delete copy.output;return copy;});
     if(useTokens)for(const glyph of S.lib)queueSave(glyph.name);
   }
   if(!S.libraryProperties)for(const glyph of S.lib)if(result.names.includes(glyph.name))delete glyph.output;
@@ -3314,6 +3370,10 @@ const resizeObserver = new ResizeObserver(() => { if (!S.glyph || disposed) retu
 resizeObserver.observe(cv);
 
 appStudio=createAppIconStudio({root:$('appIconStudio'),getGlyph:()=>S.glyph,getLayer:()=>primarySel()?.l ?? 0,setLayer:l=>{S.sel=[{l,p:null}];S.selectedAnchors=[];S.anchor=null;refresh(true);},commit:()=>commit(),refresh:()=>refresh(true),status});
+insetReview=createInsetReview({root:groupReview,core,getLibrary:()=>S.lib,getSelection:()=>new Set(librarySelection),activate:()=>{closeGroupReview({keepInset:true});root.querySelector('.stage').hidden=true;groupReview.hidden=false;},close:closeGroupReview,apply:applyInsetCandidate,status,download:async(candidate,source)=>{
+  try{const originals=new Map([[candidate.name,{...clone(source),name:candidate.name}]]),document=libraryDocument([candidate],'one',originals,new Map());const bytes=await libraryZIP(document,g=>core.toSVG(g,{mode:'baked'}));downloadBlob(`${candidate.name}.zip`,new Blob([bytes],{type:'application/zip'}));}catch(error){status(error.message,true);}
+}});
+$('insetReviewBtn').onclick=()=>insetReview.open().catch(error=>status(error.message,true));
 
 // ---------- boot: saved edits applied, then the last-open glyph (or camera) loaded ----------
 window.__gw = { S, core, refresh, group, addShape, commit, setTool, setOrigin, getNode, fullMatrix, loadGlyph, idx, paintUI, isoEnter, isoExit,
@@ -3342,6 +3402,7 @@ return {
   ready,
   dispose() {
     disposed = true;
+    insetReview?.cancel();
     abort.abort(); resizeObserver.disconnect(); thumbObserver?.disconnect();
     clearTimeout(saveTimer);
     if (pendingSave.size && DB.db) flushSaves().finally(() => DB.db?.close());

@@ -23,6 +23,7 @@ export function LibraryPanel() {
       <div className="row lib-organize"><Button className="btn sm" id="organizeLibraryBtn">Suggest groups</Button><Button className="btn sm" id="undoOrganizationBtn" disabled>Undo grouping</Button></div>
       <dialog id="organizeDialog" className="import-dialog" aria-labelledby="organizeHeading"><h2 id="organizeHeading">Suggested groups</h2><p>Based on icon names, not verified product usage. Only unassigned icons will change.</p><div id="organizeSummary"></div><div className="row"><Button className="btn" id="cancelOrganizeBtn">Cancel</Button><Button className="btn" id="applyOrganizeBtn">Apply groups</Button></div></dialog>
       <div className="row"><Button className="btn sm" id="findSharedFormsBtn">Find shared forms</Button><span className="lbl">◇ purple long dashes = linked geometry</span></div>
+      <div className="row"><Button className="btn sm" id="insetReviewBtn">Convert fills to outlines</Button></div>
       <dialog id="sharedFormsDialog" className="import-dialog shared-forms-dialog" aria-labelledby="sharedFormsHeading">
         <h2 id="sharedFormsHeading">Shared forms</h2><p id="sharedFormsSummary"></p>
         <input id="sharedFormsSearch" type="search" aria-label="Search shared forms" placeholder="Filter by form or icon name" />

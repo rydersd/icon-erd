@@ -18,8 +18,11 @@ function validateSymmetry(sym) {
 
 export function normalizeGlyph(input) {
   if (!input || typeof input !== 'object' || typeof input.name !== 'string' || !input.name.trim()) throw new Error('Each icon needs a name');
+  if(input.strokeOverride!=null && (!Number.isFinite(input.strokeOverride)||input.strokeOverride<.1||input.strokeOverride>8))throw Error(`${input.name}: invalid stroke override`);
   if (!Array.isArray(input.layers) || !input.layers.length || input.layers.length > 128) throw new Error(`${input.name}: expected 1–128 layers`);
   const glyph = clone(input);
+  if(glyph.strokeOverride!=null && (!Number.isFinite(glyph.strokeOverride)||glyph.strokeOverride<.1||glyph.strokeOverride>8))throw Error(`${glyph.name}: invalid stroke override`);
+  if(glyph.insetConversion!=null && (!glyph.insetConversion || typeof glyph.insetConversion.source!=='string' || !Number.isFinite(glyph.insetConversion.inset) || glyph.insetConversion.inset<0 || !Number.isFinite(glyph.insetConversion.stroke) || glyph.insetConversion.stroke<.1 || glyph.insetConversion.stroke>8))throw Error(`${glyph.name}: invalid inset conversion`);
   if(glyph.referenceImage!=null)glyph.referenceImage=validateReferenceImage(glyph.referenceImage);
   if(glyph.solidReview!=null){const review=glyph.solidReview;if(!['candidate','approved','needs-review'].includes(review.status) || typeof review.sourceSignature!=='string' || review.sourceSignature.length>2000000 || (['candidate','approved'].includes(review.status) && !review.recipe) || (review.iou!=null && (!Number.isFinite(review.iou) || review.iou<0 || review.iou>1.0001)) || (review.topology!=null && typeof review.topology!=='boolean') || (review.recipe && (!['outside','center','inside'].includes(review.recipe.edge) || !['preserve','fill'].includes(review.recipe.holes))) || (review.reason!=null && typeof review.reason!=='string'))throw new Error(`${glyph.name}: invalid solid review`);}
   if(glyph.output!=null)glyph.output=validateOutput(glyph.output);
