@@ -1910,7 +1910,8 @@ function organizeActionsMenu() {
   const legend=document.createElement('div');legend.className='action-legend';legend.textContent='Gray: source → Blue: result';submenu.appendChild(legend);
   for(const child of actions){if(child.tagName==='BUTTON')child.classList.add('visual-action');submenu.appendChild(child);}
   toggle.onclick=()=>{const open=submenu.hidden;submenu.hidden=!open;toggle.setAttribute('aria-expanded',String(open));if(open){const bounds=itemMenu.getBoundingClientRect();itemMenu.style.top=Math.max(8,Math.min(bounds.top,window.innerHeight-bounds.height-8))+'px';submenu.querySelector('button:not(:disabled)')?.focus();}};
-  itemMenu.append(toggle,submenu);
+  itemMenu.insertBefore(toggle,itemMenu.firstElementChild.nextSibling);
+  itemMenu.insertBefore(submenu,toggle.nextSibling);
 }
 const treeKey = selection => `${selection.l}:${selection.p === null ? 'layer' : selection.p.join('.')}`;
 const treeRow = selection => root.querySelector(`[data-tree-key="${treeKey(selection)}"]`);
@@ -2471,6 +2472,7 @@ function field(parent, label, value, onInput, opts = {}) {
   if (opts.min != null) inp.min = opts.min;
   if (opts.max != null) inp.max = opts.max;
   if (opts.key) inp.dataset.key = opts.key;
+  if (opts.scrubStep) inp.dataset.scrubStep=opts.scrubStep;
   w.appendChild(inp); parent.appendChild(w); return inp;
 }
 function sub(parent, text, btns) { const d = document.createElement('div'); d.className = 'sub'; d.textContent = text; if (btns) btns.forEach(b => d.appendChild(b)); parent.appendChild(d); return d; }
@@ -2658,9 +2660,10 @@ function renderInspector() {
     field(g, 'role', L.role || 'primary', v => { L.role = v; }, { options: ['primary', 'secondary', 'accent'] });
     field(g, 'custom color (#hex)', L.color || '', value => { if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(value)) L.color = value; else if (!value.trim()) delete L.color; }, { text: true });
     field(g, 'paint', L.paint || 'stroke', v => { L.paint = v; }, { options: ['stroke', 'fill', 'both'] });
+    if(L.paint!=='fill')field(g,'exclude from library line width',L.strokeWidth!=null,v=>{if(v)L.strokeWidth=strokeWeight(S.glyph);else delete L.strokeWidth;},{check:true});
     if(L.rounding!=null)field(g,'layer corner rounding',L.rounding,v=>{L.rounding=v;},{min:0,step:.1});
     if(L.endRounding!=null)field(g,'layer end rounding',L.endRounding,v=>{L.endRounding=v;},{min:0,step:.1});
-    if(L.strokeWidth!=null)field(g,'layer stroke width',L.strokeWidth,v=>{L.strokeWidth=v;},{min:.1,max:8,step:.1});
+    if(L.strokeWidth!=null)field(g,'layer stroke width',L.strokeWidth,v=>{L.strokeWidth=v;},{min:.1,max:8,step:'any',scrubStep:.01});
     field(g, 'opacity', L.opacity == null ? 1 : L.opacity, v => { L.opacity = Math.max(0, Math.min(1, v)); }, { step: 0.05 });
     field(g, 'visible', L.visible !== false, v => { L.visible = v; }, { check: true });
     field(g, 'uses glyph symmetry', L.symmetry !== false, v => { if (v) delete L.symmetry; else L.symmetry = false; }, { check: true });
@@ -3525,7 +3528,7 @@ appStudio=createAppIconStudio({root:$('appIconStudio'),getGlyph:()=>S.glyph,getL
 const repairLocked=[...root.querySelectorAll('#componentsPanel,.library-panel,.set-settings,.io,#appIconStudio,#drawingMode,#exportSize,#hdrEdited,#revertBtn')];
 function repairWorking(glyph){S.glyph=clone(glyph);S.sel=[];S.selectedAnchors=[];S.anchor=null;S.sourceAnchor=null;S.iso=null;penDraft=null;penHover=null;penCloseHover=null;S.rt.weight=strokeWeight(S.glyph);S.rt.cap=S.glyph.strokeCap||'round';S.rt.join=S.glyph.strokeJoin||'round';}
 const fusionDialog=createFusionDialog({root,core,getGlyph:()=>S.glyph,apply:(selection,recipe)=>{getNode({...selection,p:selection.p||[]}).fusion=recipe;commit();refresh(true);renderLibrary();},status});
-const shapeCenterline=createShapeCenterline({root,core,getGlyph:()=>S.glyph,apply:layer=>{S.glyph.layers.push(layer);S.sel=[{l:S.glyph.layers.length-1,p:[]}];S.anchor=null;S.selectedAnchors=[];commit();refresh(true);},status});
+const shapeCenterline=createShapeCenterline({root,core,getGlyph:()=>S.glyph,apply:layer=>{S.glyph.layers.push(layer);S.sel=[{l:S.glyph.layers.length-1,p:null}];S.anchor=null;S.selectedAnchors=[];commit();refresh(true);},status});
 guidedRepair=createGuidedRepair({root,core,getGlyph:()=>S.glyph,getLibrary:()=>S.lib,getStyle:()=>S.libraryProperties?tokenStyle(S.libraryProperties):null,
   enter:glyph=>{repairContext={name:S.glyph.name,lastSnap,tool:S.tool,rt:clone(S.rt),original:S.show.original};closeGroupReview();root.querySelector('.stage').hidden=false;for(const el of repairLocked)el.inert=true;S.show.original=false;repairWorking(glyph);setTool('direct');setSaveState('draft');},
   leave:name=>{for(const el of repairLocked)el.inert=false;const context=repairContext;repairContext=null;S.show.original=context.original;S.rt=context.rt;lastSnap=context.lastSnap;loadGlyph(Math.max(0,idx(name||context.name)));setTool(context.tool);setSaveState('saved');},
