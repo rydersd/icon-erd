@@ -2361,6 +2361,7 @@ function libraryLayerMenu(selection) {
   const layer=layerOf(selection);menuHeading('Layer library settings');itemMenu.lastChild.dataset.menuSection='library';
   menuAction('Follow library thickness','layers',()=>{if(layer.strokeWidth==null)layer.strokeWidth=strokeWeight(S.glyph);else delete layer.strokeWidth;commit();refresh(true);},layer.strokeWidth==null);
   menuAction('Follow library rounding','layers',()=>{if(layer.rounding==null&&layer.endRounding==null){layer.rounding=S.glyph.setStyle?.rounding??0;layer.endRounding=S.glyph.setStyle?.endRounding??layer.rounding;}else{delete layer.rounding;delete layer.endRounding;}commit();refresh(true);},layer.rounding==null&&layer.endRounding==null);
+  if(layer.paint!=='fill')menuAction('Follow library end rounding','layers',()=>{if(layer.endRounding==null)layer.endRounding=S.glyph.setStyle?.endRounding??S.glyph.setStyle?.rounding??0;else delete layer.endRounding;commit();refresh(true);},layer.endRounding==null);
 }
 function fusionMenuAction(selection) {
   if(guidedRepair?.active || S.sel.length!==1)return;
@@ -2634,6 +2635,13 @@ function renderSharedCandidates() {
 $('findSharedFormsBtn').onclick=()=>openSharedForms();
 $('sharedFormsSearch').oninput=renderSharedCandidates;
 $('closeSharedFormsBtn').onclick=()=>$('sharedFormsDialog').close();
+function endRoundingFields(parent,layer) {
+  if(layer.paint==='fill')return;
+  const follows=layer.endRounding==null;
+  field(parent,'follow library end rounding',follows,v=>{if(v)delete layer.endRounding;else layer.endRounding=S.glyph.setStyle?.endRounding??S.glyph.setStyle?.rounding??0;},{check:true});
+  const input=field(parent,'layer end rounding',layer.endRounding??S.glyph.setStyle?.endRounding??S.glyph.setStyle?.rounding??0,v=>{layer.endRounding=v;},{min:0,step:.1});input.disabled=follows;
+  const note=document.createElement('div');note.className='wide lbl';note.textContent=follows?'End radius follows the library; local width stays independent.':'Local end radius overrides library end rounding. Enable following to use the library radius.';parent.appendChild(note);
+}
 function renderInspector() {
   const box = $('insp'); box.innerHTML = '';
   const g = document.createElement('div'); g.className = 'insp'; box.appendChild(g);
@@ -2662,7 +2670,7 @@ function renderInspector() {
     field(g, 'paint', L.paint || 'stroke', v => { L.paint = v; }, { options: ['stroke', 'fill', 'both'] });
     if(L.paint!=='fill')field(g,'exclude from library line width',L.strokeWidth!=null,v=>{if(v)L.strokeWidth=strokeWeight(S.glyph);else delete L.strokeWidth;},{check:true});
     if(L.rounding!=null||L.strokeWidth!=null)field(g,'layer corner rounding',L.rounding??S.glyph.setStyle?.rounding??0,v=>{L.rounding=v;},{min:0,step:.1});
-    if(L.endRounding!=null||L.strokeWidth!=null)field(g,'layer end rounding',L.endRounding??S.glyph.setStyle?.endRounding??S.glyph.setStyle?.rounding??0,v=>{L.endRounding=v;},{min:0,step:.1});
+    endRoundingFields(g,L);
     if(L.strokeWidth!=null)field(g,'layer stroke width',L.strokeWidth,v=>{L.strokeWidth=v;},{min:.1,max:8,step:'any',scrubStep:.01});
     if(L.strokeWidth!=null||L.strokeCap!=null||L.strokeJoin!=null){
       field(g,'layer cap',L.strokeCap??'library',v=>{if(v==='library')delete L.strokeCap;else{L.strokeCap=v;L.endRounding=0;}},{options:['library','round','butt','square']}).setAttribute('aria-label','layer cap');
@@ -2676,6 +2684,7 @@ function renderInspector() {
   const n = getNode(s); if (!n) return;
   sharedFormInspector(g,s,n);
   field(g, 'name', n.name || '', v => { if (v) n.name = v; else delete n.name; }, { text: true });
+  if(L.paint!=='fill'&&(L.strokeWidth!=null||L.endRounding!=null)){sub(g,'Stroke end rounding (layer)');endRoundingFields(g,L);}
   if (n.children) {
     field(g, 'boolean', n.op || 'union', v => { n.op = v; }, { options: ['union', 'subtract', 'intersect', 'exclude', 'compound'] });
     if (n.op === 'compound') field(g, 'fill rule', n.fillRule || 'nonzero', v => { if (v === 'evenodd') n.fillRule = v; else delete n.fillRule; }, { options: ['nonzero', 'evenodd'] });
