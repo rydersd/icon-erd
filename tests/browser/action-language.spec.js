@@ -46,3 +46,21 @@ test('flatter rounded bar previews a matching open stroke live and excluded laye
  await page.getByLabel('layer corner rounding',{exact:true}).fill('.3');await page.getByLabel('layer corner rounding',{exact:true}).press('Tab');await expect(page.locator('#gLayers path[stroke-width="2.4"]')).toHaveAttribute('stroke-linejoin','round');
  await page.evaluate(()=>window.__gw.flushSaves());await page.reload();await page.waitForFunction(()=>window.__gw?.ready);const saved=await page.evaluate(()=>window.__gw.S.glyph.layers[1]);expect(saved.strokeCap).toBe('square');expect(saved.strokeJoin).toBe('bevel');expect(saved.rounding).toBe(.3);expect(saved.endRounding).toBe(.4);
 });
+
+test('centerline leaves source isolation and remains visible and editable after hiding original',async({page})=>{
+ await setup(page);await page.evaluate(()=>{const w=window.__gw;w.isoEnter({l:0,p:[]});w.S.sel=[{l:0,p:[0]}];w.refresh(true);});
+ await expect(page.locator('#isoBar')).toBeVisible();await page.locator('[data-tree-key="0:0"]').click({button:'right'});await actions(page);await page.getByRole('menuitem',{name:'Create centerline',exact:true}).click();await page.getByRole('button',{name:'Add centerline layer',exact:true}).click();
+ await expect(page.locator('#isoBar')).toBeHidden();expect(await page.evaluate(()=>window.__gw.S.iso)).toBeNull();
+ await page.locator('[data-tree-key="0:0"] .eye').click();await expect(page.locator('#gLayers path[stroke-width="1.2"]')).toHaveCount(2);expect(await page.evaluate(()=>window.__gw.S.glyph.layers[2].visible)).not.toBe(false);
+ await page.locator('[data-tree-key="0:layer"] .eye').click();await expect(page.locator('#gLayers path[stroke-width="1.2"]')).toHaveCount(2);
+ await page.locator('[data-tree-key="2:layer"]').click();await page.getByLabel('layer stroke width',{exact:true}).fill('1.8');await page.getByLabel('layer stroke width',{exact:true}).press('Tab');await expect(page.locator('#gLayers path[stroke-width="1.8"]')).toHaveCount(1);
+ await page.evaluate(()=>window.__gw.flushSaves());await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('#gLayers path[stroke-width="1.8"]')).toHaveCount(1);expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].visible)).toBe(false);
+});
+
+test('excluded centerline path cap and preview cap controls change canvas and SVG, Undo and shape edits redraw',async({page})=>{
+ await setup(page);await page.locator('[data-tree-key="0:0"]').click({button:'right'});await actions(page);await page.getByRole('menuitem',{name:'Create centerline',exact:true}).click();await page.getByRole('button',{name:'Add centerline layer',exact:true}).click();
+ await page.locator('[data-tree-key="2:0"]').click();
+ for(const cap of ['butt','square']){await page.getByLabel('cap',{exact:true}).selectOption(cap);await expect(page.locator('#gLayers path[stroke-width="1.2"]').last()).toHaveAttribute('stroke-linecap',cap);expect(await page.evaluate(()=>window.__gw.core.toSVG({...window.__gw.S.glyph,layers:[window.__gw.S.glyph.layers[2]]},{mode:'baked'}))).toContain(`stroke-linecap="${cap}"`);await expect(page.locator('#gLayers [data-stroke-tip]')).toHaveCount(0);}
+ await page.locator('[data-cap="butt"]').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[2].strokeCap)).toBe('butt');await expect(page.locator('#gLayers path[stroke-width="1.2"]').last()).toHaveAttribute('stroke-linecap','butt');await page.locator('#undoBtn').click();await expect(page.locator('#gLayers path[stroke-width="1.2"]').last()).toHaveAttribute('stroke-linecap','square');
+ await page.locator('[data-tree-key="2:0"]').click();const before=await page.locator('#gLayers path[stroke-width="1.2"]').last().getAttribute('d');await page.getByLabel('y2',{exact:true}).fill('17');await page.getByLabel('y2',{exact:true}).press('Tab');expect(await page.locator('#gLayers path[stroke-width="1.2"]').last().getAttribute('d')).not.toBe(before);
+});
