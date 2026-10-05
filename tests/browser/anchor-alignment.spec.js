@@ -11,13 +11,16 @@ const setup = async (page, pts, transforms = []) => {
   }, { pts, transforms });
 };
 for (const [direction, points, expected] of [
-  ['vertically (X)', [{ x: 4, y: 4, in: [-1, 0], out: [1, 2] }, { x: 6, y: 16 }, { x: 18, y: 18 }], [5, 5]],
-  ['horizontally (Y)', [{ x: 4, y: 4 }, { x: 16, y: 6, out: [2, 1] }, { x: 18, y: 18 }], [5, 5]],
+  ['X', [{ x: 4, y: 4, in: [-1, 0], out: [1, 2] }, { x: 6, y: 16 }, { x: 18, y: 18 }], [5, 5]],
+  ['Y', [{ x: 4, y: 4 }, { x: 16, y: 6, out: [2, 1] }, { x: 18, y: 18 }], [5, 5]],
 ]) test(`align chooses ${direction}, preserves handles and other anchors, and supports Undo/Redo`, async ({ page }) => {
   await setup(page, [points]);
   await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Actions',exact:true}).click();
-  await page.getByRole('menuitem', { name: `Align points ${direction}`, exact: true }).click();
-  const axis = direction.startsWith('vertically') ? 'x' : 'y';
+  const action = page.getByRole('menuitem', { name: `Align ${direction}`, exact: true });
+  expect(await action.locator('svg [fill="var(--accent)"]').count()).toBeGreaterThan(0);
+  expect(await action.locator('svg [fill="var(--text-2)"]').count()).toBeGreaterThan(0);
+  await action.click();
+  const axis = direction.toLowerCase();
   const aligned = await page.evaluate(() => window.__gw.S.glyph.layers[0].node.pts);
   expect(aligned.slice(0, 2).map(p => p[axis])).toEqual(expected);
   for (let i = 0; i < 2; i++) expect(aligned[i]).toEqual({ ...points[i], [axis]: 5 });
@@ -35,12 +38,36 @@ test('alignment operates in drawing coordinates across rotated and scaled object
     });
   });
   const before = await world(), meanY = before.reduce((s, p) => s + p.y / 4, 0);
-  await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Actions',exact:true}).click(); await page.getByRole('menuitem', { name: 'Align points horizontally (Y)', exact: true }).click();
+  await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Actions',exact:true}).click(); await page.getByRole('menuitem', { name: 'Align Y', exact: true }).click();
   const after = await world();
   for (let i = 0; i < 4; i++) { expect(after[i].y).toBeCloseTo(meanY, 3); expect(after[i].x).toBeCloseTo(before[i].x, 3); }
 });
 test('single-anchor menu does not offer alignment', async ({ page }) => {
   await setup(page, [[{ x: 4, y: 4 }, { x: 8, y: 12 }]]);
   await page.evaluate(() => { window.__gw.S.selectedAnchors = window.__gw.S.selectedAnchors.slice(0, 1); window.__gw.refresh(true); });
-  await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Actions',exact:true}).click(); await expect(page.getByRole('menuitem', { name: /Align points/ })).toHaveCount(0);
+  await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Actions',exact:true}).click(); await expect(page.getByRole('menuitem', { name: /^Align [XY]$/ })).toHaveCount(0);
+});
+
+for (const width of [1500, 390]) test(`anchor actions separate icons and labels at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 1100 });
+  await setup(page, [[{ x: 4, y: 4 }, { x: 6, y: 16 }, { x: 18, y: 18 }]]);
+  await page.locator('#canvas').press('Shift+F10');
+  await page.getByRole('menuitem', { name: 'Actions', exact: true }).click();
+  for (const button of await page.locator('#selectionActions > button').all()) {
+    await expect(button).toBeVisible();
+    const bounds = await button.evaluate(el => {
+      const icon = el.firstElementChild, text = el.lastElementChild;
+      const a = icon.getBoundingClientRect(), b = text.getBoundingClientRect(), c = el.getBoundingClientRect();
+      return { width: a.width, height: a.height, gap: b.left - a.right, textRight: b.right, buttonRight: c.right };
+    });
+    expect(bounds.width).toBe(28); expect(bounds.height).toBe(28);
+    expect(bounds.gap).toBeGreaterThanOrEqual(8);
+    expect(bounds.textRight).toBeLessThanOrEqual(bounds.buttonRight);
+  }
+  for (const name of ['Snap to nearest', 'Align X']) {
+    const icon = page.getByRole('menuitem', { name, exact: true }).locator(':scope > svg');
+    await expect(icon).toHaveAttribute('aria-hidden', 'true');
+    expect(await icon.locator('[fill="var(--accent)"], [stroke="var(--accent)"]').count()).toBeGreaterThan(0);
+    expect(await icon.locator('[fill="var(--text-2)"], [stroke="var(--text-2)"]').count()).toBeGreaterThan(0);
+  }
 });

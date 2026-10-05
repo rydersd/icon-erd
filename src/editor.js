@@ -2098,7 +2098,7 @@ function openCanvasMenu(event) {
     menuHeading(S.snap ? `Snap spacing: ${S.snap}` : 'Snap is off');
     menuAction('Snap to nearest','grid',snapSelectedAnchors,null,!S.snap);
     const alignment = selectedAnchorAlignment();
-    if (alignment) menuAction(`Align points ${alignment.axis === 'x' ? 'vertically (X)' : 'horizontally (Y)'}`, 'anchor', alignSelectedAnchors);
+    if (alignment) menuAction(`Align ${alignment.axis.toUpperCase()}`, 'anchor', alignSelectedAnchors);
     menuAction('Cleanup','anchor',cleanupSelectedAnchors);
     menuAction('Retract handles','anchor',()=>retractSelectedHandles());
     menuAction('Merge to corner','anchor',mergeSelectedCorners,null,anchors<2);
