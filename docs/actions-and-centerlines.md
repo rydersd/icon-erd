@@ -16,4 +16,10 @@ Eight original editable action icons were imported into a disposable ICONERD lib
 
 Half-width inset collapses a 1.2-unit bar and produces a closed contour for wider bars; that is why rounded-bar recovery is a separate method. Recognition is conservative: axis-aligned capsules with matching boundary samples and area, uniform widths when multiple contours occur. Rotated/irregular bars fall back to manual contour review.
 
-An experimental proximity-fusion recipe expands strokes, closes gaps and unions their areas while preserving original axes. In the three-bar trial, a .6-unit threshold joins the close pair, while 2.4 joins all three. This remains an experiment, not an enabled application rule. Outline stroke appearance and solid stroke-area export coincide for these open bars; closed contours need hole/counter review before a shared outline/solid recipe can ship.
+**Fuse nearby strokes** is an explicit group recipe. Right-click a stroke union group on Canvas or in Layers → **Actions → Fuse nearby strokes**. Review the outline and derived solid, adjust **Merge distance**, then save. The default protects existing holes. Zero joins existing overlap; positive distances approximately close nearby gaps. The three-bar trial joins the close pair at .6 and all three at 2.4. Preview before applying; this is geometric gap closing, not a metaball field.
+
+The group retains its original editable paths. Changing thickness regenerates its stroke area, and solid generation applies the same distance recipe to the original centerlines' chosen solid boundaries. Fusion stays inside each enabled group. Union ancestors are required; nested fusion is unavailable. Recipes follow shared components, including scaled instances, and remain dormant on fill/both-painted layers. Hide/disable/Undo and editable JSON/ZIP retain the sources. **Disable proximity fusion** provides recovery if a later Boolean change makes the group incompatible.
+
+Fused SVG regions use the stroke color or token as their fill. Geometry is baked even in runtime SVG: CSS color tokens work, but CSS stroke-width cannot regenerate the shape outside ICONERD. Library/icon/layer thickness edits inside the app regenerate it. Derived solid exports retain the existing review requirements; previewing a recipe does not silently approve a solid variant.
+
+![Fusion review](images/fusion-review.png)

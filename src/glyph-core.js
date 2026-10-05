@@ -1,3 +1,4 @@
+import {resolveFusionLayer} from './proximity-fusion.js';
 import {strokeWeight,layerStyleGlyph} from './stroke-weight.js';
 import {gradientSVG,referenceSVG} from './app-icon-paint.js';
 import {paintColors} from './library-output.js';
@@ -662,8 +663,8 @@ export function createGlyphCore(paper) {
   }
 
   /** Resolve every layer to path data. Returns [{ id, name, role, paint, opacity, visible, d, parts:[{d, cap}] }]. */
-  function resolve(glyph) {
-    return (glyph.layers || []).map(layer => {
+  function resolve(glyph, opts = {}) {
+    return (glyph.layers || []).map((layer, layerIndex) => {
       let r;
       try { r = evalLayer(layer, glyph); } catch (err) { r = { closed: null, open: [], error: String(err && err.message || err) }; }
       const parts = [];
@@ -673,11 +674,13 @@ export function createGlyphCore(paper) {
       const byCap = {};
       for (const p of r.open) if (p.data.cap) (byCap[p.data.cap] = byCap[p.data.cap] || []).push(itemD(p));
       for (const cap in byCap) parts.push({ d: byCap[cap].join(''), cap });
-      return {
+      const raw = {
         strokeWidth: layer.strokeWidth, rounding:layer.rounding,endRounding:layer.endRounding, id: layer.id, name: layer.name, role: layer.role || 'primary', paint: layer.paint || 'stroke', color: layer.color || null, fillColor:layer.fillColor || null,strokeColor:layer.strokeColor || null,fillGradient:layer.fillGradient || null,
         opacity: layer.opacity == null ? 1 : layer.opacity, visible: layer.visible !== false,
         d: parts.map(p => p.d).join(''), parts, error: r.error || null,
       };
+      r.closed?.remove();r.open.forEach(item=>item.remove());
+      return opts.skipFusion || raw.error ? raw : resolveFusionLayer(layer,glyph,layerIndex,raw,{resolve,evalNode,strokeStyle,strokeTipsSVG,itemD},opts);
     });
   }
 
@@ -733,11 +736,12 @@ export function createGlyphCore(paper) {
   function toSVG(glyph, opts = {}) {
     const mode = opts.mode || 'runtime';
     const weight = opts.weight != null ? opts.weight : (strokeWeight(glyph));
-    const layers = opts.resolved || resolve(glyph);
+    const layers = opts.resolved || resolve(glyph,opts);
     const colours = Object.assign({}, ROLE_DEFAULTS, opts.colors || {});
     const body = [],defs=[];
     if(!opts.mono)body.push(referenceSVG(glyph));
     for (const [layerIndex, L] of layers.entries()) {
+      if (L.error && L.visible) throw Error(L.error);
       if (!L.visible || !L.d) continue;
       const layerWeight = L.strokeWidth ?? weight, styled=layerStyleGlyph(glyph,L);
       const col = L.color || (mode === 'baked' ? (opts.mono ? '#000' : colours[L.role] || '#000') : ROLE_VARS[L.role] || 'currentColor');
@@ -745,10 +749,10 @@ export function createGlyphCore(paper) {
       const gradient=gradientSVG(L,glyph,`export-${glyph.name}-${layerIndex}`,opts.mono);
       if(gradient){defs.push(gradient.defs);paint.fill=gradient.fill;}
       for (const part of L.parts) {
-        const stroke = L.paint === 'stroke' || L.paint === 'both';
-        const fill = L.paint === 'fill' || L.paint === 'both';
+        const stroke = !part.fusion && (L.paint === 'stroke' || L.paint === 'both');
+        const fill = !!part.fusion || L.paint === 'fill' || L.paint === 'both';
         const a = [`d="${part.d}"`];
-        a.push(`fill="${fill ? esc(paint.fill) : 'none'}"`);
+        a.push(`fill="${fill ? esc(part.fusion ? paint.stroke : paint.fill) : 'none'}"`);
         if (fill) a.push('fill-rule="nonzero"');
         if (stroke) {
           a.push(`stroke="${esc(paint.stroke)}"`);

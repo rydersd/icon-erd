@@ -1,3 +1,5 @@
+import {createFusionDialog} from './fusion-dialog.js';
+import {fusionTarget,fusionGroups} from './proximity-fusion.js';
 import {createShapeCenterline,centerlineSource} from './shape-centerline.js';
 import {actionIcon} from './action-icons.js';
 import {componentTarget,createSelectedComponent} from './component-creation.js';
@@ -840,11 +842,11 @@ function renderCanvas() {
     const dim = S.iso && !(S.iso.l === li && S.iso.p === null) ? 0.15 : 1;
     for (const part of L.parts) {
       const a = { d: part.d, fill: 'none', 'fill-rule': 'nonzero', opacity: L.opacity * dim };
-      if (L.paint !== 'stroke') a.fill = paint.fill;
+      if (part.fusion || L.paint !== 'stroke') a.fill = part.fusion ? paint.stroke : paint.fill;
       const style = core.strokeStyle(styled, S.rt, part.cap);
-      if (L.paint !== 'fill') Object.assign(a, { stroke: paint.stroke, 'stroke-width': layerWidth, 'stroke-linecap': style.cap, 'stroke-linejoin': style.join });
+      if (!part.fusion && L.paint !== 'fill') Object.assign(a, { stroke: paint.stroke, 'stroke-width': layerWidth, 'stroke-linecap': style.cap, 'stroke-linejoin': style.join });
       el('path', a, gL);
-      if (L.paint !== 'fill') gL.insertAdjacentHTML('beforeend', core.strokeTipsSVG(styled, part.d, { mode: 'baked', weight: layerWidth, color: paint.stroke, opacity: L.opacity * dim, layerIndex: li }));
+      if (!part.fusion && L.paint !== 'fill') gL.insertAdjacentHTML('beforeend', core.strokeTipsSVG(styled, part.d, { mode: 'baked', weight: layerWidth, color: paint.stroke, opacity: L.opacity * dim, layerIndex: li }));
     }
   });
   // isolated object: drawn on its own at full strength over the dimmed glyph
@@ -856,13 +858,15 @@ function renderCanvas() {
       const col = L.color || ROLE_CANVAS[L.role || 'primary'] || 'var(--text)', paint = L.paint || 'stroke';
       const colors=paintColors(L,S.glyph,{colors:ROLE_CANVAS,fallback:col});
       const gradient=gradientSVG(S.resolved[S.iso.l],S.glyph,`canvas-fill-${S.iso.l}`);if(gradient)colors.fill=gradient.fill;
-      const items = [].concat(fm.closed ? [{ d: core.itemD(fm.closed) }] : [], fm.open.map(o => ({ d: core.itemD(o), cap: o.data && o.data.cap })));
+      let items = [].concat(fm.closed ? [{ d: core.itemD(fm.closed) }] : [], fm.open.map(o => ({ d: core.itemD(o), cap: o.data && o.data.cap })));
+      const fused=S.resolved[S.iso.l].parts.filter(part=>part.fusion && JSON.stringify(part.fusion.path)===JSON.stringify(S.iso.p));
+      if(fused.length)items=fused;
       for (const it of items) {
-        const a = { d: it.d, fill: paint !== 'stroke' ? colors.fill : 'none', 'data-iso': '1' };
+        const a = { d: it.d, fill: it.fusion ? colors.stroke : paint !== 'stroke' ? colors.fill : 'none', 'data-iso': '1' };
         const style = core.strokeStyle(styled, S.rt, it.cap);
-        if (paint !== 'fill') Object.assign(a, { stroke: colors.stroke, 'stroke-width': layerWidth, 'stroke-linecap': style.cap, 'stroke-linejoin': style.join });
+        if (!it.fusion && paint !== 'fill') Object.assign(a, { stroke: colors.stroke, 'stroke-width': layerWidth, 'stroke-linecap': style.cap, 'stroke-linejoin': style.join });
         el('path', a, gI);
-        if (paint !== 'fill') gI.insertAdjacentHTML('beforeend', core.strokeTipsSVG(styled, it.d, { mode: 'baked', weight: layerWidth, color: colors.stroke, layerIndex: S.iso.l }));
+        if (!it.fusion && paint !== 'fill') gI.insertAdjacentHTML('beforeend', core.strokeTipsSVG(styled, it.d, { mode: 'baked', weight: layerWidth, color: colors.stroke, layerIndex: S.iso.l }));
       }
     }
   }
@@ -1106,7 +1110,8 @@ function measurementObjectBounds() {
   });
   const glyph = { ...S.glyph, layers };
   let bounds = null;
-  const svg = new DOMParser().parseFromString(core.toSVG(glyph, opts), 'image/svg+xml');
+  let markup;try{markup=core.toSVG(glyph,opts);}catch{return null;}
+  const svg = new DOMParser().parseFromString(markup, 'image/svg+xml');
   for (const path of svg.querySelectorAll('path')) {
     if (!path.getAttribute('d') || path.getAttribute('opacity') === '0') continue;
     const item = new paper.CompoundPath({ pathData: path.getAttribute('d'), insert: false });
@@ -1318,7 +1323,13 @@ function hitForm(pos) {
       if (it.closed !== false && it.contains && it.contains(pt)) { if (f.cut) { if (!bestCut && cutterActive(f.l, f.cut.slice(0, -1))) bestCut = f; } else if (!best) best = f; }
     }
   }
-  return best || bestCut;
+  if(best || bestCut)return best || bestCut;
+  for(let l=S.resolved.length-1;l>=0;l--)if(S.resolved[l].visible)for(const part of S.resolved[l].parts){
+    if(!part.fusion || !inIso(l,part.fusion.path))continue;
+    const ink=new paper.CompoundPath({pathData:part.d,insert:false});let inside;try{inside=ink.contains(pt);}finally{ink.remove();}
+    if(inside){const p=part.fusion.path,sel={l,p};return {l,p,n:getNode(sel),anc:ancestorsOf(sel)};}
+  }
+  return null;
 }
 /** pen tool: the outline under the pointer (selected form first), with the nearest point on it */
 function hitOutline(pos) {
@@ -2108,7 +2119,7 @@ function openCanvasMenu(event) {
     if(S.sel.length>1)for(const op of ['union','subtract','intersect','exclude'])menuAction(op[0].toUpperCase()+op.slice(1),op,()=>group(op));
     if(node?.component)menuAction('Detach shared instance','ungroup',()=>{delete node.component;commit();refresh(true);});
   } else menuAction('Select all objects','select',()=>{S.sel=S.glyph.layers.map((_,l)=>({l,p:[]}));refresh(true);});
-  if(S.sel.length){componentMenuAction(selection);centerlineMenuAction(selection);libraryLayerMenu(selection);}
+  if(S.sel.length){componentMenuAction(selection);centerlineMenuAction(selection);fusionMenuAction(selection);libraryLayerMenu(selection);}
   const wholeContours=!anchors || S.sel.every(s=>s.p!==null && getNode(s)?.shape==='pen' && getNode(s).pts.every((_,i)=>anchorSelected(s,i)));
   if(wholeContours && S.sel.length && S.sel.every(s=>s.p!==null && regularEllipse(getNode(s),core)))menuAction('Convert to circle/ellipse (4 anchors)','circle',()=>regularizeSelections());
   organizeActionsMenu();
@@ -2137,7 +2148,7 @@ function openTreeMenu(selection, event) {
   }
   if (node && regularEllipse(node,core)) menuAction('Convert to circle/ellipse (4 anchors)','circle',()=>regularizeSelections([selection]));
   if (node) menuAction('Use as cutter', 'cutter', cutterAction, !!selection.p.length && getParent(selection).op === 'subtract' && selection.p.at(-1) > 0, !selection.p.length || getParent(selection).children.length < 2);
-  componentMenuAction(selection);centerlineMenuAction(selection);libraryLayerMenu(selection);organizeActionsMenu();
+  componentMenuAction(selection);centerlineMenuAction(selection);fusionMenuAction(selection);libraryLayerMenu(selection);organizeActionsMenu();
   const row = treeRow(selection), bounds = row.getBoundingClientRect();
   openPopup(itemMenu, row, event.type === 'contextmenu' ? event.clientX : bounds.left, event.type === 'contextmenu' ? event.clientY : bounds.bottom, () => treeRow(selection));
 }
@@ -2349,6 +2360,13 @@ function libraryLayerMenu(selection) {
   const layer=layerOf(selection);menuHeading('Layer library settings');itemMenu.lastChild.dataset.menuSection='library';
   menuAction('Follow library thickness','layers',()=>{if(layer.strokeWidth==null)layer.strokeWidth=strokeWeight(S.glyph);else delete layer.strokeWidth;commit();refresh(true);},layer.strokeWidth==null);
   menuAction('Follow library rounding','layers',()=>{if(layer.rounding==null&&layer.endRounding==null){layer.rounding=S.glyph.setStyle?.rounding??0;layer.endRounding=S.glyph.setStyle?.endRounding??layer.rounding;}else{delete layer.rounding;delete layer.endRounding;}commit();refresh(true);},layer.rounding==null&&layer.endRounding==null);
+}
+function fusionMenuAction(selection) {
+  if(guidedRepair?.active || S.sel.length!==1)return;
+  const selected=selection.p===null?layerOf(selection).node:getNode(selection);
+  if(fusionGroups(selected).length)menuAction('Disable proximity fusion','union',()=>{for(const {node}of fusionGroups(selected))node.fusion.enabled=false;commit();refresh(true);renderLibrary();});
+  if(!fusionTarget(S.glyph,selection))return;
+  menuAction('Fuse nearby strokes','union',()=>{try{fusionDialog.open(selection);}catch(error){status(error.message,true);}});
 }
 function centerlineMenuAction(selection) {
   if(guidedRepair?.active || S.sel.length!==1 || !centerlineSource(S.glyph,selection,core))return;
@@ -2753,10 +2771,10 @@ function previewSVG(size, extraClass, glyph=S.glyph, resolved=S.resolved) {
     const gradient=gradientSVG(L,glyph,`preview-${glyph.name}-${size}-${extraClass}-${layerIndex}`);if(gradient){defs.push(gradient.defs);colors.fill=gradient.fill;}
     for (const part of L.parts) {
       let d = part.d, w = L.strokeWidth ?? W;
-      if (S.rt.hint && size <= 20) { const h = core.hintD(d, size, w, L.paint); d = h.d; w = h.weight; }
-      const stroke = L.paint !== 'fill', fill = L.paint !== 'stroke';
+      if (S.rt.hint && size <= 20) { const h = core.hintD(d, size, w, part.fusion?'fill':L.paint); d = h.d; w = h.weight; }
+      const stroke = !part.fusion && L.paint !== 'fill', fill = !!part.fusion || L.paint !== 'stroke';
       const style = core.strokeStyle(styled, S.rt, part.cap);
-      parts.push(`<path d="${d}" fill="${fill ? colors.fill : 'none'}"${stroke ? ` stroke="${colors.stroke}" style="stroke-width:${S.rt.hint && size <= 20 || L.strokeWidth!=null ? w : 'var(--icon-stroke-width)'};stroke-linecap:${style.runtimeCap};stroke-linejoin:${style.runtimeJoin}"` : ''}${L.opacity !== 1 ? ` opacity="${L.opacity}"` : ''}/>`);
+      parts.push(`<path d="${d}" fill="${fill ? (part.fusion ? colors.stroke : colors.fill) : 'none'}"${stroke ? ` stroke="${colors.stroke}" style="stroke-width:${S.rt.hint && size <= 20 || L.strokeWidth!=null ? w : 'var(--icon-stroke-width)'};stroke-linecap:${style.runtimeCap};stroke-linejoin:${style.runtimeJoin}"` : ''}${L.opacity !== 1 ? ` opacity="${L.opacity}"` : ''}/>`);
       if (stroke) parts.push(core.strokeTipsSVG(styled, d, { mode: S.rt.hint && size <= 20 ? 'baked' : 'runtime', weight: w, fixedWidth:L.strokeWidth!=null, color: colors.stroke, opacity: L.opacity, layerIndex }));
     }
   }
@@ -3054,7 +3072,7 @@ function updateGlyphTags() {
 
 // ---------- refresh ----------
 function refresh(full) {
-  S.resolved = core.resolve(S.glyph);
+  S.resolved = core.resolve(S.glyph,S.rt);
   const errs = S.resolved.filter(r => r.error);
   if (errs.length) status('Geometry error in ' + errs.map(e => e.id).join(', ') + ': ' + errs[0].error, true);
   renderCanvas(); renderPreviews();
@@ -3081,7 +3099,7 @@ function refresh(full) {
   syncToggles();
   if (full) renderLibraryThumb();
 }
-function renderLibraryThumb() { if(guidedRepair?.active){$('hdrEdited').hidden=true;$('revertBtn').disabled=true;return;} const b = LIBEL.get(S.glyph.name); if (b) { b.querySelector('.thumb').innerHTML = core.toSVG(S.glyph, { size: 24, resolved: S.resolved }); b.dataset.painted = '1'; } updateGlyphTags(); }
+function renderLibraryThumb() { if(guidedRepair?.active){$('hdrEdited').hidden=true;$('revertBtn').disabled=true;return;} const b = LIBEL.get(S.glyph.name); if (b) { b.querySelector('.thumb').innerHTML = thumbFor(S.glyph); b.dataset.painted = '1'; } updateGlyphTags(); }
 function renderAll() { renderGrid(); refresh(true); }
 function symmetryTarget() {
   if ($('symScope').value === 'glyph') return S.glyph;
@@ -3179,7 +3197,7 @@ root.querySelectorAll('[data-show]').forEach(b => b.onclick = () => { S.show[b.d
     try { localStorage.setItem('gw-anchor-labels', JSON.stringify({ anchorNumbers: S.show.anchorNumbers, anchorValues: S.show.anchorValues })); } catch {}
   }
   renderGrid(); renderCanvas(); syncToggles(); });
-$('wRange').oninput = () => { S.rt.weight = +$('wRange').value; renderCanvas(); renderPreviews(); };
+$('wRange').oninput = () => { S.rt.weight = +$('wRange').value; S.resolved=core.resolve(S.glyph,S.rt); renderCanvas(); renderPreviews(); };
 function setIconThickness(value) {
   S.glyph.strokeOverride=value;
   if(S.glyph.insetConversion)S.glyph.insetConversion={...S.glyph.insetConversion,stroke:value,strokeBinding:'override'};
@@ -3506,6 +3524,7 @@ resizeObserver.observe(cv);
 appStudio=createAppIconStudio({root:$('appIconStudio'),getGlyph:()=>S.glyph,getLayer:()=>primarySel()?.l ?? 0,setLayer:l=>{S.sel=[{l,p:null}];S.selectedAnchors=[];S.anchor=null;refresh(true);},commit:()=>commit(),refresh:()=>refresh(true),status});
 const repairLocked=[...root.querySelectorAll('#componentsPanel,.library-panel,.set-settings,.io,#appIconStudio,#drawingMode,#exportSize,#hdrEdited,#revertBtn')];
 function repairWorking(glyph){S.glyph=clone(glyph);S.sel=[];S.selectedAnchors=[];S.anchor=null;S.sourceAnchor=null;S.iso=null;penDraft=null;penHover=null;penCloseHover=null;S.rt.weight=strokeWeight(S.glyph);S.rt.cap=S.glyph.strokeCap||'round';S.rt.join=S.glyph.strokeJoin||'round';}
+const fusionDialog=createFusionDialog({root,core,getGlyph:()=>S.glyph,apply:(selection,recipe)=>{getNode({...selection,p:selection.p||[]}).fusion=recipe;commit();refresh(true);renderLibrary();},status});
 const shapeCenterline=createShapeCenterline({root,core,getGlyph:()=>S.glyph,apply:layer=>{S.glyph.layers.push(layer);S.sel=[{l:S.glyph.layers.length-1,p:[]}];S.anchor=null;S.selectedAnchors=[];commit();refresh(true);},status});
 guidedRepair=createGuidedRepair({root,core,getGlyph:()=>S.glyph,getLibrary:()=>S.lib,getStyle:()=>S.libraryProperties?tokenStyle(S.libraryProperties):null,
   enter:glyph=>{repairContext={name:S.glyph.name,lastSnap,tool:S.tool,rt:clone(S.rt),original:S.show.original};closeGroupReview();root.querySelector('.stage').hidden=false;for(const el of repairLocked)el.inert=true;S.show.original=false;repairWorking(glyph);setTool('direct');setSaveState('draft');},
@@ -3544,7 +3563,7 @@ return {
   ready,
   dispose() {
     disposed = true;
-    shapeCenterline.dispose();
+    shapeCenterline.dispose();fusionDialog.dispose();
     guidedRepair?.dispose();
     insetReview?.cancel();
     abort.abort(); resizeObserver.disconnect(); thumbObserver?.disconnect();
