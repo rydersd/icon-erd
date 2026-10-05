@@ -46,11 +46,22 @@ test('resolved rounding and symmetry are baked once and cannot be applied again 
  const glyph={...circle('eye-outline',4),symmetry:{rotate:2},setStyle:{rounding:0.6,thickness:2,endRounding:0}};
  const generated=generateSolid(glyph,core);assert.equal(generated.setStyle.rounding,0);assert.equal(generated.symmetry.rotate,1);assert.equal(generated.layers[0].symmetry,false);
 });
-test('open strokes expand without invented closure across gaps and unsupported tips fail explicitly',()=>{
+test('open strokes expand without invented closure across gaps and native square and procedural tips expand',()=>{
  const line={name:'line-outline',weight:2,layers:[{id:'line',paint:'stroke',node:{shape:'line',x1:4,y1:12,x2:20,y2:12}}]};
  const result=generateSolid(line,core),path=new paper.CompoundPath({pathData:core.resolve(result)[0].d,insert:false});assert.ok(path.bounds.left<3.1 && path.bounds.right>20.9);assert.ok(Math.abs(path.bounds.height-2)<0.02);path.remove();
- assert.throws(()=>generateSolid({...line,setStyle:{endRounding:0.3}},core),/line-end rounding/);
+ for(const settings of [{setStyle:{endRounding:.3}},{strokeCap:'square'}]){const generated=generateSolid({...line,...settings},core);const ink=new paper.CompoundPath({pathData:core.resolve(generated)[0].d,insert:false});assert.ok(ink.bounds.left<3.1&&ink.bounds.right>20.9);assert.ok(Math.abs(ink.bounds.height-2)<.02);ink.remove();}
 });
 test('visibility and opacity edits invalidate the geometry comparison signature',()=>{
  const glyph=circle('eye-outline',4),signature=sourceSignature(glyph,core);glyph.layers[0].visible=false;assert.notEqual(sourceSignature(glyph,core),signature);glyph.layers[0].visible=true;glyph.layers[0].opacity=0.4;assert.notEqual(sourceSignature(glyph,core),signature);
+});
+
+test('barcode solids preserve independent widths, tip corners, gaps and source artwork',()=>{
+ const widths=[2.4,1.2,2.4],g={name:'barcode-outline',weight:1.6,layers:widths.map((width,i)=>({id:`bar-${i}`,name:`Bar ${i+1}`,paint:'stroke',strokeWidth:width,rounding:0,endRounding:.5,node:{shape:'line',x1:4+i*5,y1:4.8,x2:4+i*5,y2:19.2}}))},before=JSON.stringify(g),count=paper.project.activeLayer.children.length;
+ const solid=generateSolid(g,core);assert.equal(solid.layers.length,3);
+ for(const [i,layer]of core.resolve(solid).entries()){const p=new paper.CompoundPath({pathData:layer.d,insert:false});assert.equal(layer.paint,'fill');assert.ok(Math.abs(p.bounds.width-widths[i])<.002);assert.ok(Math.abs(p.bounds.height-(14.4+widths[i]))<.003);p.remove();}
+ assert.equal(JSON.stringify(g),before);assert.equal(paper.project.activeLayer.children.length,count);
+});
+
+test('curved square ends remain explicit review rather than deforming a curved source',()=>{
+ const curved={name:'curve-outline',weight:2,strokeCap:'square',layers:[{id:'curve',paint:'stroke',node:{shape:'pen',pts:[{x:4,y:4,out:[4,0]},{x:12,y:12,in:[0,-4]}]}}]};assert.throws(()=>generateSolid(curved,core),/Curved square-ended/);
 });

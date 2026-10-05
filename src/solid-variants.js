@@ -1,7 +1,7 @@
 import {fuseArea,strokeArea} from './proximity-fusion.js';
 import {strokeWeight,layerStyleGlyph} from './stroke-weight.js';
 import paper from 'paper';
-import {offset,offsetStroke} from 'paperjs-offset';
+import {offset} from 'paperjs-offset';
 
 const paths=item=>item.children || [item];
 const combine=(a,b,op='unite')=>{if(!a)return b;const result=a[op](b,{insert:false});a.remove();b.remove();return result;};
@@ -72,12 +72,9 @@ function solidArea(parts,layer,styled,width,distance,holes,core,fused=false,laye
       }
       for(const contour of contours.filter(path=>!path.closed)) {
         if(contour.length<1e-8)continue;
-        if(fused){const area=strokeArea([{d:contour.pathData,cap:part.cap}],width,p=>core.strokeStyle(styled,{},p.cap),p=>core.strokeTipsSVG(styled,p.d,{mode:'baked',weight:width,layerIndex}));result=combine(result,area);continue;}
-        const style=core.strokeStyle(styled,{},part.cap);
-        if((styled.setStyle?.endRounding ?? styled.setStyle?.rounding ?? 0)>0)throw new Error('Procedural line-end rounding requires manual solid reconstruction');
-        if(style.cap==='square')throw new Error('Square line ends require manual solid review');
-        const expanded=offsetStroke(contour,width/2,{join:style.join,cap:style.cap==='butt'?'butt':'round',insert:false});
-        result=combine(result,expanded);
+        if(core.strokeStyle(styled,{},part.cap).cap==='square'&&contour.curves.some(curve=>!curve.isStraight()))throw new Error('Curved square-ended strokes require manual solid review');
+        const area=strokeArea([{d:contour.pathData,cap:part.cap}],width,p=>core.strokeStyle(styled,{},p.cap),p=>core.strokeTipsSVG(styled,p.d,{mode:'baked',weight:width,layerIndex}));
+        result=combine(result,area);
       }
       source.remove();
     }

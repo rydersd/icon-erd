@@ -23,10 +23,10 @@ test('merge distance controls preview and release using the same screen-pixel th
 test('all right sections and contextual settings collapse persistently; shapes live above the canvas',async({page})=>{
  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);
  await expect(page.locator('.canvas-tools #palette')).toHaveCount(1);await expect(page.locator('.col-left #palette')).toHaveCount(0);
- const panels=page.locator('#pane-right > details[data-collapse]');await expect(panels).toHaveCount(5);
- for(let i=0;i<5;i++){await panels.nth(i).locator(':scope > summary').click();await expect(panels.nth(i)).not.toHaveAttribute('open','');}
+ const panels=page.locator('#pane-right > details[data-collapse]');await expect(panels).toHaveCount(7);
+ for(let i=0;i<7;i++){await panels.nth(i).locator(':scope > summary').click();await expect(panels.nth(i)).not.toHaveAttribute('open','');}
  await page.locator('[data-collapse="tool-settings"] > summary').click();
- await page.reload();await page.waitForFunction(()=>window.__gw?.ready);for(let i=0;i<5;i++)await expect(panels.nth(i)).not.toHaveAttribute('open','');
+ await page.reload();await page.waitForFunction(()=>window.__gw?.ready);for(let i=0;i<7;i++)await expect(panels.nth(i)).not.toHaveAttribute('open','');
  await expect(page.locator('[data-collapse="tool-settings"]')).not.toHaveAttribute('open','');
  await page.locator('[data-collapse="measureH"] > summary').focus();await page.keyboard.press('Enter');await expect(page.locator('[data-collapse="measureH"]')).toHaveAttribute('open','');
 });
