@@ -7,7 +7,7 @@ const paths=item=>item.children || [item];
 const combine=(a,b,op='unite')=>{if(!a)return b;const result=a[op](b,{insert:false});a.remove();b.remove();return result;};
 const parse=d=>new paper.CompoundPath({pathData:d,insert:false});
 export const solidName=name=>name.endsWith('-outline') ? name.slice(0,-8) : `${name}-solid`;
-export function sourceSignature(glyph,core) {return JSON.stringify({width:strokeWeight(glyph),endRounding:glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding ?? 0,style:core.strokeStyle(glyph,{}),layers:core.resolve(glyph).map(layer=>({id:layer.id,paint:layer.paint,strokeWidth:layer.strokeWidth,rounding:layer.rounding,endRounding:layer.endRounding,visible:layer.visible,opacity:layer.opacity,d:layer.d,parts:layer.parts.map(part=>({cap:part.cap,fusion:part.fusion && {recipe:part.fusion.recipe,sourceParts:part.fusion.sourceParts}}))}))});}
+export function sourceSignature(glyph,core) {return JSON.stringify({width:strokeWeight(glyph),endRounding:glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding ?? 0,style:core.strokeStyle(glyph,{}),layers:core.resolve(glyph).map(layer=>({id:layer.id,paint:layer.paint,strokeWidth:layer.strokeWidth,strokeCap:layer.strokeCap,strokeJoin:layer.strokeJoin,rounding:layer.rounding,endRounding:layer.endRounding,visible:layer.visible,opacity:layer.opacity,d:layer.d,parts:layer.parts.map(part=>({cap:part.cap,fusion:part.fusion && {recipe:part.fusion.recipe,sourceParts:part.fusion.sourceParts}}))}))});}
 
 // Offset closed centerlines to the chosen stroke boundary. Open paths retain
 // their expanded stroke; no invented closure is inserted across a real gap.

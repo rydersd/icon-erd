@@ -1,5 +1,5 @@
 export const strokeWeight=glyph=>glyph.strokeOverride ?? glyph.setStyle?.thickness ?? glyph.weight ?? 1.2;
-export const customizedLayer=layer=>layer.strokeWidth!=null || layer.rounding!=null || layer.endRounding!=null;
+export const customizedLayer=layer=>layer.strokeWidth!=null || layer.rounding!=null || layer.endRounding!=null || layer.strokeCap!=null || layer.strokeJoin!=null;
 export const customizedIcon=glyph=>glyph.strokeOverride!=null || glyph.layers.some(customizedLayer);
-export const layerStyleGlyph=(glyph,layer)=>layer.rounding==null&&layer.endRounding==null?glyph:{...glyph,strokeCap:glyph.strokeCap||'round',strokeJoin:glyph.strokeJoin||'round',setStyle:{...glyph.setStyle,...(layer.rounding!=null?{rounding:layer.rounding}:{}),...(layer.endRounding!=null?{endRounding:layer.endRounding}:{})}};
+export const layerStyleGlyph=(glyph,layer)=>layer.rounding==null&&layer.endRounding==null&&layer.strokeCap==null&&layer.strokeJoin==null?glyph:{...glyph,layerStrokeCap:layer.strokeCap,strokeCap:layer.strokeCap??glyph.strokeCap??'round',strokeJoin:layer.strokeJoin??glyph.strokeJoin??'round',setStyle:{...glyph.setStyle,...(layer.rounding!=null?{rounding:layer.rounding}:{}),...(layer.endRounding!=null?{endRounding:layer.endRounding}:{})}};
 export const libraryStyle=(glyph,style)=>glyph.insetConversion?.strokeBinding==='library' ? {...style,rounding:0,endRounding:0} : glyph.insetConversion ? {...style,thickness:strokeWeight(glyph),rounding:0,endRounding:0} : {...style,...(glyph.strokeOverride!=null?{thickness:glyph.strokeOverride}:{})};

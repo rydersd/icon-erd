@@ -24,23 +24,31 @@ export function centerlineLayer(source,core,settings,id) {
   return {...layer,id,name:`${source.name} inset contour`,strokeWidth:settings.stroke,rounding:0,endRounding:0};
 }
 
-// Recognize a capsule by its resolved boundary, not by its imported node type.
-// Every boundary sample must lie on the capsule envelope, with matching area.
+// Recognize axis-aligned rounded rectangles from resolved boundaries, including
+// flatter bar ends. Area estimates the corner radius; boundary samples verify it.
 export function recoverBar(source,core) {
   const resolved=core.resolve(source)[0];if(resolved.error||!resolved.d)return null;
-  const compound=new paper.CompoundPath({pathData:resolved.d,insert:false}),lines=[],widths=[];
+  const compound=new paper.CompoundPath({pathData:resolved.d,insert:false}),lines=[],widths=[],radii=[];
   try{for(const contour of compound.children){
     if(!contour.closed)return null;
-    const b=contour.bounds,vertical=b.height>b.width,short=vertical?b.width:b.height,long=vertical?b.height:b.width,r=short/2;
+    const b=contour.bounds,vertical=b.height>b.width,short=vertical?b.width:b.height,long=vertical?b.height:b.width;
     if(short<.1||short>8||long-short<.1)return null;
-    const a=vertical?new paper.Point(b.center.x,b.top+r):new paper.Point(b.left+r,b.center.y),z=vertical?new paper.Point(b.center.x,b.bottom-r):new paper.Point(b.right-r,b.center.y),v=z.subtract(a);
-    const tolerance=Math.max(.015,short*.01),area=(long-short)*short+Math.PI*r*r;
-    if(Math.abs(Math.abs(contour.area)-area)>area*.015)return null;
-    for(let i=0;i<128;i++){const p=contour.getPointAt(contour.length*i/128),t=Math.max(0,Math.min(1,p.subtract(a).dot(v)/v.dot(v)));if(Math.abs(p.getDistance(a.add(v.multiply(t)))-r)>tolerance)return null;}
-    widths.push(short);lines.push({shape:'line',name:'Recovered bar',x1:a.x,y1:a.y,x2:z.x,y2:z.y,cap:'round'});
+    const tolerance=Math.max(.015,short*.01),missing=b.width*b.height-Math.abs(contour.area);
+    if(missing < -tolerance*short)return null;
+    const r=Math.sqrt(Math.max(0,missing)/(4-Math.PI));
+    if(r>short/2+tolerance)return null;
+    const radius=Math.min(short/2,r),envelope=new paper.Path.Rectangle({rectangle:b,radius,insert:false});
+    try{for(let i=0;i<128;i++){
+      const p=contour.getPointAt(contour.length*i/128);
+      if(p.getDistance(envelope.getNearestPoint(p))>tolerance)return null;
+    }}finally{envelope.remove();}
+    // Procedural tips extend half the width beyond each axis endpoint.
+    const inset=radius>1e-6?short/2:0;
+    const a=vertical?new paper.Point(b.center.x,b.top+inset):new paper.Point(b.left+inset,b.center.y),z=vertical?new paper.Point(b.center.x,b.bottom-inset):new paper.Point(b.right-inset,b.center.y);
+    widths.push(short);radii.push(radius);lines.push({shape:'line',name:'Recovered bar',x1:a.x,y1:a.y,x2:z.x,y2:z.y,cap:radius>1e-6?'round':'butt'});
   }}finally{compound.remove();}
-  if(!lines.length||widths.some(w=>Math.abs(w-widths[0])>.02))return null;
-  return {node:{op:'union',name:'Recovered bar centerline',children:lines},stroke:Math.round(widths[0]*1e6)/1e6};
+  if(!lines.length||widths.some(w=>Math.abs(w-widths[0])>.02)||radii.some(r=>Math.abs(r-radii[0])>.02))return null;
+  return {node:{op:'union',name:'Recovered bar centerline',children:lines},stroke:Math.round(widths[0]*1e6)/1e6,endRounding:Math.round(radii[0]*1e6)/1e6};
 }
 
 // Measure ink across inward boundary normals, stopping at the first opposing
@@ -71,17 +79,23 @@ export function estimateSourceWidth(source,core) {
 
 export function createShapeCenterline({root,core,getGlyph,apply,status}) {
   const dialog=document.createElement('dialog');dialog.className='import-dialog centerline-dialog';dialog.setAttribute('aria-labelledby','centerlineHeading');root.appendChild(dialog);
-  let source,snapshot,layer,bar,measurement;
+  let source,snapshot,layer,bar;
   const make=(tag,text,parent,attrs={})=>{const el=document.createElement(tag);el.textContent=text;for(const [k,v]of Object.entries(attrs))el.setAttribute(k,v);parent.appendChild(el);return el;};
   make('h2','Create centerline',dialog,{id:'centerlineHeading'});
-  make('p','Recover a rounded bar as a stroke, or review an inset contour for other shapes. Adds a new layer; source stays unchanged.',dialog,{id:'centerlineHelp'});dialog.setAttribute('aria-describedby','centerlineHelp');
+  make('p','Recover a bar as one open stroke through its center, preserving width and tip radius. Adds a new layer; source stays unchanged.',dialog,{id:'centerlineHelp'});dialog.setAttribute('aria-describedby','centerlineHelp');
   const drawings=make('div','',dialog,{class:'review-drawings'}),original=make('div','',drawings,{'aria-label':'Source shape',class:'review-drawing'}),preview=make('div','',drawings,{'aria-label':'Centerline candidate',class:'review-drawing'});
-  const methodLabel=make('label','Method',dialog,{class:'studio-field'}),method=make('select','',methodLabel,{'aria-label':'Centerline method'});make('option','Recover rounded bar',method,{value:'bar'});make('option','Inset contour',method,{value:'inset'});method.onchange=()=>{inputs.inset.disabled=method.value==='bar';update();};
-  const inputs={};for(const [key,label,min,max]of [['inset','Inset',0,null],['stroke','Stroke',.1,8]]){const row=make('label',label,dialog,{class:'studio-field'});inputs[key]=make('input','',row,{type:'number',min,step:'any','data-scrub-step':.01,'aria-label':`Centerline ${key}`});if(max!==null)inputs[key].max=max;inputs[key].onchange=update;}
+  const methodLabel=make('label','Method',dialog,{class:'studio-field'}),method=make('select','',methodLabel,{'aria-label':'Centerline method'});make('option','Recover open stroke',method,{value:'bar'});
+  const inputs={};for(const [key,label,min,max]of [['stroke','Stroke',.1,8]]){const row=make('label',label,dialog,{class:'studio-field'});inputs[key]=make('input','',row,{type:'number',min,step:'any','data-scrub-step':.01,'aria-label':`Centerline ${key}`});if(max!==null)inputs[key].max=max;inputs[key].oninput=update;inputs[key].onchange=update;}
   const note=make('p','',dialog,{role:'status'}),buttons=make('div','',dialog,{class:'row'}),cancel=make('button','Cancel',buttons,{type:'button',class:'btn'}),accept=make('button','Add centerline layer',buttons,{type:'button',class:'btn'});
-  const settings=()=>({inset:inputs.inset.valueAsNumber,stroke:inputs.stroke.valueAsNumber});
-  function update(){layer=null;accept.disabled=true;try{for(const input of Object.values(inputs))if(!input.checkValidity()||!Number.isFinite(input.valueAsNumber))throw Error('Enter a valid inset and stroke width.');layer=method.value==='bar'?{id:crypto.randomUUID(),name:`${source.name} centerline`,role:source.layers[0].role,color:source.layers[0].color,paint:'stroke',symmetry:false,rounding:0,endRounding:0,strokeWidth:settings().stroke,node:structuredClone(bar.node)}:centerlineLayer(source,core,settings(),crypto.randomUUID());preview.innerHTML=core.toSVG({...source,setStyle:{rounding:0,endRounding:0},symmetry:{rotate:1},layers:[layer]},{mode:'baked',size:192});note.textContent=(bar?`Detected source width ${bar.stroke}. `:measurement?`Estimated source width ${measurement.stroke}${measurement.variable?' (variable thickness)':''}; review the fit. `:'Source width could not be estimated; set stroke manually. ')+(method.value==='bar'?'Recovered rounded-bar axis.':'Boundary offset, not a medial-axis trace; narrow contours can collapse.')+' New layer is excluded from library line width.';accept.disabled=false;}catch(error){preview.replaceChildren();note.textContent=error.message;}}
+  const settings=()=>({stroke:inputs.stroke.valueAsNumber});
+  function update(){layer=null;accept.disabled=true;try{
+    if(!bar)throw Error('This shape cannot yet be recovered as an open stroke. Its source is preserved; a boundary inset would not be a centerline.');
+    if(!inputs.stroke.checkValidity()||!Number.isFinite(inputs.stroke.valueAsNumber))throw Error('Enter a stroke width from 0.1 to 8.');
+    layer={id:crypto.randomUUID(),name:`${source.name} centerline`,role:source.layers[0].role,color:source.layers[0].color,paint:'stroke',symmetry:false,rounding:0,endRounding:bar.endRounding,strokeWidth:settings().stroke,node:structuredClone(bar.node)};
+    preview.innerHTML=core.toSVG({...source,setStyle:{rounding:0,endRounding:0},symmetry:{rotate:1},layers:[layer]},{mode:'baked',size:192});
+    note.textContent=`Detected source width ${bar.stroke}. Recovered open bar axis and source tip radius ${bar.endRounding}. New layer is excluded from library line width.`;accept.disabled=false;
+  }catch(error){preview.replaceChildren();note.textContent=error.message;}}
   cancel.onclick=()=>dialog.close();
   accept.onclick=()=>{try{if(JSON.stringify(getGlyph())!==snapshot)throw Error('Artwork changed; reopen Create centerline.');if(!layer)throw Error('Recompute a valid candidate first.');apply(layer);dialog.close();status('Added an independent centerline layer. Source unchanged; hide the source layer to inspect it. Undo removes the candidate.');}catch(error){note.textContent=error.message;accept.disabled=true;}};
-  return {open(selection){source=centerlineSource(getGlyph(),selection,core);if(!source)throw Error('Select a visible filled shape.');delete source.referenceImage;snapshot=JSON.stringify(getGlyph());const width=getGlyph().strokeOverride??getGlyph().setStyle?.thickness??getGlyph().weight??1.2;bar=recoverBar(source,core);measurement=bar?null:estimateSourceWidth(source,core);method.querySelector('[value=bar]').disabled=!bar;method.value=bar?'bar':'inset';inputs.inset.disabled=!!bar;const detected=bar?.stroke??measurement?.stroke??width;inputs.inset.value=detected/2;inputs.stroke.value=detected;original.innerHTML=core.toSVG(source,{mode:'baked',mono:true,size:192});update();dialog.showModal();},dispose(){dialog.remove();}};
+  return {open(selection){source=centerlineSource(getGlyph(),selection,core);if(!source)throw Error('Select a visible filled shape.');delete source.referenceImage;snapshot=JSON.stringify(getGlyph());const width=getGlyph().strokeOverride??getGlyph().setStyle?.thickness??getGlyph().weight??1.2;bar=recoverBar(source,core);method.disabled=true;inputs.stroke.value=bar?.stroke??width;original.innerHTML=core.toSVG(source,{mode:'baked',mono:true,size:192});update();dialog.showModal();},dispose(){dialog.remove();}};
 }

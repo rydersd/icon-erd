@@ -100,6 +100,8 @@ export function normalizeGlyph(input) {
     if(layer.fillGradient!=null)layer.fillGradient=validateGradient(layer.fillGradient);
     if (layer.paint != null && !['stroke', 'fill', 'both'].includes(layer.paint)) throw new Error(`${glyph.name}: invalid paint mode`);
     for(const key of ['color','fillColor','strokeColor'])if(layer[key]!=null && !/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(layer[key]))throw new Error(`${glyph.name}: ${key} must be a hex color`);
+    if(layer.strokeCap!=null&&!['round','butt','square'].includes(layer.strokeCap))throw Error(`${glyph.name}: invalid layer stroke cap`);
+    if(layer.strokeJoin!=null&&!['round','miter','bevel'].includes(layer.strokeJoin))throw Error(`${glyph.name}: invalid layer stroke join`);
     if(layer.strokeWidth!=null && (!Number.isFinite(layer.strokeWidth)||layer.strokeWidth<.1||layer.strokeWidth>8))throw Error(`${glyph.name}: invalid layer stroke width`);
     if(layer.endRounding!=null && (!Number.isFinite(layer.endRounding)||layer.endRounding<0))throw Error(`${glyph.name}: invalid layer end rounding`);
     if(layer.rounding!=null && (!Number.isFinite(layer.rounding)||layer.rounding<0))throw Error(`${glyph.name}: invalid layer rounding`);

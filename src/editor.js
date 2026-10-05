@@ -2661,9 +2661,13 @@ function renderInspector() {
     field(g, 'custom color (#hex)', L.color || '', value => { if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(value)) L.color = value; else if (!value.trim()) delete L.color; }, { text: true });
     field(g, 'paint', L.paint || 'stroke', v => { L.paint = v; }, { options: ['stroke', 'fill', 'both'] });
     if(L.paint!=='fill')field(g,'exclude from library line width',L.strokeWidth!=null,v=>{if(v)L.strokeWidth=strokeWeight(S.glyph);else delete L.strokeWidth;},{check:true});
-    if(L.rounding!=null)field(g,'layer corner rounding',L.rounding,v=>{L.rounding=v;},{min:0,step:.1});
-    if(L.endRounding!=null)field(g,'layer end rounding',L.endRounding,v=>{L.endRounding=v;},{min:0,step:.1});
+    if(L.rounding!=null||L.strokeWidth!=null)field(g,'layer corner rounding',L.rounding??S.glyph.setStyle?.rounding??0,v=>{L.rounding=v;},{min:0,step:.1});
+    if(L.endRounding!=null||L.strokeWidth!=null)field(g,'layer end rounding',L.endRounding??S.glyph.setStyle?.endRounding??S.glyph.setStyle?.rounding??0,v=>{L.endRounding=v;},{min:0,step:.1});
     if(L.strokeWidth!=null)field(g,'layer stroke width',L.strokeWidth,v=>{L.strokeWidth=v;},{min:.1,max:8,step:'any',scrubStep:.01});
+    if(L.strokeWidth!=null||L.strokeCap!=null||L.strokeJoin!=null){
+      field(g,'layer cap',L.strokeCap??'library',v=>{if(v==='library')delete L.strokeCap;else{L.strokeCap=v;L.endRounding=0;}},{options:['library','round','butt','square']}).setAttribute('aria-label','layer cap');
+      field(g,'layer join',L.strokeJoin??'library',v=>{if(v==='library')delete L.strokeJoin;else{L.strokeJoin=v;L.rounding=0;}},{options:['library','round','miter','bevel']}).setAttribute('aria-label','layer join');
+    }
     field(g, 'opacity', L.opacity == null ? 1 : L.opacity, v => { L.opacity = Math.max(0, Math.min(1, v)); }, { step: 0.05 });
     field(g, 'visible', L.visible !== false, v => { L.visible = v; }, { check: true });
     field(g, 'uses glyph symmetry', L.symmetry !== false, v => { if (v) delete L.symmetry; else L.symmetry = false; }, { check: true });
