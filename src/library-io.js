@@ -18,6 +18,7 @@ function validateSymmetry(sym) {
 
 export function normalizeGlyph(input) {
   if (!input || typeof input !== 'object' || typeof input.name !== 'string' || !input.name.trim()) throw new Error('Each icon needs a name');
+  for(const layer of input.layers||[])for(const key of ['strokeWidth','rounding','endRounding'])if(layer[key]!=null&&!Number.isFinite(layer[key]))throw Error(`${input.name}: invalid layer ${key}`);
   if(input.strokeOverride!=null && (!Number.isFinite(input.strokeOverride)||input.strokeOverride<.1||input.strokeOverride>8))throw Error(`${input.name}: invalid stroke override`);
   if (!Array.isArray(input.layers) || !input.layers.length || input.layers.length > 128) throw new Error(`${input.name}: expected 1–128 layers`);
   const glyph = clone(input);
@@ -95,6 +96,9 @@ export function normalizeGlyph(input) {
     if(layer.fillGradient!=null)layer.fillGradient=validateGradient(layer.fillGradient);
     if (layer.paint != null && !['stroke', 'fill', 'both'].includes(layer.paint)) throw new Error(`${glyph.name}: invalid paint mode`);
     for(const key of ['color','fillColor','strokeColor'])if(layer[key]!=null && !/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(layer[key]))throw new Error(`${glyph.name}: ${key} must be a hex color`);
+    if(layer.strokeWidth!=null && (!Number.isFinite(layer.strokeWidth)||layer.strokeWidth<.1||layer.strokeWidth>8))throw Error(`${glyph.name}: invalid layer stroke width`);
+    if(layer.endRounding!=null && (!Number.isFinite(layer.endRounding)||layer.endRounding<0))throw Error(`${glyph.name}: invalid layer end rounding`);
+    if(layer.rounding!=null && (!Number.isFinite(layer.rounding)||layer.rounding<0))throw Error(`${glyph.name}: invalid layer rounding`);
     if (layer.opacity != null && (!Number.isFinite(layer.opacity) || layer.opacity < 0 || layer.opacity > 1)) throw new Error(`${glyph.name}: invalid opacity`);
     layer.id ||= `layer-${index + 1}`;
     walk(layer.node);

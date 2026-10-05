@@ -104,3 +104,5 @@ Right-click two or more selected anchors for **Align points**. The menu names th
 **Measurements**, below Points & overlaps, shows painted object dimensions including strokes, or selected-anchor extents and first-to-last straight-line distance in selection order. **Round to pixel** uses the configured export size; **Round to snap** uses current Snap spacing and disables when snapping is off. Both keep the first selected point fixed, scale other selected points and their handles, and support Undo. Distances round to a positive spacing rather than collapsing a short selection. Fill and Stroke share a row with live filled/outlined color previews.
 
 See [components and icon thickness](docs/components-and-thickness.md) for contextual Create component, the separate component catalog, cross-icon Insert, and saved library-width overrides.
+
+Shape actions, local library exceptions and centerline recovery: [workflow](docs/actions-and-centerlines.md).

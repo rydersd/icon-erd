@@ -69,7 +69,7 @@ test('Cleanup reconstructs the private comment corner while preserving both shar
   const a=await screen(page,14.3,22.4),b=await screen(page,7.8,17.7);
   await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y);await page.mouse.up();
   expect(await page.evaluate(()=>window.__gw.S.selectedAnchors.map(a=>a.index))).toEqual([6,7,8,9,10]);
-  await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Cleanup',exact:true}).click();
+  await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Actions',exact:true}).click();await page.getByRole('menuitem',{name:'Cleanup',exact:true}).click();
   const points=await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts);
   expect(points).toHaveLength(11);expect(points[6]).toEqual(outline.pts[6]);expect(points[8]).toEqual(outline.pts[10]);expect(points[7].r).toBeCloseTo(0.6,2);
   await expect(page.locator('#gSel [data-anchor="7"]')).toHaveAttribute('data-point-kind','circle');

@@ -10,7 +10,7 @@ test('Option-click retracts both handles on only the clicked anchor and Undo res
 test('the anchor menu retracts handles on multiple selected anchors in one edit',async({page})=>{
   await setup(page);const before=await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts);
   for(const i of [1,2]){const box=await page.locator(`#gSel [data-anchor="${i}"]`).boundingBox();if(i===2)await page.keyboard.down('Shift');await page.mouse.click(box.x+box.width/2,box.y+box.height/2);if(i===2)await page.keyboard.up('Shift');}
-  await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Retract handles',exact:true}).click();
+  await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Actions',exact:true}).click();await page.getByRole('menuitem',{name:'Retract handles',exact:true}).click();
   const points=await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts);expect(points[1]).toEqual({x:8,y:4,r:0.5});expect(points[2]).toEqual({x:8,y:12});
   await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts)).toEqual(before);
 });

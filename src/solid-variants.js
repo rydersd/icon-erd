@@ -1,4 +1,4 @@
-import {strokeWeight} from './stroke-weight.js';
+import {strokeWeight,layerStyleGlyph} from './stroke-weight.js';
 import paper from 'paper';
 import {offset,offsetStroke} from 'paperjs-offset';
 
@@ -6,16 +6,15 @@ const paths=item=>item.children || [item];
 const combine=(a,b,op='unite')=>{if(!a)return b;const result=a[op](b,{insert:false});a.remove();b.remove();return result;};
 const parse=d=>new paper.CompoundPath({pathData:d,insert:false});
 export const solidName=name=>name.endsWith('-outline') ? name.slice(0,-8) : `${name}-solid`;
-export function sourceSignature(glyph,core) {return JSON.stringify({width:strokeWeight(glyph),endRounding:glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding ?? 0,style:core.strokeStyle(glyph,{}),layers:core.resolve(glyph).map(layer=>({id:layer.id,paint:layer.paint,visible:layer.visible,opacity:layer.opacity,d:layer.d,parts:layer.parts.map(part=>({cap:part.cap}))}))});}
+export function sourceSignature(glyph,core) {return JSON.stringify({width:strokeWeight(glyph),endRounding:glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding ?? 0,style:core.strokeStyle(glyph,{}),layers:core.resolve(glyph).map(layer=>({id:layer.id,paint:layer.paint,strokeWidth:layer.strokeWidth,rounding:layer.rounding,endRounding:layer.endRounding,visible:layer.visible,opacity:layer.opacity,d:layer.d,parts:layer.parts.map(part=>({cap:part.cap}))}))});}
 
 // Offset closed centerlines to the chosen stroke boundary. Open paths retain
 // their expanded stroke; no invented closure is inserted across a real gap.
 export function generateSolid(glyph,core,{edge='outside',holes='preserve'}={}) {
   if(!['outside','center','inside'].includes(edge) || !['preserve','fill'].includes(holes))throw new Error('Invalid solid recipe');
-  const width=strokeWeight(glyph);
-  const distance=({outside:1,center:0,inside:-1})[edge]*width/2;
   const layers=[];
   for(const layer of core.resolve(glyph)) {
+    const styled=layerStyleGlyph(glyph,layer),width=layer.strokeWidth ?? strokeWeight(glyph),distance=({outside:1,center:0,inside:-1})[edge]*width/2;
     if(layer.error)throw new Error(layer.error);
     if(!layer.visible || !layer.d)continue;
     let result=null;
@@ -35,8 +34,8 @@ export function generateSolid(glyph,core,{edge='outside',holes='preserve'}={}) {
       }
       for(const contour of contours.filter(path=>!path.closed)) {
         if(contour.length<1e-8)continue;
-        const style=core.strokeStyle(glyph,{},part.cap);
-        if((glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding ?? 0)>0)throw new Error('Procedural line-end rounding requires manual solid reconstruction');
+        const style=core.strokeStyle(styled,{},part.cap);
+        if((styled.setStyle?.endRounding ?? styled.setStyle?.rounding ?? 0)>0)throw new Error('Procedural line-end rounding requires manual solid reconstruction');
         if(style.cap==='square')throw new Error('Square line ends require manual solid review');
         const expanded=offsetStroke(contour,width/2,{join:style.join,cap:style.cap==='butt'?'butt':'round',insert:false});
         result=combine(result,expanded);
