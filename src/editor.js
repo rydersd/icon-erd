@@ -33,7 +33,7 @@ import { cleanupDrawingAnchors } from './corner-cleanup.js';
 import {TOKEN_FIELDS,numberTokens,tokenStyle,validateLibraryProperties,linkedLibraryProperties} from './library-tokens.js';
 import {DEFAULT_OUTPUT,OUTPUT_PROFILES,paintColors,validateOutput} from './library-output.js';
 import {generateSolid,reviewSolid,solidName,sourceSignature} from './solid-variants.js';
-import {variantGlyphs,iconProblems} from './variant-export.js';
+import {variantSource,variantGlyphs,iconProblems} from './variant-export.js';
 import { mergeAnchorCorners } from './anchor-corner.js';
 import { anchorMarker } from './anchor-marker.js';
 import { roundableAnchor } from './anchor-rounding.js';
@@ -2796,14 +2796,34 @@ function previewSVG(size, extraClass, glyph=S.glyph, resolved=S.resolved) {
   }
   return `<svg class="icon ${extraClass || ''}" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${defs.length?`<defs>${defs.join('')}</defs>`:''}${parts.join('')}</svg>`;
 }
-let outputPreviewCache=null;
+let variantPreviewCache=null;
+function renderVariantPreviews() {
+  const source=variantSource(S.glyph,S.lib),output=S.libraryProperties?.output;
+  const key=JSON.stringify([S.glyph,source,output,S.rt.weight,S.rt.cap,S.rt.join]);
+  if(variantPreviewCache?.key===key)return;
+  const figure=(parent,svg,label)=>{const f=document.createElement('figure'),art=document.createElement('div'),caption=document.createElement('figcaption');art.className='variant-art';art.dataset.svg=svg;art.innerHTML=svg.replace(/var\(--[\w-]+,\s*(#[0-9a-f]{6})\)/gi,'$1');caption.textContent=label;f.append(art,caption);parent.appendChild(f);};
+  $('solidPreview').replaceChildren();$('exportPreview').replaceChildren();$('approvePreviewSolid').disabled=true;
+  const recipe=source.solidReview?.recipe||{edge:'outside',holes:'preserve'};
+  try{const solid=generateSolid(source,core,recipe);figure($('solidPreview'),core.toSVG(solid,{mode:'baked',size:160,mono:true}),'Filled geometry');
+    $('solidPreviewStatus').textContent='Open strokes expand with their local widths and caps. Separate bars stay separate unless their ink overlaps. Source stays editable.';
+    const signature=sourceSignature(source,core),approved=source.solidReview?.status==='approved'&&source.solidReview.sourceSignature===signature;
+    $('approvePreviewSolid').textContent=approved?'Solid approved for export':'Approve solid for export';
+    $('approvePreviewSolid').disabled=approved||source.variantFamily?.status==='needs-review';
+    $('approvePreviewSolid').onclick=()=>{const at=idx(source.name);if(at<0||source.variantFamily?.status==='needs-review')return;if(sourceSignature(S.lib[at],core)!==signature){refresh(true);status('Source changed; review the updated solid first.',true);return;}if(S.cur!==at)loadGlyph(at);S.glyph.solidReview={recipe,status:'approved',stale:false,sourceSignature:signature,reason:'Owner approved current solid preview'};commit();renderLibrary();refresh(true);};
+  }catch(error){$('solidPreviewStatus').textContent=`Solid unavailable: ${error.message}`;}
+  try{const variants=variantGlyphs([S.glyph],S.lib,core,output),size=outputSize();for(const glyph of variants)figure($('exportPreview'),core.toSVG(glyph,{mode:'baked',weight:S.rt.weight,cap:S.rt.cap,join:S.rt.join,size,useColorTokens:true}),`${glyph.name}.svg · ${size} × ${size}`);
+    $('exportPreviewStatus').textContent=`${output?.variant||'source'} · ${OUTPUT_PROFILES[output?.profile||'interface'].label} · ${output?.sizes?.join(', ')||size}px. SVG color tokens use their fallback colors here. Single downloads use the first variant; ZIP includes all.`;
+  }catch(error){$('exportPreviewStatus').textContent=`Export blocked: ${error.message}`;}
+  variantPreviewCache={key};
+}
 function renderPreviews() {
   const root = document.documentElement.style;
   root.setProperty('--icon-stroke-width', S.rt.weight);
   root.setProperty('--icon-stroke-linecap', S.rt.cap);
   root.setProperty('--icon-stroke-linejoin', S.rt.join);
+  renderVariantPreviews();
   const output=S.libraryProperties?.output;let previews=[{glyph:S.glyph,resolved:S.resolved}];
-  if(output && output.variant!=='source'){const key=JSON.stringify([S.glyph,S.lib[idx(`${S.glyph.name}-outline`)],output]);if(outputPreviewCache?.key!==key){try{outputPreviewCache={key,previews:variantGlyphs([S.glyph],S.lib,core,output).map(glyph=>({glyph,resolved:core.resolve(glyph)}))};}catch{outputPreviewCache={key,previews:null};}}if(outputPreviewCache.previews)previews=outputPreviewCache.previews;}
+
   const sizes=output?.profile==='menu-bar'?output.sizes:SIZES;
   const tiles=previews.map(({glyph,resolved})=>sizes.map(sz=>`<div class="pv">${previewSVG(sz,'',glyph,resolved)}<span>${sz}${previews.length>1 ? (glyph.generatedFrom?' solid':' outline') : ''}</span></div>`).join('')).join('');
   $('pvLight').innerHTML = tiles; $('pvDark').innerHTML = tiles;

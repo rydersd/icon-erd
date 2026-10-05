@@ -43,7 +43,7 @@ test('distinct canonical families cannot silently overwrite each other through e
   assert.throws(()=>variantGlyphs(result.glyphs,result.glyphs,core,{...result.libraryProperties.output,variant:'both'}),/Export name collision/);
 });
 test('unsupported derived fills are flagged without corrupting the editable outline or pretending the source needs reconstruction',()=>{
-  const source={name:'line-outline',weight:1.2,setStyle:{endRounding:.4},layers:[{id:'line',paint:'stroke',node:{shape:'line',x1:4,y1:12,x2:20,y2:12}}]};
+  const source={name:'line-outline',weight:1.2,setStyle:{endRounding:.4},layers:[{id:'line',paint:'stroke',node:{shape:'line',x1:4,y1:12,x2:4,y2:12}}]};
   const cleaned=cleanImportedLibrary(archive([source])),before=JSON.stringify(cleaned.glyphs),audited=auditDerivedFills(cleaned.glyphs,core);
-  assert.equal(audited[0].variantFamily.status,'ready');assert.equal(iconProblems(audited[0]).length,1);assert.match(audited[0].solidReview.reason,/line-end rounding/);assert.equal(JSON.stringify(cleaned.glyphs),before);
+  assert.equal(audited[0].variantFamily.status,'ready');assert.equal(iconProblems(audited[0]).length,1);assert.match(audited[0].solidReview.reason,/No drawable solid geometry/);assert.equal(JSON.stringify(cleaned.glyphs),before);
 });

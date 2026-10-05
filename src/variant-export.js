@@ -1,4 +1,8 @@
 import {generateSolid,solidName,sourceSignature} from './solid-variants.js';
+export function variantSource(glyph,library,by) {
+  if(glyph.variantFamily||glyph.name.endsWith('-outline'))return glyph;
+  return (by?by.get(`${glyph.name}-outline`):library.find(g=>g.name===`${glyph.name}-outline`))||glyph;
+}
 export function variantGlyphs(glyphs,library,core,output) {
   const by=new Map(library.map(g=>[g.name,g])),result=new Map(),owners=new Map(),canonicalLibrary=library.some(g=>g.variantFamily);
   const add=(glyph,source)=>{if(result.has(glyph.name)&&owners.get(glyph.name)!==source)throw Error(`Export name collision: ${glyph.name}. Rename an icon or export these families separately.`);owners.set(glyph.name,source);result.set(glyph.name,glyph);};
@@ -6,7 +10,7 @@ export function variantGlyphs(glyphs,library,core,output) {
     if(canonicalLibrary&&glyph.kind==='app-icon'){add(structuredClone(glyph),glyph.name);continue;}
     if(!output || output.variant==='source'){result.set(glyph.name,{...structuredClone(glyph),...(output?{output}: {})});continue;}
     if(glyph.variantFamily?.status==='needs-review'){if(['solid','both','fill-stroke'].includes(output.variant))throw Error(`Review the outline reconstruction for ${glyph.name} before generating fills.`);add({...structuredClone(glyph),output},glyph.name);continue;}
-    const source=glyph.variantFamily?glyph:glyph.name.endsWith('-outline') ? glyph : by.get(`${glyph.name}-outline`) || glyph;
+    const source=variantSource(glyph,library,by);
     const addOutline=()=>{const outline=structuredClone(source);outline.output=output;if(source.variantFamily)outline.name=`${source.name}-outline`;add(outline,source.name);};
     const addSolid=()=>{
       let solid;

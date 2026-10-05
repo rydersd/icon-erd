@@ -249,8 +249,16 @@ export function WorkbenchShell() {
         </div><p className="lbl" id="measurementHint">Select an object or two or more anchors.</p>
       </div>
     </details>
+    <details className="panel disclosure-panel" data-collapse="solidPreviewH" aria-labelledby="solidPreviewH" open>
+      <summary id="solidPreviewH">Solid preview</summary>
+      <div className="pad"><div id="solidPreview" className="variant-preview" aria-label="Solid preview artwork"></div><p id="solidPreviewStatus" className="lbl" role="status"></p><Button id="approvePreviewSolid" className="btn sm">Approve solid for export</Button></div>
+    </details>
+    <details className="panel disclosure-panel" data-collapse="exportPreviewH" aria-labelledby="exportPreviewH" open>
+      <summary id="exportPreviewH">Export preview</summary>
+      <div className="pad"><div id="exportPreview" className="variant-preview" aria-label="Export preview artwork"></div><p id="exportPreviewStatus" className="lbl" role="status"></p></div>
+    </details>
     <details className="panel disclosure-panel" data-collapse="pvH" aria-labelledby="pvH" open>
-      <summary id="pvH">Previews</summary>
+      <summary id="pvH">Drawing previews</summary>
       <div className="pv-grid" id="pvGrid">
         <div className="pv-tile light" id="pvLight" aria-label="Light tile"></div>
         <div className="pv-tile dark" id="pvDark" aria-label="Dark tile"></div>

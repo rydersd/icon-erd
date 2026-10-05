@@ -443,3 +443,9 @@ button.glyph-tag { background: transparent; cursor: pointer; }
 .centerline-dialog .review-drawing svg { width: 100%; height: 160px; }
 .customized-mark { color: var(--accent); font-size: 13px; flex: 0 0 auto; }
 .library-customized { position: absolute; right: 5px; top: 3px; font-size: 16px; }
+
+.variant-preview { display:flex; flex-wrap:wrap; gap:8px; }
+.variant-preview figure { margin:0; min-width:0; flex:1 1 120px; text-align:center; }
+.variant-preview .variant-art { background:repeating-conic-gradient(#fff 0% 25%,#e8ebf0 0% 50%) 50% / 16px 16px; color:#111; border-radius:4px; padding:8px; }
+.variant-preview svg { display:block; max-width:100%; max-height:160px; width:100%; height:auto; margin:auto; }
+.variant-preview figcaption { font-size:11px; overflow-wrap:anywhere; margin-top:5px; }
