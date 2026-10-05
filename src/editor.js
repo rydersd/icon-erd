@@ -2699,7 +2699,7 @@ function renderInspector() {
     return;
   }
   const nf = (k, label, step) => field(g, label || k, n[k], v => { n[k] = v; }, { step });
-  const capField = () => field(g, 'cap', n.cap || '', v => { if (v) n.cap = v; else delete n.cap; }, { options: ['', 'round', 'butt', 'square'] });
+  const capField = () => field(g, 'cap', L.strokeWidth!=null ? L.strokeCap??n.cap??'' : n.cap||'', v => { if (v) n.cap = v; else delete n.cap; if(L.strokeWidth!=null){if(v){L.strokeCap=v;L.endRounding=0;}else delete L.strokeCap;} }, { options: ['', 'round', 'butt', 'square'] }).setAttribute('aria-label','cap');
   switch (n.shape) {
     case 'rect': {
       nf('x'); nf('y'); nf('w'); nf('h');
@@ -3125,8 +3125,9 @@ function syncToggles() {
   root.querySelectorAll('[data-mirror]').forEach(b => b.setAttribute('aria-pressed', String((sym.mirror || '').includes(b.dataset.mirror))));
   root.querySelectorAll('[data-rot]').forEach(b => b.setAttribute('aria-pressed', String((sym.rotate || 1) === +b.dataset.rot)));
   root.querySelectorAll('[data-show]').forEach(b => b.setAttribute('aria-pressed', String(!!S.show[b.dataset.show])));
-  root.querySelectorAll('[data-cap]').forEach(b => b.setAttribute('aria-pressed', String(S.rt.cap === b.dataset.cap)));
-  root.querySelectorAll('[data-join]').forEach(b => b.setAttribute('aria-pressed', String(S.rt.join === b.dataset.join)));
+  const selectedStyle=primarySel(),localStyle=selectedStyle&&layerOf(selectedStyle);
+  root.querySelectorAll('[data-cap]').forEach(b => b.setAttribute('aria-pressed', String((localStyle?.strokeCap??S.rt.cap) === b.dataset.cap)));
+  root.querySelectorAll('[data-join]').forEach(b => b.setAttribute('aria-pressed', String((localStyle?.strokeJoin??S.rt.join) === b.dataset.join)));
   root.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', String(S.tool === b.dataset.tool)));
   root.querySelectorAll('[data-hmode]').forEach(b => b.setAttribute('aria-pressed', String(S.hmode === b.dataset.hmode)));
   root.querySelectorAll('[data-palette="pen"]').forEach(b => b.setAttribute('aria-pressed', String(S.tool === 'pen')));
@@ -3217,8 +3218,8 @@ $('iconThicknessOverride').onchange=()=>{
 };
 $('iconThickness').onchange=()=>{const input=$('iconThickness');if(!input.checkValidity()||!Number.isFinite(input.valueAsNumber)){input.value=strokeWeight(S.glyph);return;}setIconThickness(input.valueAsNumber);};
 $('wRange').onchange=()=>{if(S.glyph.strokeOverride!=null&&!guidedRepair?.active)setIconThickness(S.rt.weight);};
-root.querySelectorAll('[data-cap]').forEach(b => b.onclick = () => { S.rt.cap = b.dataset.cap;if(guidedRepair?.active||S.glyph.strokeCap!=null){S.glyph.strokeCap=S.rt.cap;commit();} refresh(false); });
-root.querySelectorAll('[data-join]').forEach(b => b.onclick = () => { S.rt.join = b.dataset.join;if(guidedRepair?.active||S.glyph.strokeJoin!=null){S.glyph.strokeJoin=S.rt.join;commit();} refresh(false); });
+root.querySelectorAll('[data-cap]').forEach(b => b.onclick = () => { const selected=primarySel(),layer=selected&&layerOf(selected);if(layer?.strokeWidth!=null&&layer.paint!=='fill'){layer.strokeCap=b.dataset.cap;layer.endRounding=0;commit();refresh(true);return;} S.rt.cap = b.dataset.cap;if(guidedRepair?.active||S.glyph.strokeCap!=null){S.glyph.strokeCap=S.rt.cap;commit();} refresh(false); });
+root.querySelectorAll('[data-join]').forEach(b => b.onclick = () => { const selected=primarySel(),layer=selected&&layerOf(selected);if(layer?.strokeWidth!=null&&layer.paint!=='fill'){layer.strokeJoin=b.dataset.join;layer.rounding=0;commit();refresh(true);return;} S.rt.join = b.dataset.join;if(guidedRepair?.active||S.glyph.strokeJoin!=null){S.glyph.strokeJoin=S.rt.join;commit();} refresh(false); });
 $('hintBtn').onclick = () => { S.rt.hint = !S.rt.hint; refresh(false); };
 $('rtlBtn').onclick = () => { S.rt.rtl = !S.rt.rtl; refresh(false); };
 const sw = () => { const st = $('pvGrid').style; st.setProperty('--sw-secondary-light', $('swSecL').value); st.setProperty('--sw-secondary-dark', $('swSecD').value); st.setProperty('--sw-accent-light', $('swAccL').value); st.setProperty('--sw-accent-dark', $('swAccD').value); };
@@ -3532,7 +3533,7 @@ appStudio=createAppIconStudio({root:$('appIconStudio'),getGlyph:()=>S.glyph,getL
 const repairLocked=[...root.querySelectorAll('#componentsPanel,.library-panel,.set-settings,.io,#appIconStudio,#drawingMode,#exportSize,#hdrEdited,#revertBtn')];
 function repairWorking(glyph){S.glyph=clone(glyph);S.sel=[];S.selectedAnchors=[];S.anchor=null;S.sourceAnchor=null;S.iso=null;penDraft=null;penHover=null;penCloseHover=null;S.rt.weight=strokeWeight(S.glyph);S.rt.cap=S.glyph.strokeCap||'round';S.rt.join=S.glyph.strokeJoin||'round';}
 const fusionDialog=createFusionDialog({root,core,getGlyph:()=>S.glyph,apply:(selection,recipe)=>{getNode({...selection,p:selection.p||[]}).fusion=recipe;commit();refresh(true);renderLibrary();},status});
-const shapeCenterline=createShapeCenterline({root,core,getGlyph:()=>S.glyph,apply:layer=>{S.glyph.layers.push(layer);S.sel=[{l:S.glyph.layers.length-1,p:null}];S.anchor=null;S.selectedAnchors=[];commit();refresh(true);},status});
+const shapeCenterline=createShapeCenterline({root,core,getGlyph:()=>S.glyph,apply:layer=>{S.glyph.layers.push(layer);S.iso=null;S.sel=[{l:S.glyph.layers.length-1,p:null}];S.anchor=null;S.selectedAnchors=[];commit();refresh(true);},status});
 guidedRepair=createGuidedRepair({root,core,getGlyph:()=>S.glyph,getLibrary:()=>S.lib,getStyle:()=>S.libraryProperties?tokenStyle(S.libraryProperties):null,
   enter:glyph=>{repairContext={name:S.glyph.name,lastSnap,tool:S.tool,rt:clone(S.rt),original:S.show.original};closeGroupReview();root.querySelector('.stage').hidden=false;for(const el of repairLocked)el.inert=true;S.show.original=false;repairWorking(glyph);setTool('direct');setSaveState('draft');},
   leave:name=>{for(const el of repairLocked)el.inert=false;const context=repairContext;repairContext=null;S.show.original=context.original;S.rt=context.rt;lastSnap=context.lastSnap;loadGlyph(Math.max(0,idx(name||context.name)));setTool(context.tool);setSaveState('saved');},
