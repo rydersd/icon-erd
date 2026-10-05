@@ -6,7 +6,7 @@ test('anchor canvas menu snaps selected points to the UI spacing, undo redraws, 
  await ready(page);await fixture(page);await page.locator('[data-snap="0.3"]').click();
  const initial=await page.locator('#gLayers').innerHTML();const screen=await pointOnScreen(page,0);
  await page.mouse.click(screen.x,screen.y,{button:'right'});await expect(page.locator('#itemMenu')).toContainText('2 selected anchors');
- await page.getByRole('menuitem',{name:'Snap to nearest',exact:true}).click();
+ await page.getByRole('menuitem',{name:'Actions',exact:true}).click();await page.getByRole('menuitem',{name:'Snap to nearest',exact:true}).click();
  expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.slice(0,2))).toEqual([{x:1.2,y:2.4},{x:5.1,y:6.3}]);
  const snapped=await page.locator('#gLayers').innerHTML();expect(snapped).not.toBe(initial);
  await page.locator('#canvas').focus();await page.keyboard.press('Shift+F10');await page.getByRole('menuitem',{name:'Undo',exact:true}).click();
@@ -15,7 +15,7 @@ test('anchor canvas menu snaps selected points to the UI spacing, undo redraws, 
  await page.locator('[data-snap="0"]').click();await page.locator('#canvas').focus();await page.keyboard.press('Shift+F10');
  // Undo clears anchor selection, so select the clicked anchor through the actual context path.
  await page.keyboard.press('Escape');const current=await pointOnScreen(page,0);await page.mouse.click(current.x,current.y,{button:'right'});
- await expect(page.getByRole('menuitem',{name:'Snap to nearest',exact:true})).toBeDisabled();await page.keyboard.press('Escape');
+ await page.getByRole('menuitem',{name:'Actions',exact:true}).click();await expect(page.getByRole('menuitem',{name:'Snap to nearest',exact:true})).toBeDisabled();await page.keyboard.press('Escape');
  await page.locator('[data-tool="pen"]').click();const before=await page.evaluate(()=>JSON.stringify(window.__gw.S.glyph));
  await page.mouse.click(current.x+35,current.y+35,{button:'right'});expect(await page.evaluate(()=>JSON.stringify(window.__gw.S.glyph))).toBe(before);
 });
@@ -35,7 +35,7 @@ test('Undo/Redo refresh stroke thickness on canvas and previews and restore set 
 test('snap uses the drawing-plane grid for anchors in transformed objects, independent of view grid density',async({page})=>{
  await ready(page);await fixture(page);
  await page.evaluate(()=>{const w=window.__gw;w.S.glyph.layers[0].node.transform={rotate:30,origin:[0,0],scaleX:1.4,scaleY:0.8};w.commit();w.refresh(true);});
- await page.locator('[data-snap="0.5"]').click();const screen=await pointOnScreen(page,0);await page.mouse.click(screen.x,screen.y,{button:'right'});await page.getByRole('menuitem',{name:'Snap to nearest',exact:true}).click();
+ await page.locator('[data-snap="0.5"]').click();const screen=await pointOnScreen(page,0);await page.mouse.click(screen.x,screen.y,{button:'right'});await page.getByRole('menuitem',{name:'Actions',exact:true}).click();await page.getByRole('menuitem',{name:'Snap to nearest',exact:true}).click();
  const world=await page.evaluate(()=>{const w=window.__gw,m=w.fullMatrix({l:0,p:[]});return w.S.glyph.layers[0].node.pts.slice(0,2).map(q=>({x:m[0]*q.x+m[2]*q.y+m[4],y:m[1]*q.x+m[3]*q.y+m[5]}));});
  for(const p of world){expect(Math.abs(p.x/0.5-Math.round(p.x/0.5))).toBeLessThan(0.0003);expect(Math.abs(p.y/0.5-Math.round(p.y/0.5))).toBeLessThan(0.0003);}
 });

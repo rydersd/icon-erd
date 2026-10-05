@@ -427,3 +427,18 @@ button.glyph-tag { background: transparent; cursor: pointer; }
 .component-preview{display:inline-flex;width:40px;height:40px;color:var(--text);flex:none}
 #componentsCount{float:right}
 #iconThickness{width:70px}
+/* Original gray-source / blue-result diagrams keep geometry actions readable. */
+.item-menu:has(.selection-actions) { width: 320px; max-height: calc(100svh - 16px); overflow-y: auto; }
+.action-chevron { margin-left: auto; font-size: 20px; }
+.selection-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; border-top: 1px solid var(--border); padding-top: 6px; }
+.selection-actions[hidden] { display: none; }
+.action-legend, .selection-actions .item-menu-heading { grid-column: 1 / -1; }
+.action-legend { font-size: 10px; padding: 5px 8px; color: var(--text-2); }
+.selection-actions button.visual-action { font-size: 11px; min-height: 48px; padding: 7px; }
+.selection-actions button.visual-action svg { width: 28px; height: 28px; flex: 0 0 28px; }
+.selection-actions button.visual-action span { line-height: 1.25; }
+.centerline-dialog { width: min(540px, calc(100vw - 32px)); }
+.centerline-dialog .review-drawings { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.centerline-dialog .review-drawing svg { width: 100%; height: 160px; }
+.customized-mark { color: var(--accent); font-size: 13px; flex: 0 0 auto; }
+.library-customized { position: absolute; right: 5px; top: 3px; font-size: 16px; }

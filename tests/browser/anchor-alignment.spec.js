@@ -15,7 +15,7 @@ for (const [direction, points, expected] of [
   ['horizontally (Y)', [{ x: 4, y: 4 }, { x: 16, y: 6, out: [2, 1] }, { x: 18, y: 18 }], [5, 5]],
 ]) test(`align chooses ${direction}, preserves handles and other anchors, and supports Undo/Redo`, async ({ page }) => {
   await setup(page, [points]);
-  await page.locator('#canvas').press('Shift+F10');
+  await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Actions',exact:true}).click();
   await page.getByRole('menuitem', { name: `Align points ${direction}`, exact: true }).click();
   const axis = direction.startsWith('vertically') ? 'x' : 'y';
   const aligned = await page.evaluate(() => window.__gw.S.glyph.layers[0].node.pts);
@@ -35,12 +35,12 @@ test('alignment operates in drawing coordinates across rotated and scaled object
     });
   });
   const before = await world(), meanY = before.reduce((s, p) => s + p.y / 4, 0);
-  await page.locator('#canvas').press('Shift+F10'); await page.getByRole('menuitem', { name: 'Align points horizontally (Y)', exact: true }).click();
+  await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Actions',exact:true}).click(); await page.getByRole('menuitem', { name: 'Align points horizontally (Y)', exact: true }).click();
   const after = await world();
   for (let i = 0; i < 4; i++) { expect(after[i].y).toBeCloseTo(meanY, 3); expect(after[i].x).toBeCloseTo(before[i].x, 3); }
 });
 test('single-anchor menu does not offer alignment', async ({ page }) => {
   await setup(page, [[{ x: 4, y: 4 }, { x: 8, y: 12 }]]);
   await page.evaluate(() => { window.__gw.S.selectedAnchors = window.__gw.S.selectedAnchors.slice(0, 1); window.__gw.refresh(true); });
-  await page.locator('#canvas').press('Shift+F10'); await expect(page.getByRole('menuitem', { name: /Align points/ })).toHaveCount(0);
+  await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Actions',exact:true}).click(); await expect(page.getByRole('menuitem', { name: /Align points/ })).toHaveCount(0);
 });

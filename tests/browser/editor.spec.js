@@ -108,16 +108,16 @@ const importTree = async page => {
 test('right-click targets the item, changes group type/symmetry and makes an editable cutter with undo', async ({ page }) => {
   await importTree(page);
   const group = page.locator('[data-tree-key="0:2"]');
-  await group.click({ button: 'right' });
+  await group.click({ button: 'right' });await page.getByRole('menuitem',{name:'Actions',exact:true}).click();
   await page.screenshot({ path: 'artifacts/layer-context-menu.png' });
   await page.getByRole('menuitemcheckbox', { name: 'Exclude', exact: true }).click();
   expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.children[2].op)).toBe('exclude');
-  await group.click({ button: 'right' });
+  await group.click({ button: 'right' });await page.getByRole('menuitem',{name:'Actions',exact:true}).click();
   await page.getByRole('menuitemcheckbox', { name: 'Turn symmetry on' }).click();
   expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.children[2].symmetry.mirror)).toBe('x');
   expect(await page.evaluate(() => window.__gw.S.glyph.symmetry.mirror)).toBeNull();
   const cutout = page.locator('[data-tree-key="0:1"]');
-  await cutout.focus(); await page.keyboard.press('Shift+F10');
+  await cutout.focus(); await page.keyboard.press('Shift+F10');await page.getByRole('menuitem',{name:'Actions',exact:true}).click();
   await page.getByRole('menuitemcheckbox', { name: 'Use as cutter', exact: true }).click();
   expect(await page.evaluate(() => {
     const { S, core } = window.__gw, node = S.glyph.layers[0].node;
@@ -298,9 +298,11 @@ test('corner and line-end radii are independent', async ({ page }) => {
 test('Use as cutter toggles back to normal geometry from the context menu and inspector', async ({ page }) => {
   await importTree(page);
   await page.locator('[data-tree-key="0:1"]').click({ button: 'right' });
+  await page.getByRole('menuitem', {name:'Actions',exact:true}).click();
   const toggle = page.getByRole('menuitemcheckbox', { name: 'Use as cutter', exact: true });
   await expect(toggle).toHaveAttribute('aria-checked', 'false'); await toggle.click();
   await page.locator('[data-tree-key="0:1"]').click({ button: 'right' });
+  await page.getByRole('menuitem', {name:'Actions',exact:true}).click();
   await expect(toggle).toHaveAttribute('aria-checked', 'true'); await toggle.click();
   expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].node.op)).toBe('union');
   const inspector = page.locator('#insp').getByRole('button', { name: 'Use as cutter', exact: true });
