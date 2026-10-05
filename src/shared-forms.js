@@ -39,6 +39,7 @@ export function scaleForm(node, scale, core) {
       ...(p.out ? { out: p.out.map(v=>v*scale) } : {}),
       ...(p.r != null ? { r: p.r*scale } : {})
     });
+    if (n.fusion) n.fusion.distance *= scale;
     if (n.star?.inner != null) n.star.inner = n.star.inner*scale;
     if (n.transform?.origin) n.transform.origin = n.transform.origin.map(v=>v*scale);
     if (n.d && scale !== 1) n.d = core.scaleD(n.d,scale);

@@ -23,7 +23,7 @@ export function mountNumericScrub(root, listen) {
     if (e.button !== 0 || e.target.closest('input,select,textarea,button,a')) return;
     const label = e.target.closest('label'), input = label && control(label);
     if (!eligible(input) || !Number.isFinite(input.valueAsNumber)) return;
-    const step = Number(input.step);
+    const step = Number(input.dataset.scrubStep || input.step);
     gesture = {input, original: input.value, value: input.valueAsNumber, step: step > 0 ? step : 1,
       start: e.clientX, last: e.clientX, pointer: e.pointerId, moved: false};
     root.setPointerCapture(e.pointerId);

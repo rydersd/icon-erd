@@ -1,3 +1,4 @@
+import {validateFusion,fusionOn} from './proximity-fusion.js';
 import {validateGradient,validateReferenceImage} from './app-icon-paint.js';
 import {validateLibraryProperties} from './library-tokens.js';
 import {validateOutput} from './library-output.js';
@@ -21,6 +22,8 @@ export function normalizeGlyph(input) {
   for(const layer of input.layers||[])for(const key of ['strokeWidth','rounding','endRounding'])if(layer[key]!=null&&!Number.isFinite(layer[key]))throw Error(`${input.name}: invalid layer ${key}`);
   if(input.strokeOverride!=null && (!Number.isFinite(input.strokeOverride)||input.strokeOverride<.1||input.strokeOverride>8))throw Error(`${input.name}: invalid stroke override`);
   if (!Array.isArray(input.layers) || !input.layers.length || input.layers.length > 128) throw new Error(`${input.name}: expected 1–128 layers`);
+  const preflight=(node,depth=0)=>{if(!node||depth>32)return;if(node.fusion!=null)validateFusion(node.fusion);(node.children||[]).forEach(child=>preflight(child,depth+1));};
+  input.layers.forEach(layer=>preflight(layer.node));
   const glyph = clone(input);
   if(glyph.strokeOverride!=null && (!Number.isFinite(glyph.strokeOverride)||glyph.strokeOverride<.1||glyph.strokeOverride>8))throw Error(`${glyph.name}: invalid stroke override`);
   if(glyph.insetConversion!=null && (!glyph.insetConversion || typeof glyph.insetConversion.source!=='string' || !Number.isFinite(glyph.insetConversion.inset) || glyph.insetConversion.inset<0 || !Number.isFinite(glyph.insetConversion.stroke) || glyph.insetConversion.stroke<.1 || glyph.insetConversion.stroke>8))throw Error(`${glyph.name}: invalid inset conversion`);
@@ -42,8 +45,9 @@ export function normalizeGlyph(input) {
   }
   if (glyph.setStyle?.endRounding != null && (!Number.isFinite(glyph.setStyle.endRounding) || glyph.setStyle.endRounding < 0 || glyph.setStyle.endRounding > 6)) throw new Error(`${glyph.name}: invalid line-end rounding`);
   let count = 0;
-  const walk = (node, depth = 0, linkedAncestor = false) => {
+  const walk = (node, depth = 0, linkedAncestor = false, fusionAncestor = false, paint = 'stroke', unionAncestors = true) => {
     if (!node || typeof node !== 'object' || depth > 32 || ++count > 10000) throw new Error(`${glyph.name}: invalid or oversized form tree`);
+    if(node.fusion!=null){validateFusion(node.fusion);if(fusionOn(node)&&(!node.children || (node.op||'union')!=='union' || fusionAncestor || !unionAncestors))throw Error(`${glyph.name}: fusion needs a union group without nested fusion`);}
     validateSymmetry(node.symmetry);
     if(node.symmetryStage!=null && node.symmetryStage!=='layer')throw Error(`${glyph.name}: invalid symmetry stage`);
     if(node.component != null) {
@@ -86,7 +90,7 @@ export function normalizeGlyph(input) {
       if (node.sides != null && (!Number.isInteger(node.sides) || node.sides < 3 || node.sides > 512)) throw new Error(`${glyph.name}: polygon sides must be 3–512`);
     } else {
       if (!OPS.has(node.op || 'union') || !Array.isArray(node.children)) throw new Error(`${glyph.name}: invalid boolean group`);
-      node.children.forEach(child => walk(child, depth + 1, linkedAncestor || !!node.component));
+      node.children.forEach(child => walk(child, depth + 1, linkedAncestor || !!node.component, fusionAncestor || fusionOn(node),paint,unionAncestors && (node.op||'union')==='union'));
     }
   };
   validateSymmetry(glyph.symmetry);
@@ -101,7 +105,7 @@ export function normalizeGlyph(input) {
     if(layer.rounding!=null && (!Number.isFinite(layer.rounding)||layer.rounding<0))throw Error(`${glyph.name}: invalid layer rounding`);
     if (layer.opacity != null && (!Number.isFinite(layer.opacity) || layer.opacity < 0 || layer.opacity > 1)) throw new Error(`${glyph.name}: invalid opacity`);
     layer.id ||= `layer-${index + 1}`;
-    walk(layer.node);
+    walk(layer.node,0,false,false,layer.paint||'stroke');
   }
   glyph.grid ??= 0.1;
   glyph.weight ??= 1.2;
