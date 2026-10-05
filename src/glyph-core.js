@@ -675,7 +675,7 @@ export function createGlyphCore(paper) {
       for (const p of r.open) if (p.data.cap) (byCap[p.data.cap] = byCap[p.data.cap] || []).push(itemD(p));
       for (const cap in byCap) parts.push({ d: byCap[cap].join(''), cap });
       const raw = {
-        strokeWidth: layer.strokeWidth, rounding:layer.rounding,endRounding:layer.endRounding, id: layer.id, name: layer.name, role: layer.role || 'primary', paint: layer.paint || 'stroke', color: layer.color || null, fillColor:layer.fillColor || null,strokeColor:layer.strokeColor || null,fillGradient:layer.fillGradient || null,
+        strokeWidth: layer.strokeWidth, strokeCap:layer.strokeCap,strokeJoin:layer.strokeJoin,rounding:layer.rounding,endRounding:layer.endRounding, id: layer.id, name: layer.name, role: layer.role || 'primary', paint: layer.paint || 'stroke', color: layer.color || null, fillColor:layer.fillColor || null,strokeColor:layer.strokeColor || null,fillGradient:layer.fillGradient || null,
         opacity: layer.opacity == null ? 1 : layer.opacity, visible: layer.visible !== false,
         d: parts.map(p => p.d).join(''), parts, error: r.error || null,
       };
@@ -702,9 +702,9 @@ export function createGlyphCore(paper) {
     const rounded = num(glyph.setStyle?.rounding) > 0;
     const roundedEnds = num(glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding) > 0;
     return {
-      cap: roundedEnds ? 'butt' : partCap || glyph.strokeCap || opts.cap || 'round',
+      cap: roundedEnds ? 'butt' : glyph.layerStrokeCap || partCap || glyph.strokeCap || opts.cap || 'round',
       join: rounded ? 'round' : glyph.strokeJoin || opts.join || 'round',
-      runtimeCap: roundedEnds ? 'butt' : partCap || glyph.strokeCap || 'var(--icon-stroke-linecap,round)',
+      runtimeCap: roundedEnds ? 'butt' : glyph.layerStrokeCap || partCap || glyph.strokeCap || 'var(--icon-stroke-linecap,round)',
       runtimeJoin: rounded ? 'round' : glyph.strokeJoin || 'var(--icon-stroke-linejoin,round)',
     };
   }
