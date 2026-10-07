@@ -1,3 +1,4 @@
+import {validateSolidConstruction} from './solid-construction.js';
 import {fuseArea,strokeArea} from './proximity-fusion.js';
 import {strokeWeight,layerStyleGlyph} from './stroke-weight.js';
 import paper from 'paper';
@@ -7,7 +8,7 @@ const paths=item=>item.children || [item];
 const combine=(a,b,op='unite')=>{if(!a)return b;const result=a[op](b,{insert:false});a.remove();b.remove();return result;};
 const parse=d=>new paper.CompoundPath({pathData:d,insert:false});
 export const solidName=name=>name.endsWith('-outline') ? name.slice(0,-8) : `${name}-solid`;
-export function sourceSignature(glyph,core) {return JSON.stringify({width:strokeWeight(glyph),endRounding:glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding ?? 0,style:core.strokeStyle(glyph,{}),layers:core.resolve(glyph).map(layer=>({id:layer.id,paint:layer.paint,strokeWidth:layer.strokeWidth,strokeCap:layer.strokeCap,strokeJoin:layer.strokeJoin,rounding:layer.rounding,endRounding:layer.endRounding,visible:layer.visible,opacity:layer.opacity,d:layer.d,parts:layer.parts.map(part=>({cap:part.cap,fusion:part.fusion && {recipe:part.fusion.recipe,sourceParts:part.fusion.sourceParts}}))}))});}
+export function sourceSignature(glyph,core) {return JSON.stringify({boxRadius:glyph.solidConstruction?.treatment==='cutout'?(glyph.solidConstruction.cornerRounding??glyph.setStyle?.rounding??0):undefined,solidConstruction:glyph.solidConstruction,width:strokeWeight(glyph),endRounding:glyph.setStyle?.endRounding ?? glyph.setStyle?.rounding ?? 0,style:core.strokeStyle(glyph,{}),layers:core.resolve(glyph).map(layer=>({id:layer.id,paint:layer.paint,strokeWidth:layer.strokeWidth,strokeCap:layer.strokeCap,strokeJoin:layer.strokeJoin,rounding:layer.rounding,endRounding:layer.endRounding,visible:layer.visible,opacity:layer.opacity,d:layer.d,parts:layer.parts.map(part=>({cap:part.cap,fusion:part.fusion && {recipe:part.fusion.recipe,sourceParts:part.fusion.sourceParts}}))}))});}
 
 // Offset closed centerlines to the chosen stroke boundary. Open paths retain
 // their expanded stroke; no invented closure is inserted across a real gap.
@@ -27,7 +28,17 @@ export function generateSolid(glyph,core,{edge='outside',holes='preserve'}={}) {
     if(result){layers.push({id:layer.id,name:layer.name,role:layer.role,color:layer.color,paint:'fill',symmetry:false,opacity:layer.opacity,node:{shape:'path',d:result.pathData}});result.remove();}
   }
   if(!layers.length)throw new Error('No drawable solid geometry');
-  return {...structuredClone(glyph),name:solidName(glyph.name),layers,symmetry:{rotate:1},setStyle:{...glyph.setStyle,rounding:0,endRounding:0},generatedFrom:glyph.name};
+  const construction=validateSolidConstruction(glyph.solidConstruction);
+  if(construction?.treatment==='cutout'){
+    let ink=null,box,result;
+    try{for(const layer of layers)ink=combine(ink,parse(layer.node.d));
+      const bounds=ink.bounds.expand(construction.padding*2),radius=construction.cornerRounding??glyph.setStyle?.rounding??0;
+      box=new paper.Path.Rectangle({rectangle:bounds,radius:Math.min(radius,bounds.width/2,bounds.height/2),insert:false});result=box.subtract(ink,{insert:false});
+      if(!result||Math.abs(result.area)<1e-8)throw Error('Cutout box is empty; increase padding.');
+      layers.splice(0,layers.length,{id:'solid-backplate',name:'Rounded box with bar cutouts',role:'primary',paint:'fill',symmetry:false,node:{shape:'path',d:result.pathData}});
+    }finally{ink?.remove();box?.remove();result?.remove();}
+  }
+  const candidate={...structuredClone(glyph),name:solidName(glyph.name),layers,symmetry:{rotate:1},setStyle:{...glyph.setStyle,rounding:0,endRounding:0},generatedFrom:glyph.name};delete candidate.solidConstruction;return candidate;
 }
 function silhouette(glyph,core) {
   let result=null;

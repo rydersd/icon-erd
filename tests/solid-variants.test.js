@@ -65,3 +65,20 @@ test('barcode solids preserve independent widths, tip corners, gaps and source a
 test('curved square ends remain explicit review rather than deforming a curved source',()=>{
  const curved={name:'curve-outline',weight:2,strokeCap:'square',layers:[{id:'curve',paint:'stroke',node:{shape:'pen',pts:[{x:4,y:4,out:[4,0]},{x:12,y:12,in:[0,-4]}]}}]};assert.throws(()=>generateSolid(curved,core),/Curved square-ended/);
 });
+
+test('rounded box subtracts barcode bars with independent tip widths and tracks library corner rules',()=>{
+ const source={name:'barcode-outline',weight:1.6,setStyle:{rounding:.5,endRounding:.3},solidConstruction:{treatment:'cutout',padding:1,cornerRounding:null},layers:[2.4,1.2,2.4].map((w,i)=>({id:`bar-${i}`,paint:'stroke',strokeWidth:w,rounding:0,endRounding:i===0?0:.3,node:{shape:'line',x1:5+i*5,y1:5,x2:5+i*5,y2:19,cap:'butt'}}))},before=JSON.stringify(source),count=paper.project.activeLayer.children.length;
+ const solid=generateSolid(source,core);assert.equal(solid.layers.length,1);assert.equal(solid.solidConstruction,undefined);const ink=new paper.CompoundPath({pathData:core.resolve(solid)[0].d,insert:false});assert.equal(ink.children.filter(p=>p.area<0).length,3);assert.ok(ink.contains([3,12]));assert.equal(ink.contains([5,12]),false);assert.equal(ink.contains([10,12]),false);ink.remove();assert.equal(JSON.stringify(source),before);assert.equal(paper.project.activeLayer.children.length,count);
+ const changed={...source,setStyle:{...source.setStyle,rounding:.8}};assert.notEqual(sourceSignature(source,core),sourceSignature(changed,core));assert.notEqual(core.resolve(generateSolid(source,core))[0].d,core.resolve(generateSolid(changed,core))[0].d);
+ assert.throws(()=>generateSolid({...source,solidConstruction:{treatment:'cutout',padding:-1}},core),/Invalid solid construction/);
+});
+
+test('cutout treatment survives editable imports and preserves EDS outline/solid filenames',()=>{
+ const source={name:'barcode',eds:{},solidConstruction:{treatment:'cutout',padding:1,cornerRounding:.5},weight:1.2,layers:[{id:'bar',paint:'fill',node:{shape:'rect',x:10,y:4,w:2,h:16,r:.4}}]};source.solidReview={recipe:{edge:'outside',holes:'preserve'},status:'approved',sourceSignature:sourceSignature(source,core)};
+ const variants=variantGlyphs([source],[source],core,{...DEFAULT_OUTPUT,variant:'both'});assert.deepEqual(variants.map(g=>g.name),['barcode-outline','barcode']);assert.equal(variants[1].layers[0].name,'Rounded box with bar cutouts');
+});
+
+test('canonical cutout boxes require explicit source-bound approval too',()=>{
+ const g={name:'barcode',variantFamily:{canonical:'outline',status:'ready'},weight:1.2,solidConstruction:{treatment:'cutout',padding:1,cornerRounding:null},layers:[{id:'line',paint:'stroke',node:{shape:'line',x1:12,y1:4,x2:12,y2:20}}]};assert.throws(()=>variantGlyphs([g],[g],core,{...DEFAULT_OUTPUT,variant:'solid'}),/Review/);
+ g.solidReview={recipe:{edge:'outside',holes:'preserve'},status:'approved',sourceSignature:sourceSignature(g,core)};assert.equal(variantGlyphs([g],[g],core,{...DEFAULT_OUTPUT,variant:'solid'})[0].layers[0].name,'Rounded box with bar cutouts');
+});

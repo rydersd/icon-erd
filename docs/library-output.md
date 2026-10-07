@@ -35,3 +35,11 @@ The Output pane has separate collapsible **Solid preview** and **Export preview*
 Export preview uses the same configured variants and baked SVG settings as downloads, showing filenames and SVG output size. Both shows outline and solid side by side; single downloads use the first variant, while ZIP includes both. Target PNG sizes are listed; these are scalable SVG previews rather than a PNG contact sheet. CSS color tokens render with export fallback colors, rather than borrowing unrelated editor theme tokens. Unreviewed/stale or invalid output shows an **Export blocked** explanation and no export artwork; drawing previews remain available independently. Collapse states persist.
 
 ![Synthetic barcode solid and export previews](images/solid-export-preview.png)
+
+## Rounded box with barcode cutouts
+
+In Solid preview choose **Box with cutouts**. This per-icon construction takes the current visible ink as cutters and subtracts it from a box around its bounds. **Box padding** sets the border. Box corners follow the library corner radius by default; disable **Follow library box corner rounding** to set a separate radius. Each bar retains its own stroke width, cap and line-end rules, which determine its cutout. Hidden originals stay excluded. The centerlines remain editable; only the generated solid is flattened. Treatment, padding and radius persist in editable JSON/ZIP and Undo; changes invalidate solid approval. Approve the displayed solid, then select Generated solid or Outline + solid files for export.
+
+When a selected stroke has local end rounding, Library Tokens now shows the actual local radius beside Round line ends. **Use library end rounding for this layer** releases only that end-radius override. It preserves local width, so barcode bars can stay different widths while adopting the library's end-radius rule. Library rounding does not silently overwrite explicit local radii.
+
+![Synthetic rounded-box barcode cutouts](images/barcode-cutout-preview.png)

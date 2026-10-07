@@ -10,15 +10,15 @@ export function variantGlyphs(glyphs,library,core,output) {
     if(canonicalLibrary&&glyph.kind==='app-icon'){add(structuredClone(glyph),glyph.name);continue;}
     if(!output || output.variant==='source'){result.set(glyph.name,{...structuredClone(glyph),...(output?{output}: {})});continue;}
     if(glyph.variantFamily?.status==='needs-review'){if(['solid','both','fill-stroke'].includes(output.variant))throw Error(`Review the outline reconstruction for ${glyph.name} before generating fills.`);add({...structuredClone(glyph),output},glyph.name);continue;}
-    const source=variantSource(glyph,library,by);
-    const addOutline=()=>{const outline=structuredClone(source);outline.output=output;if(source.variantFamily)outline.name=`${source.name}-outline`;add(outline,source.name);};
+    const source=variantSource(glyph,library,by),namedFamily=source.variantFamily||source.eds&&source.solidConstruction?.treatment==='cutout';
+    const addOutline=()=>{const outline=structuredClone(source);outline.output=output;if(namedFamily)outline.name=source.name.endsWith('-outline')?source.name:`${source.name}-outline`;add(outline,source.name);};
     const addSolid=()=>{
       let solid;
-      if(!source.variantFamily && !source.name.endsWith('-outline') && source.layers.every(layer=>layer.paint==='fill'))solid=structuredClone(source);
+      if(!source.variantFamily && !source.name.endsWith('-outline') && source.layers.every(layer=>layer.paint==='fill')&&source.solidConstruction?.treatment!=='cutout')solid=structuredClone(source);
       else {
         const review=source.solidReview;
-        if(!source.variantFamily && (!review?.recipe || !['candidate','approved'].includes(review.status) || review.sourceSignature!==sourceSignature(source,core)))throw new Error(`Review the generated solid for ${source.name} first (Library properties → Test solid variants).`);
-        solid=generateSolid(source,core,source.variantFamily?{edge:'outside',holes:'preserve'}:review.recipe);if(source.variantFamily)solid.name=source.name;
+        if((!source.variantFamily||source.solidConstruction?.treatment==='cutout') && (!review?.recipe || !['candidate','approved'].includes(review.status) || review.sourceSignature!==sourceSignature(source,core)))throw new Error(`Review the generated solid for ${source.name} first (Library properties → Test solid variants).`);
+        solid=generateSolid(source,core,source.variantFamily?{edge:'outside',holes:'preserve'}:review.recipe);if(namedFamily)solid.name=source.name.endsWith('-outline')?source.name.slice(0,-8):source.name;
       }
       solid.output=output;if(output.variant==='fill-stroke')solid.layers=solid.layers.map(layer=>({...layer,paint:'both'}));
       add(solid,source.name);

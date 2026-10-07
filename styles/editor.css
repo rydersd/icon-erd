@@ -449,3 +449,10 @@ button.glyph-tag { background: transparent; cursor: pointer; }
 .variant-preview .variant-art { background:repeating-conic-gradient(#fff 0% 25%,#e8ebf0 0% 50%) 50% / 16px 16px; color:#111; border-radius:4px; padding:8px; }
 .variant-preview svg { display:block; max-width:100%; max-height:160px; width:100%; height:auto; margin:auto; }
 .variant-preview figcaption { font-size:11px; overflow-wrap:anywhere; margin-top:5px; }
+/* Give solid construction controls their own rows in narrow output panes. */
+#solidPreviewH + .pad > label { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+#solidBoxSettings label { margin:6px 0; }
+#solidBoxSettings label:not(:has(input[type="checkbox"])) { display:grid; grid-template-columns:minmax(0,1fr) 72px; align-items:center; gap:8px; }
+#solidBoxSettings input[type="number"] { width:72px; min-width:0; }
+#solidBoxSettings label:has(input[type="checkbox"]) { display:flex; align-items:flex-start; gap:6px; }
+#solidBoxSettings input[type="checkbox"] { flex:none; margin-top:2px; }
