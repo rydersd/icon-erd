@@ -2642,7 +2642,13 @@ function endRoundingFields(parent,layer) {
   const input=field(parent,'layer end rounding',layer.endRounding??S.glyph.setStyle?.endRounding??S.glyph.setStyle?.rounding??0,v=>{layer.endRounding=v;},{min:0,step:.1});input.disabled=follows;
   const note=document.createElement('div');note.className='wide lbl';note.textContent=follows?'End radius follows the library; local width stays independent.':'Local end radius overrides library end rounding. Enable following to use the library radius.';parent.appendChild(note);
 }
+function renderEndRoundingScope() {
+  const selected=primarySel(),layer=selected&&layerOf(selected),local=layer&&layer.paint!=='fill'&&layer.endRounding!=null;
+  $('lineEndScopeNote').hidden=!local;$('useLibraryEndRounding').hidden=!local;
+  if(local)$('lineEndScopeNote').textContent=`Selected layer has local end radius ${layer.endRounding}; library end rounding does not apply. Width can stay local while ends follow the library.`;
+}
 function renderInspector() {
+  renderEndRoundingScope();
   const box = $('insp'); box.innerHTML = '';
   const g = document.createElement('div'); g.className = 'insp'; box.appendChild(g);
   const s = primarySel();
@@ -2797,15 +2803,31 @@ function previewSVG(size, extraClass, glyph=S.glyph, resolved=S.resolved) {
   return `<svg class="icon ${extraClass || ''}" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${defs.length?`<defs>${defs.join('')}</defs>`:''}${parts.join('')}</svg>`;
 }
 let variantPreviewCache=null;
+function applySolidConstruction() {
+  const source=variantSource(S.glyph,S.lib),at=idx(source.name);if(at<0)return;
+  if(!$('solidBoxPadding').checkValidity()||!$('solidBoxRadius').checkValidity())return;
+  const construction={treatment:$('solidTreatment').value,padding:+$('solidBoxPadding').value,cornerRounding:$('solidBoxFollowsRounding').checked?null:+$('solidBoxRadius').value};
+  if(S.cur!==at)loadGlyph(at);
+  S.glyph.solidConstruction=construction;commit();refresh(true);renderLibrary();
+}
+for(const id of ['solidTreatment','solidBoxPadding','solidBoxFollowsRounding','solidBoxRadius'])$(id).onchange=applySolidConstruction;
+$('useLibraryEndRounding').onclick=()=>{const selected=primarySel(),layer=selected&&layerOf(selected);if(!layer||layer.paint==='fill')return;delete layer.endRounding;commit();refresh(true);};
+
 function renderVariantPreviews() {
   const source=variantSource(S.glyph,S.lib),output=S.libraryProperties?.output;
   const key=JSON.stringify([S.glyph,source,output,S.rt.weight,S.rt.cap,S.rt.join]);
   if(variantPreviewCache?.key===key)return;
   const figure=(parent,svg,label)=>{const f=document.createElement('figure'),art=document.createElement('div'),caption=document.createElement('figcaption');art.className='variant-art';art.dataset.svg=svg;art.innerHTML=svg.replace(/var\(--[\w-]+,\s*(#[0-9a-f]{6})\)/gi,'$1');caption.textContent=label;f.append(art,caption);parent.appendChild(f);};
   $('solidPreview').replaceChildren();$('exportPreview').replaceChildren();$('approvePreviewSolid').disabled=true;
+  const construction=source.solidConstruction;
+  $('solidTreatment').value=construction?.treatment||'expanded';$('solidBoxSettings').hidden=construction?.treatment!=='cutout';
+  $('solidBoxFollowsRounding').checked=construction?.cornerRounding==null;
+  $('solidBoxRadius').disabled=construction?.cornerRounding==null;
+  if(document.activeElement!==$('solidBoxPadding'))$('solidBoxPadding').value=construction?.padding??1;
+  if(document.activeElement!==$('solidBoxRadius'))$('solidBoxRadius').value=construction?.cornerRounding??source.setStyle?.rounding??0;
   const recipe=source.solidReview?.recipe||{edge:'outside',holes:'preserve'};
-  try{const solid=generateSolid(source,core,recipe);figure($('solidPreview'),core.toSVG(solid,{mode:'baked',size:160,mono:true}),'Filled geometry');
-    $('solidPreviewStatus').textContent='Open strokes expand with their local widths and caps. Separate bars stay separate unless their ink overlaps. Source stays editable.';
+  try{const solid=generateSolid(source,core,recipe);figure($('solidPreview'),core.toSVG(solid,{mode:'baked',size:160,mono:true}),source.solidConstruction?.treatment==='cutout'?'Rounded box with cutouts':'Filled geometry');
+    $('solidPreviewStatus').textContent=(construction?.treatment==='cutout'?'Box corners have their own radius. Each bar keeps its own width and end radius and is subtracted from the box. ':'')+'Open strokes expand with their local widths and caps. Separate bars stay separate unless their ink overlaps. Source stays editable.';
     const signature=sourceSignature(source,core),approved=source.solidReview?.status==='approved'&&source.solidReview.sourceSignature===signature;
     $('approvePreviewSolid').textContent=approved?'Solid approved for export':'Approve solid for export';
     $('approvePreviewSolid').disabled=approved||source.variantFamily?.status==='needs-review';
@@ -3111,7 +3133,7 @@ function refresh(full) {
   S.resolved = core.resolve(S.glyph,S.rt);
   const errs = S.resolved.filter(r => r.error);
   if (errs.length) status('Geometry error in ' + errs.map(e => e.id).join(', ') + ': ' + errs[0].error, true);
-  renderCanvas(); renderPreviews();
+  renderCanvas(); renderPreviews();renderEndRoundingScope();
   if (full) { renderTree(); renderInspector(); }
   $('hdrName').textContent = S.glyph.name;
   const style = S.libraryProperties ? tokenStyle(S.libraryProperties) : S.glyph.setStyle || {};

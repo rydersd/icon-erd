@@ -102,6 +102,7 @@ export function WorkbenchShell() {
         <label id="roundingTokenRow" hidden>Corner radius token <select id="roundingToken" /></label>
         <label><input id="setEndRoundingEnabled" type="checkbox" /> Round line ends</label>
         <label htmlFor="setEndRounding">End radius <input id="setEndRounding" type="number" min="0" max="6" step="0.1" defaultValue="0.5" /></label>
+        <p id="lineEndScopeNote" className="lbl" role="status" hidden></p><Button id="useLibraryEndRounding" className="btn sm" hidden>Use library end rounding for this layer</Button>
         <label id="endRoundingTokenRow" hidden>End radius token <select id="endRoundingToken" /></label>
         <span className="lbl">Applies to the whole library. Source shapes remain editable.</span>
         <fieldset className="library-output-fields"><legend>Variants &amp; colors</legend>
@@ -251,7 +252,9 @@ export function WorkbenchShell() {
     </details>
     <details className="panel disclosure-panel" data-collapse="solidPreviewH" aria-labelledby="solidPreviewH" open>
       <summary id="solidPreviewH">Solid preview</summary>
-      <div className="pad"><div id="solidPreview" className="variant-preview" aria-label="Solid preview artwork"></div><p id="solidPreviewStatus" className="lbl" role="status"></p><Button id="approvePreviewSolid" className="btn sm">Approve solid for export</Button></div>
+      <div className="pad"><label>Solid treatment <select id="solidTreatment" defaultValue="expanded"><option value="expanded">Expanded artwork</option><option value="cutout">Box with cutouts</option></select></label>
+        <div id="solidBoxSettings" hidden><label>Box padding <input id="solidBoxPadding" aria-label="Solid box padding" type="number" min="0" max="24" step="0.1" defaultValue="1" /></label><label><input id="solidBoxFollowsRounding" type="checkbox" defaultChecked /> Follow library box corner rounding</label><label>Box corner radius <input id="solidBoxRadius" aria-label="Solid box corner radius" type="number" min="0" max="24" step="0.1" defaultValue="0.5" /></label></div>
+        <div id="solidPreview" className="variant-preview" aria-label="Solid preview artwork"></div><p id="solidPreviewStatus" className="lbl" role="status"></p><Button id="approvePreviewSolid" className="btn sm">Approve solid for export</Button></div>
     </details>
     <details className="panel disclosure-panel" data-collapse="exportPreviewH" aria-labelledby="exportPreviewH" open>
       <summary id="exportPreviewH">Export preview</summary>

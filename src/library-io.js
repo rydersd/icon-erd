@@ -1,3 +1,4 @@
+import {validateSolidConstruction} from './solid-construction.js';
 import {validateFusion,fusionOn} from './proximity-fusion.js';
 import {validateGradient,validateReferenceImage} from './app-icon-paint.js';
 import {validateLibraryProperties} from './library-tokens.js';
@@ -18,6 +19,7 @@ function validateSymmetry(sym) {
 }
 
 export function normalizeGlyph(input) {
+  validateSolidConstruction(input.solidConstruction);
   if (!input || typeof input !== 'object' || typeof input.name !== 'string' || !input.name.trim()) throw new Error('Each icon needs a name');
   for(const layer of input.layers||[])for(const key of ['strokeWidth','rounding','endRounding'])if(layer[key]!=null&&!Number.isFinite(layer[key]))throw Error(`${input.name}: invalid layer ${key}`);
   if(input.strokeOverride!=null && (!Number.isFinite(input.strokeOverride)||input.strokeOverride<.1||input.strokeOverride>8))throw Error(`${input.name}: invalid stroke override`);
