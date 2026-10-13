@@ -42,12 +42,12 @@ import { pathEnclosedBy } from './selection-region.js';
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, setShortcut, shortcutFromEvent } from './shortcuts.js';
 import { inspectGeometry } from './geometry-inspection.js';
 import { ensureLayerNames, canMoveTreeItem, moveTreeItem, useAsCutter } from './layer-tree.js';
-// Optical size checked with an empty field: wait for a curve without recording a library change.
-let opticalPending=false;
 export function mountEditor(root) {
 const project = new paper.Project();
 const abort = new AbortController();
 let disposed = false;
+// Optical size checked with an empty field: wait for a curve without recording a library change.
+let opticalPending=false;
 let guidedRepair=null,repairContext=null;
 const listen = (target, event, handler, options = {}) => target.addEventListener(event, handler, { ...options, signal: abort.signal });
 const core = createGlyphCore(paper);
