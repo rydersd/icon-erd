@@ -18,7 +18,8 @@ const icons=[
     {id:'wide',name:'Wide',paint:'stroke',strokeWidth:3,node:{shape:'line',x1:6,y1:4,x2:6,y2:20}},
     {id:'thin',name:'Thin',paint:'stroke',node:{shape:'line',x1:12,y1:4,x2:12,y2:20}}]},
 ];
-const importFixtures=async page=>{await page.locator('#ioText').fill(JSON.stringify(icons));await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();};
+// Import replaces the library asynchronously; wait for it so later settings are not overwritten.
+const importFixtures=async page=>{await page.locator('#ioText').fill(JSON.stringify(icons));await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();await page.waitForFunction(names=>{const lib=window.__gw.S.lib;return lib.length===names.length&&names.every(n=>lib.some(g=>g.name===n));},icons.map(i=>i.name));await expect(page.locator('#status')).toContainText('Replaced library');};
 const select=async(page,name)=>page.locator(`.lib-item[data-name="${name}"]`).click();
 const exportAll=async page=>{await exportsOpen(page);await page.locator('#exportSVGs').check();await page.locator('#exportPNGs').check();const pending=page.waitForEvent('download');await page.locator('#expAll').click();return unzipSync(await readFile(await (await pending).path()));};
 const svgFiles=files=>Object.fromEntries(Object.keys(files).filter(n=>n.endsWith('.svg')).sort().map(n=>[n,strFromU8(files[n])]));
@@ -111,4 +112,16 @@ test('size strip uses curve',async({page})=>{
   expect(await width(24)).toBeCloseTo(1.1,2);
   expect(await width(16)).toBeCloseTo(1.65,2);
   expect(await width(48)).toBeCloseTo(1.1,2);
+});
+
+test('empty curve keeps its checked state and writes no history',async({page})=>{
+  await ready(page);await properties(page);
+  const history=()=>page.evaluate(()=>window.__gw.S.undo.length);const before=await history();
+  await page.locator('#opticalSizeEnabled').check();
+  await expect(page.locator('#opticalCurve')).toBeEnabled();
+  await page.evaluate(()=>window.__gw.refresh(true));
+  await expect(page.locator('#opticalSizeEnabled')).toBeChecked();
+  await page.locator('#opticalSizeEnabled').uncheck();
+  expect(await history()).toBe(before);
+  expect(await page.evaluate(()=>window.__gw.S.libraryProperties?.designspace??null)).toBeNull();
 });

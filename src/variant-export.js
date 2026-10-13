@@ -9,7 +9,7 @@ export function variantGlyphs(glyphs,library,core,output,{evaluate}={}) {
   for(const glyph of glyphs) {
     if(canonicalLibrary&&glyph.kind==='app-icon'){add(evaluate?structuredClone(evaluate(glyph)):structuredClone(glyph),glyph.name);continue;}
     if(!output || output.variant==='source'){result.set(glyph.name,{...(evaluate?evaluate(glyph):structuredClone(glyph)),...(output?{output}: {})});continue;}
-    if(glyph.variantFamily?.status==='needs-review'){if(['solid','both','fill-stroke'].includes(output.variant))throw Error(`Review the outline reconstruction for ${glyph.name} before generating fills.`);add({...structuredClone(glyph),output},glyph.name);continue;}
+    if(glyph.variantFamily?.status==='needs-review'){if(['solid','both','fill-stroke'].includes(output.variant))throw Error(`Review the outline reconstruction for ${glyph.name} before generating fills.`);add({...structuredClone(evaluate?evaluate(glyph):glyph),output},glyph.name);continue;}
     const source=variantSource(glyph,library,by),namedFamily=source.variantFamily||source.eds&&source.solidConstruction?.treatment==='cutout',evaluated=evaluate?evaluate(source):source;
     const addOutline=()=>{const outline=structuredClone(evaluate?evaluated:source);outline.output=output;if(namedFamily)outline.name=source.name.endsWith('-outline')?source.name:`${source.name}-outline`;add(outline,source.name);};
     const addSolid=()=>{

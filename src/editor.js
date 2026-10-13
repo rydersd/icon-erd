@@ -42,6 +42,8 @@ import { pathEnclosedBy } from './selection-region.js';
 import { DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, setShortcut, shortcutFromEvent } from './shortcuts.js';
 import { inspectGeometry } from './geometry-inspection.js';
 import { ensureLayerNames, canMoveTreeItem, moveTreeItem, useAsCutter } from './layer-tree.js';
+// Optical size checked with an empty field: wait for a curve without recording a library change.
+let opticalPending=false;
 export function mountEditor(root) {
 const project = new paper.Project();
 const abort = new AbortController();
@@ -3143,7 +3145,8 @@ function refresh(full) {
   $('setThicknessEnabled').checked = style.thickness != null; $('setRoundingEnabled').checked = !!style.rounding;
   $('setEndRoundingEnabled').checked = !!(style.endRounding ?? style.rounding);
   const designspace=S.libraryProperties?.designspace;
-  $('opticalSizeEnabled').checked=!!designspace;$('opticalCurve').disabled=!designspace;
+  if(designspace)opticalPending=false;
+  $('opticalSizeEnabled').checked=!!designspace||opticalPending;$('opticalCurve').disabled=!designspace&&!opticalPending;
   if(document.activeElement!==$('opticalCurve'))$('opticalCurve').value=designspace?designspace.opticalSize.curve.map(([size,multiplier])=>`${String(size)}: ${String(multiplier)}`).join(', '):'';
   if (document.activeElement !== $('setEndRounding')) $('setEndRounding').value = S.libraryProperties?.bindings?.endRounding ? style.endRounding : (style.endRounding ?? style.rounding) || 0.5;
   if (document.activeElement !== $('setThickness')) $('setThickness').value = style.thickness ?? 1.6;
@@ -3375,8 +3378,9 @@ function applyOpticalCurve() {
   }catch(error){const designspace=S.libraryProperties?.designspace;input.value=designspace?designspace.opticalSize.curve.map(([size,multiplier])=>`${String(size)}: ${String(multiplier)}`).join(', '):'';refresh(true);status(`Optical size curve: ${error.message}`,true);}
 }
 $('opticalSizeEnabled').onchange=()=>{
+  if(!$('opticalSizeEnabled').checked&&!S.libraryProperties?.designspace){opticalPending=false;refresh(true);return;}
   if(!$('opticalSizeEnabled').checked){const properties={...S.libraryProperties,values:tokenStyle(S.libraryProperties || {values:S.glyph.setStyle || {}})};delete properties.designspace;applyLibraryProperties(properties);return;}
-  if(!$('opticalCurve').value.trim()){$('opticalCurve').disabled=false;return;}
+  if(!$('opticalCurve').value.trim()){opticalPending=true;$('opticalCurve').disabled=false;$('opticalCurve').focus();return;}
   applyOpticalCurve();
 };
 $('opticalCurve').onchange=()=>{if($('opticalSizeEnabled').checked)applyOpticalCurve();};
@@ -3428,7 +3432,7 @@ async function exportLibrary(scope) {
   try {
     const output=S.libraryProperties?.output,designspace=S.libraryProperties?.designspace,renderGlyphs=variantGlyphs(glyphs,S.lib,core,output),outputAt=size=>output ? (output.profile==='custom'?size:pointSize(output.profile,size)) : size;
     const svgForGlyph=glyph=>core.toSVG(glyph,{mode:'baked',weight:strokeWeight(glyph),size:output ? (output.profile==='custom'?output.sizes.at(-1):OUTPUT_PROFILES[output.profile].size) : glyph.exportSize || 24,useColorTokens:true});
-    const sizeSVG=designspace?(glyph,size)=>{const source=glyph.generatedFrom?S.lib.find(candidate=>candidate.name===glyph.generatedFrom)||glyph:glyph,evaluate=candidate=>atSize(candidate,designspace,outputAt(size)),evaluated=variantGlyphs([source],S.lib,core,output,{evaluate}).find(candidate=>candidate.name===glyph.name),rendered=evaluated||evaluate(source);return core.toSVG(rendered,{mode:'baked',weight:strokeWeight(rendered),size,useColorTokens:true});}:undefined;
+    const variantCache=new Map(),sizeSVG=designspace?(glyph,size)=>{const source=glyph.generatedFrom?S.lib.find(candidate=>candidate.name===glyph.generatedFrom)||glyph:glyph,evaluate=candidate=>atSize(candidate,designspace,outputAt(size)),key=`${source.name}\u0000${size}`;if(!variantCache.has(key))variantCache.set(key,variantGlyphs([source],S.lib,core,output,{evaluate}));const evaluated=variantCache.get(key).find(candidate=>candidate.name===glyph.name),rendered=evaluated||evaluate(source);return core.toSVG(rendered,{mode:'baked',weight:strokeWeight(rendered),size,useColorTokens:true});}:undefined;
     const data = await libraryZIP(libraryDocument(glyphs, scope, ORIG, S.components,S.libraryProperties), svgForGlyph, { structure: $('exportStructure').value, root: $('exportRoot').value, includeSVG: $('exportSVGs').checked,renderGlyphs,includePNG:$('exportPNGs').checked,sizeSVG,rasterize:async(svg,size)=>new Uint8Array(await (await svgToPNG(svg.replace(/var\(--[\w-]+,\s*(#[0-9a-f]{6})\)/gi,'$1'),size)).arrayBuffer()) });
     downloadBlob(`glyph-library-${scope}-${stamp}.zip`, new Blob([data], { type: 'application/zip' }));
   } catch (error) { status(`Export: ${error.message}`, true); return; }

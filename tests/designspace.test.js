@@ -135,3 +135,11 @@ test('designspace ZIP writes one SVG per size and rasterizes each size from its 
   assert.deepEqual(manifest.icons[0].svgSizes,[{size:18,path:'svg/Ungrouped/arrow-18.svg'},{size:36,path:'svg/Ungrouped/arrow-36.svg'}]);
   assert.equal(manifest.icons[0].svg,'svg/Ungrouped/arrow-18.svg');
 });
+
+test('pending canonical outline follows the curve',()=>{
+  const pending={...line('foo-outline',{setStyle:{thickness:1,rounding:0,endRounding:0}}),weight:1,variantFamily:{canonical:'outline',status:'needs-review',reason:'Pending'}};
+  const ds={version:1,opticalSize:{reference:24,curve:[[18,2],[24,1]]}};
+  const [out]=variantGlyphs([pending],[pending],core,{...DEFAULT_OUTPUT,variant:'outline'},{evaluate:g=>atSize(g,ds,18)});
+  close(strokeWeight(out),2);
+  assert.equal(pending.setStyle.thickness,1,'source is not mutated');
+});
