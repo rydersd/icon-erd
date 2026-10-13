@@ -1,0 +1,19 @@
+{
+ "files": [
+  "assets/bars.imageset/Contents.json",
+  "assets/ring.imageset/Contents.json",
+  "assets/thin-line.imageset/Contents.json",
+  "library.json",
+  "organization.json",
+  "svg/Fixtures/bars.svg",
+  "svg/Fixtures/ring.svg",
+  "svg/Fixtures/thin-line.svg"
+ ],
+ "svgs": {
+  "svg/Fixtures/bars.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" data-icon=\"bars\"><path d=\"M6 4L6 20\" fill=\"none\" stroke=\"#000000\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/><path d=\"M12 4L12 20\" fill=\"none\" stroke=\"#000000\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+  "svg/Fixtures/ring.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" data-icon=\"ring\"><path d=\"M6 12C6 8.686 8.686 6 12 6C15.314 6 18 8.686 18 12C18 15.314 15.314 18 12 18C8.686 18 6 15.314 6 12Z\" fill=\"none\" stroke=\"#000000\" stroke-width=\"1.1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+  "svg/Fixtures/thin-line.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" data-icon=\"thin-line\"><path d=\"M3 12L21 12\" fill=\"none\" stroke=\"#000000\" stroke-width=\"1.1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>"
+ },
+ "single": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" data-icon=\"ring\"><path d=\"M6 12C6 8.686 8.686 6 12 6C15.314 6 18 8.686 18 12C18 15.314 15.314 18 12 18C8.686 18 6 15.314 6 12Z\" fill=\"none\" stroke=\"#000000\" stroke-width=\"1.1\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+ "strip": "<div class=\"pv\"><svg class=\"icon \" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" aria-hidden=\"true\"><path d=\"M6 12C6 8.686 8.686 6 12 6C15.314 6 18 8.686 18 12C18 15.314 15.314 18 12 18C8.686 18 6 15.314 6 12Z\" fill=\"none\" stroke=\"#000000\" style=\"stroke-width:var(--icon-stroke-width);stroke-linecap:var(--icon-stroke-linecap,round);stroke-linejoin:var(--icon-stroke-linejoin,round)\"></path></svg><span>18</span></div><div class=\"pv\"><svg class=\"icon \" viewBox=\"0 0 24 24\" width=\"36\" height=\"36\" aria-hidden=\"true\"><path d=\"M6 12C6 8.686 8.686 6 12 6C15.314 6 18 8.686 18 12C18 15.314 15.314 18 12 18C8.686 18 6 15.314 6 12Z\" fill=\"none\" stroke=\"#000000\" style=\"stroke-width:var(--icon-stroke-width);stroke-linecap:var(--icon-stroke-linecap,round);stroke-linejoin:var(--icon-stroke-linejoin,round)\"></path></svg><span>36</span></div>"
+}
