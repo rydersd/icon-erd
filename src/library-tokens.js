@@ -1,4 +1,5 @@
 import {validateOutput} from './library-output.js';
+import {validateDesignspace} from './designspace.js';
 export const TOKEN_FIELDS = {
   thickness:{label:'Thickness',min:0.1,max:8,match:/thickness|stroke.?width/i},
   rounding:{label:'Corner radius',min:0,max:6,match:/corner|rounding/i},
@@ -41,6 +42,7 @@ export function validateLibraryProperties(input) {
   if(typeof input!=='object' || Array.isArray(input) || !input.values || typeof input.values!=='object' || Array.isArray(input.values))throw new Error('Invalid library properties');
   const properties=structuredClone(input);
   if(properties.output!=null)properties.output=validateOutput(properties.output);
+  if(properties.designspace!=null)properties.designspace=validateDesignspace(properties.designspace);
   if(properties.source && (typeof properties.source.name!=='string' || properties.source.name.length>256))throw new Error('Invalid tokens filename');
   if(properties.bindings && (typeof properties.bindings!=='object' || Array.isArray(properties.bindings)))throw new Error('Invalid token bindings');
   for(const key of Object.keys(TOKEN_FIELDS))if(properties.bindings?.[key]!=null && typeof properties.bindings[key]!=='string')throw new Error('Invalid token binding');
