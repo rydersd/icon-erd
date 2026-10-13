@@ -17,3 +17,6 @@ out/
 
 # Local feature wiki and private IllTool adaptation notes.
 /wiki/
+
+# Local continuity ledgers and session notes; private like the wiki.
+/thoughts/

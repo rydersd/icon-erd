@@ -2,7 +2,7 @@ import { zip, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { parseLibraryArchive } from './library-io.js';
 const MAX_BYTES = 128 * 1024 * 1024;
 const segment = name => encodeURIComponent(name).replace(/\./g, '%2E');
-export async function libraryZIP(document, svgForGlyph, {structure='group',root='',includeSVG=true,renderGlyphs=document.glyphs,includePNG=false,rasterize} = {}) {
+export async function libraryZIP(document, svgForGlyph, {structure='group',root='',includeSVG=true,renderGlyphs=document.glyphs,includePNG=false,rasterize,sizeSVG} = {}) {
   const prefix = root.trim() ? `${segment(root.trim())}/` : '';
   const files = { [`${prefix}library.json`]: strToU8(JSON.stringify(document, null, 2)) };
   const icons = [];
@@ -10,13 +10,18 @@ export async function libraryZIP(document, svgForGlyph, {structure='group',root=
     const group = (glyph.group || '').split('/').map(part=>part.trim()).filter(Boolean);
     const folder = structure === 'flat' ? '' : `${(group.length ? group : ['Ungrouped']).map(segment).join('/')}/`;
     const path = `${prefix}svg/${folder}${segment(glyph.name)}.svg`;
-    const svg=(includeSVG || includePNG) ? svgForGlyph(glyph) : null;
-    if (includeSVG) files[path] = strToU8(svg);
+    const sizes=(glyph.output?.sizes || [glyph.exportSize || 24]).slice().sort((a,b)=>a-b);
+    const svg=!sizeSVG && (includeSVG || includePNG) ? svgForGlyph(glyph) : null;
+    // Render each size once; its SVG file and its PNG share the same markup.
+    const sized=sizeSVG && (includeSVG || includePNG) ? new Map(sizes.map(size=>[size,sizeSVG(glyph,size)])) : null;
+    const svgSizes=sizeSVG && includeSVG ? sizes.map(size=>({size,path:`${prefix}svg/${folder}${segment(glyph.name)}-${size}.svg`})) : null;
+    if (svgSizes)for(const entry of svgSizes)files[entry.path]=strToU8(sized.get(entry.size));
+    else if (includeSVG) files[path] = strToU8(svg);
     const png=[];
     if(includePNG) {
       if(!rasterize)throw new Error('PNG export requires a rasterizer');
-      const profile=glyph.output?.profile, sizes=glyph.output?.sizes || [glyph.exportSize || 24],data=new Map();
-      for(const size of sizes){const bytes=await rasterize(svg,size),file=`${prefix}png/${folder}${segment(glyph.name)}/${segment(glyph.name)}-${size}.png`;files[file]=bytes;data.set(size,bytes);png.push({size,path:file});}
+      const profile=glyph.output?.profile,data=new Map();
+      for(const size of sizes){const sizeSvg=sized?sized.get(size):svg,bytes=await rasterize(sizeSvg,size),file=`${prefix}png/${folder}${segment(glyph.name)}/${segment(glyph.name)}-${size}.png`;files[file]=bytes;data.set(size,bytes);png.push({size,path:file});}
       if(profile==='menu-bar' && data.has(18) && data.has(36)) {
         const asset=`${prefix}assets/${segment(glyph.name)}.imageset/`;
         for(const size of [18,36])files[`${asset}icon-${size}.png`]=data.get(size);
@@ -29,7 +34,7 @@ export async function libraryZIP(document, svgForGlyph, {structure='group',root=
         files[`${asset}Contents.json`]=strToU8(JSON.stringify({images,info:{author:'iconerd',version:1}},null,2));
       }
     }
-    icons.push({ name:glyph.name, source:glyph.generatedFrom || glyph.name,group:group.join('/'), tags:glyph.tags || [], svg:includeSVG?path:null,png, figmaComponentName:[...group,glyph.name].join('/') });
+    icons.push({ name:glyph.name, source:glyph.generatedFrom || glyph.name,group:group.join('/'), tags:glyph.tags || [], ...(svgSizes?{svgSizes}:{}), svg:includeSVG?(svgSizes?svgSizes[0].path:path):null,png, figmaComponentName:[...group,glyph.name].join('/') });
   }
   files[`${prefix}organization.json`] = strToU8(JSON.stringify({format:'glyph-workbench-organization',version:1,structure,icons},null,2));
   return await new Promise((resolve,reject)=>zip(files,{level:6},(error,data)=>error?reject(error):resolve(data)));

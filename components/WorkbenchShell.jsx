@@ -97,6 +97,8 @@ export function WorkbenchShell() {
         <label><input id="setThicknessEnabled" type="checkbox" /> Override thickness</label>
         <label htmlFor="setThickness">Thickness <input id="setThickness" type="number" min="0.1" max="8" step="0.1" defaultValue="1.6" /></label>
         <label id="thicknessTokenRow" hidden>Thickness token <select id="thicknessToken" /></label>
+        <label><input id="opticalSizeEnabled" type="checkbox" /> Optical size</label>
+        <label htmlFor="opticalCurve">Thickness by size (pt: ×) <input id="opticalCurve" type="text" placeholder="18: 1.2121, 24: 1" disabled /></label>
         <label><input id="setRoundingEnabled" type="checkbox" /> Round corners</label>
         <label htmlFor="setRounding">Corner radius <input id="setRounding" type="number" min="0" max="6" step="0.1" defaultValue="0.5" /></label>
         <label id="roundingTokenRow" hidden>Corner radius token <select id="roundingToken" /></label>

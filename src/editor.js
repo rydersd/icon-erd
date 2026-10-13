@@ -32,6 +32,7 @@ import { mergeNearbyAnchors, previewNearbyAnchors } from './anchor-merge.js';
 import { cleanupDrawingAnchors } from './corner-cleanup.js';
 import {TOKEN_FIELDS,numberTokens,tokenStyle,validateLibraryProperties,linkedLibraryProperties} from './library-tokens.js';
 import {DEFAULT_OUTPUT,OUTPUT_PROFILES,paintColors,validateOutput} from './library-output.js';
+import {atSize,pointSize,validateDesignspace} from './designspace.js';
 import {generateSolid,reviewSolid,solidName,sourceSignature} from './solid-variants.js';
 import {variantSource,variantGlyphs,iconProblems} from './variant-export.js';
 import { mergeAnchorCorners } from './anchor-corner.js';
@@ -45,6 +46,8 @@ export function mountEditor(root) {
 const project = new paper.Project();
 const abort = new AbortController();
 let disposed = false;
+// Optical size checked with an empty field: wait for a curve without recording a library change.
+let opticalPending=false;
 let guidedRepair=null,repairContext=null;
 const listen = (target, event, handler, options = {}) => target.addEventListener(event, handler, { ...options, signal: abort.signal });
 const core = createGlyphCore(paper);
@@ -2783,21 +2786,23 @@ function renderInspector() {
 // ---------- previews ----------
 const SIZES = [12, 16, 20, 24, 32, 48];
 function previewSVG(size, extraClass, glyph=S.glyph, resolved=S.resolved) {
-  const W = S.rt.weight;
-  const parts = [referenceSVG(glyph)],defs=[];
-  for (const [layerIndex, L] of resolved.entries()) {
+  const designspace=S.libraryProperties?.designspace,profile=S.libraryProperties?.output?.profile;
+  const evaluated=designspace?atSize(glyph,designspace,pointSize(profile,size)):glyph;
+  const previewResolved=evaluated===glyph?resolved:core.resolve(evaluated,S.rt),W=designspace?strokeWeight(evaluated):S.rt.weight;
+  const parts = [referenceSVG(evaluated)],defs=[];
+  for (const [layerIndex, L] of previewResolved.entries()) {
     if (!L.visible || !L.d) continue;
-    const styled=layerStyleGlyph(glyph,L);
+    const styled=layerStyleGlyph(evaluated,L);
     const col = L.color || core.ROLE_VARS[L.role] || 'currentColor';
-    const colors=paintColors(L,glyph,{colors:core.ROLE_VARS,fallback:col});
-    const gradient=gradientSVG(L,glyph,`preview-${glyph.name}-${size}-${extraClass}-${layerIndex}`);if(gradient){defs.push(gradient.defs);colors.fill=gradient.fill;}
+    const colors=paintColors(L,evaluated,{colors:core.ROLE_VARS,fallback:col});
+    const gradient=gradientSVG(L,evaluated,`preview-${evaluated.name}-${size}-${extraClass}-${layerIndex}`);if(gradient){defs.push(gradient.defs);colors.fill=gradient.fill;}
     for (const part of L.parts) {
       let d = part.d, w = L.strokeWidth ?? W;
       if (S.rt.hint && size <= 20) { const h = core.hintD(d, size, w, part.fusion?'fill':L.paint); d = h.d; w = h.weight; }
       const stroke = !part.fusion && L.paint !== 'fill', fill = !!part.fusion || L.paint !== 'stroke';
       const style = core.strokeStyle(styled, S.rt, part.cap);
-      parts.push(`<path d="${d}" fill="${fill ? (part.fusion ? colors.stroke : colors.fill) : 'none'}"${stroke ? ` stroke="${colors.stroke}" style="stroke-width:${S.rt.hint && size <= 20 || L.strokeWidth!=null ? w : 'var(--icon-stroke-width)'};stroke-linecap:${style.runtimeCap};stroke-linejoin:${style.runtimeJoin}"` : ''}${L.opacity !== 1 ? ` opacity="${L.opacity}"` : ''}/>`);
-      if (stroke) parts.push(core.strokeTipsSVG(styled, d, { mode: S.rt.hint && size <= 20 ? 'baked' : 'runtime', weight: w, fixedWidth:L.strokeWidth!=null, color: colors.stroke, opacity: L.opacity, layerIndex }));
+      parts.push(`<path d="${d}" fill="${fill ? (part.fusion ? colors.stroke : colors.fill) : 'none'}"${stroke ? ` stroke="${colors.stroke}" style="stroke-width:${S.rt.hint && size <= 20 || L.strokeWidth!=null || designspace ? w : 'var(--icon-stroke-width)'};stroke-linecap:${style.runtimeCap};stroke-linejoin:${style.runtimeJoin}"` : ''}${L.opacity !== 1 ? ` opacity="${L.opacity}"` : ''}/>`);
+      if (stroke) parts.push(core.strokeTipsSVG(styled, d, { mode: S.rt.hint && size <= 20 ? 'baked' : 'runtime', weight: w, fixedWidth:L.strokeWidth!=null || !!designspace, color: colors.stroke, opacity: L.opacity, layerIndex }));
     }
   }
   return `<svg class="icon ${extraClass || ''}" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true">${defs.length?`<defs>${defs.join('')}</defs>`:''}${parts.join('')}</svg>`;
@@ -2833,7 +2838,7 @@ function renderVariantPreviews() {
     $('approvePreviewSolid').disabled=approved||source.variantFamily?.status==='needs-review';
     $('approvePreviewSolid').onclick=()=>{const at=idx(source.name);if(at<0||source.variantFamily?.status==='needs-review')return;if(sourceSignature(S.lib[at],core)!==signature){refresh(true);status('Source changed; review the updated solid first.',true);return;}if(S.cur!==at)loadGlyph(at);S.glyph.solidReview={recipe,status:'approved',stale:false,sourceSignature:signature,reason:'Owner approved current solid preview'};commit();renderLibrary();refresh(true);};
   }catch(error){$('solidPreviewStatus').textContent=`Solid unavailable: ${error.message}`;}
-  try{const variants=variantGlyphs([S.glyph],S.lib,core,output),size=outputSize();for(const glyph of variants)figure($('exportPreview'),core.toSVG(glyph,{mode:'baked',weight:S.rt.weight,cap:S.rt.cap,join:S.rt.join,size,useColorTokens:true}),`${glyph.name}.svg · ${size} × ${size}`);
+  try{const size=outputSize(),designspace=S.libraryProperties?.designspace,evaluate=designspace?glyph=>atSize(glyph,designspace,pointSize(output?.profile,size)):undefined,variants=variantGlyphs([S.glyph],S.lib,core,output,{evaluate});for(const glyph of variants)figure($('exportPreview'),core.toSVG(glyph,{mode:'baked',weight:designspace?strokeWeight(glyph):S.rt.weight,cap:S.rt.cap,join:S.rt.join,size,useColorTokens:true}),`${glyph.name}.svg · ${size} × ${size}`);
     $('exportPreviewStatus').textContent=`${output?.variant||'source'} · ${OUTPUT_PROFILES[output?.profile||'interface'].label} · ${output?.sizes?.join(', ')||size}px. SVG color tokens use their fallback colors here. Single downloads use the first variant; ZIP includes all.`;
   }catch(error){$('exportPreviewStatus').textContent=`Export blocked: ${error.message}`;}
   variantPreviewCache={key};
@@ -3139,6 +3144,10 @@ function refresh(full) {
   const style = S.libraryProperties ? tokenStyle(S.libraryProperties) : S.glyph.setStyle || {};
   $('setThicknessEnabled').checked = style.thickness != null; $('setRoundingEnabled').checked = !!style.rounding;
   $('setEndRoundingEnabled').checked = !!(style.endRounding ?? style.rounding);
+  const designspace=S.libraryProperties?.designspace;
+  if(designspace)opticalPending=false;
+  $('opticalSizeEnabled').checked=!!designspace||opticalPending;$('opticalCurve').disabled=!designspace&&!opticalPending;
+  if(document.activeElement!==$('opticalCurve'))$('opticalCurve').value=designspace?designspace.opticalSize.curve.map(([size,multiplier])=>`${String(size)}: ${String(multiplier)}`).join(', '):'';
   if (document.activeElement !== $('setEndRounding')) $('setEndRounding').value = S.libraryProperties?.bindings?.endRounding ? style.endRounding : (style.endRounding ?? style.rounding) || 0.5;
   if (document.activeElement !== $('setThickness')) $('setThickness').value = style.thickness ?? 1.6;
   if (document.activeElement !== $('setRounding')) $('setRounding').value = S.libraryProperties?.bindings?.rounding ? style.rounding : style.rounding || 0.5;
@@ -3356,6 +3365,26 @@ function applySetSettings() {
   applyLibraryProperties({...S.libraryProperties,values:style});
 }
 for (const id of ['setThicknessEnabled', 'setRoundingEnabled', 'setThickness', 'setRounding', 'setEndRoundingEnabled', 'setEndRounding']) $(id).onchange = applySetSettings;
+function applyOpticalCurve() {
+  const input=$('opticalCurve');
+  try {
+    const curve=input.value.split(',').map(part=>{
+      const match=part.trim().match(/^([^:]+):\s*(.+)$/);if(!match)throw Error('Invalid optical size curve');
+      return [Number(match[1].trim()),Number(match[2].trim())];
+    });
+    const designspace=validateDesignspace({version:1,opticalSize:{reference:24,curve}});
+    if(JSON.stringify(S.libraryProperties?.designspace)===JSON.stringify(designspace)){refresh(true);return;}
+    applyLibraryProperties({...S.libraryProperties,values:tokenStyle(S.libraryProperties || {values:S.glyph.setStyle || {}}),designspace});
+  }catch(error){const designspace=S.libraryProperties?.designspace;input.value=designspace?designspace.opticalSize.curve.map(([size,multiplier])=>`${String(size)}: ${String(multiplier)}`).join(', '):'';refresh(true);status(`Optical size curve: ${error.message}`,true);}
+}
+$('opticalSizeEnabled').onchange=()=>{
+  if(!$('opticalSizeEnabled').checked&&!S.libraryProperties?.designspace){opticalPending=false;refresh(true);return;}
+  if(!$('opticalSizeEnabled').checked){const properties={...S.libraryProperties,values:tokenStyle(S.libraryProperties || {values:S.glyph.setStyle || {}})};delete properties.designspace;applyLibraryProperties(properties);return;}
+  if(!$('opticalCurve').value.trim()){opticalPending=true;$('opticalCurve').disabled=false;$('opticalCurve').focus();return;}
+  applyOpticalCurve();
+};
+$('opticalCurve').onchange=()=>{if($('opticalSizeEnabled').checked)applyOpticalCurve();};
+$('opticalCurve').onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();if($('opticalSizeEnabled').checked)applyOpticalCurve();}};
 for(const key of Object.keys(TOKEN_FIELDS))$(`${key}Token`).onchange=()=>{
   try {const properties=clone(S.libraryProperties);properties.bindings[key]=$(`${key}Token`).value;applyLibraryProperties(properties);}catch(error){refresh(true);status(error.message,true);}
 };
@@ -3386,9 +3415,9 @@ $('copyBtn').onclick = async () => {
   catch (e) { io.focus(); io.select(); status('Clipboard blocked here — text is selected, press ⌘C.'); }
 };
 $('importBtn').onclick = () => requestLibraryImport(io.value, 'pasted JSON');
-const outputGlyph=()=>variantGlyphs([S.glyph],S.lib,core,S.libraryProperties?.output)[0];
 const outputSize=()=>{const output=S.libraryProperties?.output;return output ? (output.profile==='custom'?output.sizes.at(-1):OUTPUT_PROFILES[output.profile].size) : S.glyph.exportSize || 24;};
-const bakedSVG = (useColorTokens=false) => core.toSVG(outputGlyph(), { mode: 'baked', weight: S.rt.weight, cap: S.rt.cap, join: S.rt.join,size:outputSize(),useColorTokens });
+const outputGlyph=(size=outputSize())=>{const output=S.libraryProperties?.output,designspace=S.libraryProperties?.designspace,evaluate=designspace?glyph=>atSize(glyph,designspace,pointSize(output?.profile,size)):undefined;return variantGlyphs([S.glyph],S.lib,core,output,{evaluate})[0];};
+const bakedSVG = (useColorTokens=false) => {const glyph=outputGlyph();return core.toSVG(glyph, { mode: 'baked', weight:S.libraryProperties?.designspace?strokeWeight(glyph):S.rt.weight, cap: S.rt.cap, join: S.rt.join,size:outputSize(),useColorTokens });};
 $('downloadSvg').onclick = () => {try{if (penDraft) finishPen();const glyph=outputGlyph();downloadBlob(`${glyph.name.replace(/[^a-z0-9_-]+/gi,'-')}.svg`, new Blob([bakedSVG(true)], { type: 'image/svg+xml' })); status('Downloaded SVG.');}catch(error){status(error.message,true);} };
 $('downloadPng').onclick = async () => {
   if (penDraft) finishPen();
@@ -3401,8 +3430,10 @@ async function exportLibrary(scope) {
   if (!glyphs.length) { status('No glyphs to export.', true); return; }
   const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
   try {
-    const output=S.libraryProperties?.output,renderGlyphs=variantGlyphs(glyphs,S.lib,core,output);
-    const data = await libraryZIP(libraryDocument(glyphs, scope, ORIG, S.components,S.libraryProperties), glyph => core.toSVG(glyph, { mode: 'baked', weight: strokeWeight(glyph),size:output ? (output.profile==='custom'?output.sizes.at(-1):OUTPUT_PROFILES[output.profile].size) : glyph.exportSize || 24,useColorTokens:true }), { structure: $('exportStructure').value, root: $('exportRoot').value, includeSVG: $('exportSVGs').checked,renderGlyphs,includePNG:$('exportPNGs').checked,rasterize:async(svg,size)=>new Uint8Array(await (await svgToPNG(svg.replace(/var\(--[\w-]+,\s*(#[0-9a-f]{6})\)/gi,'$1'),size)).arrayBuffer()) });
+    const output=S.libraryProperties?.output,designspace=S.libraryProperties?.designspace,renderGlyphs=variantGlyphs(glyphs,S.lib,core,output),outputAt=size=>output ? (output.profile==='custom'?size:pointSize(output.profile,size)) : size;
+    const svgForGlyph=glyph=>core.toSVG(glyph,{mode:'baked',weight:strokeWeight(glyph),size:output ? (output.profile==='custom'?output.sizes.at(-1):OUTPUT_PROFILES[output.profile].size) : glyph.exportSize || 24,useColorTokens:true});
+    const variantCache=new Map(),sizeSVG=designspace?(glyph,size)=>{const source=glyph.generatedFrom?S.lib.find(candidate=>candidate.name===glyph.generatedFrom)||glyph:glyph,evaluate=candidate=>atSize(candidate,designspace,outputAt(size)),key=`${source.name}\u0000${size}`;if(!variantCache.has(key))variantCache.set(key,variantGlyphs([source],S.lib,core,output,{evaluate}));const evaluated=variantCache.get(key).find(candidate=>candidate.name===glyph.name),rendered=evaluated||evaluate(source);return core.toSVG(rendered,{mode:'baked',weight:strokeWeight(rendered),size,useColorTokens:true});}:undefined;
+    const data = await libraryZIP(libraryDocument(glyphs, scope, ORIG, S.components,S.libraryProperties), svgForGlyph, { structure: $('exportStructure').value, root: $('exportRoot').value, includeSVG: $('exportSVGs').checked,renderGlyphs,includePNG:$('exportPNGs').checked,sizeSVG,rasterize:async(svg,size)=>new Uint8Array(await (await svgToPNG(svg.replace(/var\(--[\w-]+,\s*(#[0-9a-f]{6})\)/gi,'$1'),size)).arrayBuffer()) });
     downloadBlob(`glyph-library-${scope}-${stamp}.zip`, new Blob([data], { type: 'application/zip' }));
   } catch (error) { status(`Export: ${error.message}`, true); return; }
   status(`Exported ${glyphs.length} glyph${glyphs.length === 1 ? '' : 's'}.`);

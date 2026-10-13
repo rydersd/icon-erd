@@ -1,5 +1,9 @@
 # Repository Guidelines
 
+## Product identity
+
+ICONERD is an editor for consistent, editable icon libraries: an icon is a recipe (centerlines, primitives, Booleans, tokens) and every output — sizes, fills, colors, app and menu-bar artwork, later fonts — is derived from that recipe rather than drawn again. In scope even when adjacent: design-system tokens, platform icon packaging (SF Symbols, ICNS/ICO, asset catalogs) and font export, because they are outputs of an icon library. Anti-pattern: becoming a general illustration or photo tool, or storing derived output as the source of truth.
+
 ## Project Structure & Module Organization
 
 `editor.html` is the entire Glyph Workbench application: inline CSS, HTML controls, a Paper.js-based glyph geometry core, embedded icon libraries and thumbnails, and editor logic. There are no separate source, test, or asset directories. Keep changes scoped to the relevant section; avoid rewriting the large embedded `LIBRARY`, `QUIX`, and `THUMBS` datasets incidentally.
