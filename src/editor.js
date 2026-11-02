@@ -2726,7 +2726,10 @@ function renderEndRoundingScope() {
 }
 function renderInspector() {
   renderEndRoundingScope();
-  const box = $('insp'); box.innerHTML = '';
+  const box = $('insp');
+  // details.open changes on click; its toggle event is queued, so read the state before discarding the node.
+  const shownData = box.querySelector('details.edit-as-data'); if (shownData) editAsDataOpen = shownData.open;
+  box.innerHTML = '';
   const g = document.createElement('div'); g.className = 'insp'; box.appendChild(g);
   const s = primarySel();
   $('inspPath').textContent = s ? (layerOf(s).name || layerOf(s).id) + (s.p ? ' / ' + (s.p.length ? s.p.join('.') : 'root') : '') : 'glyph';

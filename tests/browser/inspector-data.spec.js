@@ -75,6 +75,7 @@ test('path data is read-only and matches the outline', async ({ page }) => {
   await boot(page, [pen([{ x: 4, y: 4 }, { x: 16, y: 4 }])]);
   await open(page);
   await expect(pathData(page)).toHaveAttribute('readonly', '');
+  await expect(pathData(page)).not.toHaveValue('');
   const geo = await pathData(page).evaluate(t => {
     const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', t.value);
     const s = p.getPointAtLength(0); return { len: p.getTotalLength(), x: s.x, y: s.y };
