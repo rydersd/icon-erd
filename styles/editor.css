@@ -229,14 +229,14 @@ textarea { height: auto; padding: 6px; width: 100%; resize: vertical; font-famil
 .insp .wide { grid-column: 1 / -1; }
 .insp .sub { grid-column: 1 / -1; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-3); margin-top: 4px; display: flex; align-items: center; gap: 6px; }
 .edit-as-data { border-top: 1px solid var(--border); padding-top: 6px; }
-.edit-as-data > summary { font-size: 12px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--text); }
 .edit-as-data-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px 10px; margin-top: 6px; }
-.data-path-note, .data-points-heading { margin: 0; color: var(--text-2); font-size: 11px; }
+.data-note, .data-points-heading, .data-points-empty { margin: 0; color: var(--text-2); font-size: 11px; }
 .data-points-heading { font-weight: 600; }
 .data-points { max-height: 180px; overflow: auto; margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: 4px; }
+.data-points-empty { padding: 4px 6px; }
 .data-points li + li { border-top: 1px solid var(--border); }
-.data-point { display: block; width: 100%; padding: 4px 6px; border: 0; background: var(--panel); color: var(--text); text-align: left; cursor: pointer; font: 11px ui-monospace, 'SF Mono', Menlo, monospace; font-variant-numeric: tabular-nums; }
-.data-point[aria-current="true"] { background: var(--accent-weak); outline: 1px solid var(--accent); }
+.data-point { display: block; width: 100%; padding: 4px 6px; border: 0; background: var(--panel); color: var(--text); text-align: left; cursor: pointer; font-size: 11px; }
+.data-point[aria-pressed="true"] { background: var(--accent-weak); outline: 1px solid var(--accent); }
 .data-point:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .def-card { grid-column: 1 / -1; border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 6px 8px; background: var(--panel-2); }
 .def-card .def-head { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; }

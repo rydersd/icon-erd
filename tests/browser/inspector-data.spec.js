@@ -115,3 +115,18 @@ test('edit as data builds rows only when open', async ({ page }) => {
   await open(page);
   await expect(rows(page)).toHaveCount(100);
 });
+
+test('clicking a data point keeps the list position and focus', async ({ page }) => {
+  const many = Array.from({ length: 100 }, (_, i) => ({ x: 2 + (i % 10) * 2, y: 2 + Math.floor(i / 10) * 2 }));
+  await boot(page, [pen(many)]);
+  await open(page);
+  const row = rows(page).nth(79);
+  await row.scrollIntoViewIfNeeded();
+  const before = await data(page).locator('.data-points').evaluate(list => list.scrollTop);
+  expect(before).toBeGreaterThan(0);
+  await row.click();
+  expect(await page.evaluate(() => window.__gw.S.selectedAnchors)).toEqual([{ selection: { l: 0, p: [] }, index: 79 }]);
+  await expect(rows(page).nth(79)).toHaveAttribute('aria-pressed', 'true');
+  await expect(rows(page).nth(79)).toBeFocused();
+  expect(await data(page).locator('.data-points').evaluate(list => list.scrollTop)).toBe(before);
+});

@@ -6,7 +6,7 @@ test('Direct selection selects all anchors in the selected path, Cleanup simplif
  const pts=Array.from({length:21},(_,i)=>({x:2+i/2,y:4+Math.sin(i/20)*2}));await setup(page,{shape:'pen',pts});
  await page.locator('#canvas').focus();await page.keyboard.press('ControlOrMeta+a');expect(await page.evaluate(()=>window.__gw.S.selectedAnchors.length)).toBe(21);
  await page.locator('#canvas').press('Shift+F10');await page.getByRole('menuitem',{name:'Actions',exact:true}).click();await expect(page.getByRole('menuitem',{name:'Simplify',exact:true})).toBeVisible();await page.screenshot({path:'artifacts/anchor-cleanup-menu.png'});await page.getByRole('menuitem',{name:'Simplify',exact:true}).click();
- const count=await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length);expect(count).toBeLessThan(16);expect(await page.evaluate(()=>window.__gw.S.glyph.layers[1].node.pts.length)).toBe(3);await expect(page.locator('#status')).toContainText('Cleanup removed');
+ const count=await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length);expect(count).toBeLessThan(16);expect(await page.evaluate(()=>window.__gw.S.glyph.layers[1].node.pts.length)).toBe(3);await expect(page.locator('#status')).toContainText('Simplify removed');
  await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts)).toEqual(pts);await page.locator('#redoBtn').click();await page.evaluate(()=>window.__gw.flushSaves());await page.reload();await page.waitForFunction(()=>window.__gw?.ready);expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length)).toBe(count);
 });
 test('marquee selects a corner cluster, Merge to corner preserves exterior edges and remains procedurally roundable',async({page})=>{

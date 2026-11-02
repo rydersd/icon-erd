@@ -99,6 +99,7 @@ let penDraft = null; // { s } while the pen is placing anchors
 let areaPolygon = null;
 let appStudio=null;
 let editAsDataOpen = false;
+let editAsDataFocus = null;
 try { const scope=localStorage.getItem('gw-area-scope');if(['anchors','objects'].includes(scope))S.areaScope=scope; }catch{}
 try { const mode=localStorage.getItem('gw-area-mode');if(['marquee','lasso','polygon'].includes(mode))S.areaMode=mode; }catch{}
 function idx(name) { return S.lib.findIndex(g => g.name === name); }
@@ -2059,7 +2060,7 @@ function cleanupSelectedAnchors() {
   S.selectedAnchors=S.selectedAnchors.filter((anchor,i,all)=>all.findIndex(other=>same(other.selection,anchor.selection)&&other.index===anchor.index)===i);
   S.anchor=S.selectedAnchors.find(anchor=>same(anchor.selection,primarySel()))?.index ?? null;S.sourceAnchor=null;
   if(removed){commit();refresh(true);}
-  status(removed ? `Cleanup removed ${removed} redundant anchor${removed===1?'':'s'}; reconstructed ${rounded} rounded and ${sharp} sharp corners (${cleanupTolerance}-unit outline tolerance). Undo restores the original.` : `Cleanup found no safe reconstruction within ${cleanupTolerance} units. Sharp corners and unselected anchors retained.`);
+  status(removed ? `Simplify removed ${removed} redundant anchor${removed===1?'':'s'}; reconstructed ${rounded} rounded and ${sharp} sharp corners (${cleanupTolerance}-unit outline tolerance). Undo restores the original.` : `Simplify found no safe reconstruction within ${cleanupTolerance} units. Sharp corners and unselected anchors retained.`);
 }
 function selectAllAnchors() {
   const points=sourceAnchorPoints().filter(point=>!S.sel.length || selCovers(point.owner.l,point.owner.p));
@@ -2502,51 +2503,62 @@ function smallBtn(text, fn, title, icon) {
   return b;
 }
 function inspectorPathData(s, n) {
-  const form = core.form(n, ancestorsOf(s));
-  return [form.closed, ...form.open].filter(Boolean).map(core.itemD).join('');
+  try { const form = core.form(n, ancestorsOf(s)); return [form.closed, ...form.open].filter(Boolean).map(core.itemD).join(''); }
+  catch (e) { return ''; }
 }
-function renderDataPointRows(list, s, n) {
+function renderDataPointRows(list, s, n, focusIndex) {
+  const scroll = list.scrollTop;
   list.replaceChildren();
-  for (const point of anchorPointsForNode(n, s)) {
-    const row = document.createElement('button'); row.type = 'button'; row.className = 'data-point';
-    const active = anchorSelected(point.selection, point.index);
-    row.dataset.point = point.index;
-    row.dataset.x = r4(point.x);
-    row.dataset.y = r4(point.y);
-    if (active) row.setAttribute('aria-current', 'true');
-    row.textContent = `${point.index + 1}  ${r4(point.x)}  ${r4(point.y)}`;
+  const points = anchorPointsForNode(n, s);
+  if (!points.length) { const empty = document.createElement('li'); empty.className = 'data-points-empty'; empty.textContent = 'No editable points.'; list.appendChild(empty); return; }
+  const contours = new Set(points.map(point => point.key)).size > 1;
+  for (const point of points) {
+    const row = document.createElement('button'); row.type = 'button'; row.className = 'data-point mono';
+    const x = r4(point.x), y = r4(point.y), contour = contours ? `${point.key} ` : '';
+    row.dataset.point = point.index; row.dataset.x = x; row.dataset.y = y;
+    row.setAttribute('aria-pressed', String(anchorSelected(point.selection, point.index)));
+    row.setAttribute('aria-label', `${contours ? `Contour ${point.key}, ` : ''}point ${point.index + 1}, x ${x}, y ${y}`);
+    row.textContent = `${contour}${point.index + 1}  ${x}  ${y}`;
     row.onclick = event => {
+      const rows = list.scrollTop;
       materializeAnchorPoints([point]);
-      S.sourceAnchor = { key: point.key, index: point.index }; S.anchor = null; S.hmode = 'shape';
-      const target = getNode(point.selection);
-      if (target?.shape === 'pen') { selectAnchor(point.selection, point.index, event.shiftKey); setTool('direct'); }
+      if (!event.shiftKey) S.selectedAnchors = [];
+      S.sel = [point.selection]; S.sourceAnchor = { key: point.key, index: point.index }; S.anchor = null; S.hmode = 'shape';
+      if (getNode(point.selection)?.shape === 'pen') { selectAnchor(point.selection, point.index, event.shiftKey); setTool('direct'); }
+      editAsDataFocus = { key: point.key, index: point.index, scroll: rows };
       refresh(true);
     };
     const item = document.createElement('li'); item.appendChild(row); list.appendChild(item);
   }
+  list.scrollTop = focusIndex ? focusIndex.scroll : scroll;
+  if (focusIndex) [...list.querySelectorAll('.data-point')].find((row, i) => points[i].key === focusIndex.key && points[i].index === focusIndex.index)?.focus({ preventScroll: true });
 }
 function editAsDataSection(g, s, n) {
-  const details = document.createElement('details'); details.className = 'edit-as-data wide'; details.open = editAsDataOpen;
+  const details = document.createElement('details'); details.className = 'edit-as-data wide';
   const summary = document.createElement('summary'); summary.textContent = 'Edit as data'; details.appendChild(summary);
   const body = document.createElement('div'); body.className = 'edit-as-data-body'; details.appendChild(body);
   if (n.shape === 'pen') field(body, 'anchors (JSON, local: x, y, in/out handle offsets)', JSON.stringify(n.pts), v => { try { const p = JSON.parse(v); if (Array.isArray(p) && p.length >= 2) n.pts = p; } catch (e) {} }, { area: true, wide: true, rows: 4 });
   if (n.shape === 'polyline') field(body, 'points (x,y[,r] …)', n.pts.map(p => p.join(',')).join(' '), v => { const pts = v.trim().split(/\s+/).map(t => t.split(',').map(Number)).filter(p => (p.length === 2 || p.length === 3) && p.every(isFinite)); if (pts.length >= 2) n.pts = pts; }, { text: true, mono: true, wide: true });
   if (n.shape === 'path') field(body, 'd (escape hatch)', n.d, v => { n.d = v; }, { area: true, wide: true });
+  let pathData = null;
   if (n.shape !== 'path') {
     const pathLabel = document.createElement('label'); pathLabel.className = 'f wide';
     const pathTitle = document.createElement('span'); pathTitle.textContent = 'Path data (SVG d)'; pathLabel.appendChild(pathTitle);
-    const pathData = document.createElement('textarea'); pathData.rows = 3; pathData.readOnly = true; pathData.value = inspectorPathData(s, n); pathLabel.appendChild(pathData); body.appendChild(pathLabel);
-    const pathNote = document.createElement('p'); pathNote.className = 'wide data-path-note'; pathNote.textContent = 'This path in canvas coordinates, before Booleans and stroke.'; body.appendChild(pathNote);
+    pathData = document.createElement('textarea'); pathData.rows = 3; pathData.readOnly = true; pathLabel.appendChild(pathData); body.appendChild(pathLabel);
+    const pathNote = document.createElement('p'); pathNote.className = 'wide data-note'; pathNote.textContent = 'This path in canvas coordinates, before Booleans and stroke.'; body.appendChild(pathNote);
   }
-  const heading = document.createElement('p'); heading.className = 'wide data-points-heading'; heading.textContent = 'Points (canvas)'; body.appendChild(heading);
-  const list = document.createElement('ol'); list.className = 'wide data-points'; body.appendChild(list);
-  if (details.open) renderDataPointRows(list, s, n);
-  listen(details, 'toggle', () => {
-    editAsDataOpen = details.open;
-    if (details.open) renderDataPointRows(list, s, n);
-    else list.replaceChildren();
-  });
+  const heading = document.createElement('p'); heading.className = 'wide data-points-heading'; heading.id = 'dataPointsH'; heading.textContent = 'Points (canvas)'; body.appendChild(heading);
+  if (n.shape !== 'pen') { const note = document.createElement('p'); note.className = 'wide data-note'; note.textContent = 'Selecting a point converts this shape to an editable path. Undo restores it.'; body.appendChild(note); }
+  const list = document.createElement('ol'); list.className = 'wide data-points'; list.setAttribute('aria-labelledby', heading.id); body.appendChild(list);
   g.appendChild(details);
+  const fill = focus => { if (pathData) pathData.value = inspectorPathData(s, n); renderDataPointRows(list, s, n, focus); };
+  if (editAsDataOpen) { details.open = true; fill(editAsDataFocus); }
+  editAsDataFocus = null;
+  details.ontoggle = () => {
+    if (details.open === editAsDataOpen && (details.open ? list.childElementCount : !list.childElementCount)) return;
+    editAsDataOpen = details.open;
+    if (details.open) fill(); else { list.replaceChildren(); if (pathData) pathData.value = ''; }
+  };
 }
 const DEF_FIELDS = { taper: ['top', 'bottom', 'left', 'right'], skew: ['x', 'y'], round: ['r'], offset: ['d'] };
 function transformSection(g, n) {
