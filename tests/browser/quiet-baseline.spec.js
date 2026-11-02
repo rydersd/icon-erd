@@ -48,7 +48,7 @@ test('secondary panels start closed', async ({ page }) => {
   }
   await expect(page.locator('details.set-settings')).not.toHaveAttribute('open', '');
   await expect(page.locator('details.shortcut-settings')).not.toHaveAttribute('open', '');
-  await expect(page.locator('[data-collapse="tool-settings"] > summary')).toHaveText(/Anchor cleanup/);
+  await expect(page.locator('[data-collapse="tool-settings"] > summary')).toHaveText(/Simplify/);
 });
 
 test('stale open state does not override new defaults once', async ({ page }) => {

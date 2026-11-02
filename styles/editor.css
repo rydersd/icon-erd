@@ -468,3 +468,4 @@ button.glyph-tag { background: transparent; cursor: pointer; }
 #solidBoxSettings input[type="checkbox"] { flex:none; margin-top:2px; }
 .insp .stroke-inherit { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .insp .layer-stroke-source { margin: 0; color: var(--text-2); }
+.insp-sub { border-top: 1px solid var(--border); }
