@@ -56,13 +56,14 @@ export function LibraryPanel() {
         <input type="file" id="impFile" accept="application/zip,.zip,application/json,.json" hidden />
       </div>
       </Collapsible.Panel>
-    </Collapsible.Root>
-    <dialog id="organizeDialog" className="import-dialog" aria-labelledby="organizeHeading"><h2 id="organizeHeading">Suggested groups</h2><p>Based on icon names, not verified product usage. Only unassigned icons will change.</p><div id="organizeSummary"></div><div className="row"><Button className="btn" id="cancelOrganizeBtn">Cancel</Button><Button className="btn" id="applyOrganizeBtn">Apply groups</Button></div></dialog>
-    <dialog id="sharedFormsDialog" className="import-dialog shared-forms-dialog" aria-labelledby="sharedFormsHeading">
+      {/* Dialogs stay inside .library-panel (guided-repair lock) but outside any disclosure. */}
+      <dialog id="organizeDialog" className="import-dialog" aria-labelledby="organizeHeading"><h2 id="organizeHeading">Suggested groups</h2><p>Based on icon names, not verified product usage. Only unassigned icons will change.</p><div id="organizeSummary"></div><div className="row"><Button className="btn" id="cancelOrganizeBtn">Cancel</Button><Button className="btn" id="applyOrganizeBtn">Apply groups</Button></div></dialog>
+      <dialog id="sharedFormsDialog" className="import-dialog shared-forms-dialog" aria-labelledby="sharedFormsHeading">
       <h2 id="sharedFormsHeading">Shared forms</h2><p id="sharedFormsSummary"></p>
       <input id="sharedFormsSearch" type="search" aria-label="Search shared forms" placeholder="Filter by form or icon name" />
       <div id="sharedFormsList"></div><Button className="btn" id="closeSharedFormsBtn">Close</Button>
-    </dialog>
-    <dialog id="libraryVersionsDialog" className="import-dialog" aria-labelledby="versionsHeading"><h2 id="versionsHeading">Library versions</h2><p>Named checkpoints include all icons, components, groups and reset originals. Restore saves the current set as a safety version first. Download a ZIP for a backup outside this browser.</p><label htmlFor="versionName">Version name</label><input id="versionName" type="text" placeholder="Before cloud cleanup" /><Button className="btn" id="saveLibraryVersionBtn">Save checkpoint</Button><div id="libraryVersionsList"></div><Button className="btn" id="closeLibraryVersionsBtn">Close</Button></dialog>
+      </dialog>
+      <dialog id="libraryVersionsDialog" className="import-dialog" aria-labelledby="versionsHeading"><h2 id="versionsHeading">Library versions</h2><p>Named checkpoints include all icons, components, groups and reset originals. Restore saves the current set as a safety version first. Download a ZIP for a backup outside this browser.</p><label htmlFor="versionName">Version name</label><input id="versionName" type="text" placeholder="Before cloud cleanup" /><Button className="btn" id="saveLibraryVersionBtn">Save checkpoint</Button><div id="libraryVersionsList"></div><Button className="btn" id="closeLibraryVersionsBtn">Close</Button></dialog>
+    </Collapsible.Root>
   </>;
 }

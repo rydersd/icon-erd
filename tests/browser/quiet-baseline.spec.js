@@ -113,3 +113,9 @@ test('inspector pane shows the inspector at narrow widths', async ({ page }) => 
   await expect(page.locator('#insp')).toBeVisible();
   await expect(page.locator('#tree')).toBeVisible();
 });
+
+test('guided repair still locks the library dialogs', async ({ page }) => {
+  await boot(page);
+  const outside = await page.evaluate(() => ['organizeDialog', 'sharedFormsDialog', 'libraryVersionsDialog'].filter(id => !document.getElementById(id)?.closest('.library-panel')));
+  expect(outside).toEqual([]);
+});
