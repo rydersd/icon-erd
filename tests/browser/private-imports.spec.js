@@ -18,7 +18,7 @@ test('real project sets import in order and export every icon without data loss'
     await page.locator('.lib-item').filter({ hasText: pack.glyphs[0].name }).first().click();
     await expect(page.locator('#hdrName')).toHaveText(pack.glyphs[0].name);
   }
-  await page.locator('.export-options').evaluate(el=>el.open=true);const promise = page.waitForEvent('download'); await page.locator('#expAll').click(); const download = await promise;
+  await openDisclosures(page,'.export-options');const promise = page.waitForEvent('download'); await page.locator('#expAll').click(); const download = await promise;
   const exported = JSON.parse(readLibraryZIP(await readFile(await download.path())));
   expect(exported.count).toBe(count);
   await page.reload(); await page.waitForFunction(() => window.__gw?.ready); await expect(page.locator('.lib-item')).toHaveCount(count);
@@ -32,7 +32,7 @@ test('named EDS pack starts unedited with useful arrow groups, reset originals a
   await expect(page.locator('#tree')).toContainText('Head of Arrow');await expect(page.locator('#tree')).toContainText('Shaft of Arrow');await expect(page.locator('#revertBtn')).toBeDisabled();
   await page.locator('#iconDescription').fill('Edited EDS arrow');await page.locator('#iconDescription').press('Tab');
   await page.locator('#revertBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');
-  await page.locator('.export-options').evaluate(el=>el.open=true);const promise=page.waitForEvent('download');await page.locator('#expAll').click();const data=JSON.parse(readLibraryZIP(await readFile(await(await promise).path())));expect(data.count).toBe(584);expect(data.originals).toHaveLength(584);
+  await openDisclosures(page,'.export-options');const promise=page.waitForEvent('download');await page.locator('#expAll').click();const data=JSON.parse(readLibraryZIP(await readFile(await(await promise).path())));expect(data.count).toBe(584);expect(data.originals).toHaveLength(584);
   await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('.lib-item')).toHaveCount(584);await expect(page.locator('#tree')).toContainText('Head of Arrow');
 });
 

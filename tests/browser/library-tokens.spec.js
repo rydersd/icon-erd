@@ -32,12 +32,12 @@ test('local library tokens survive reload and linking binds names/values, while 
   await ready(page);await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens');
   await expect(page.locator('#thicknessTokenRow')).toBeHidden();
   await page.locator('#setThicknessEnabled').check();await page.locator('#setThickness').fill('1.8');await page.locator('#setThickness').press('Tab');
-  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('#setThickness')).toHaveValue('1.8');
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings','[data-collapse="ioH"]');await expect(page.locator('#setThickness')).toHaveValue('1.8');
   await page.locator('#libraryPropertiesMenuBtn').click();await expect(page.getByRole('menuitem',{name:'Link tokens file…',exact:true})).toBeVisible();await page.keyboard.press('Escape');await expect(page.locator('#libraryPropertiesMenuBtn')).toBeFocused();
   await link(page);await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens · design.tokens.json');await expect(page.locator('#setThickness')).toHaveValue('2');await expect(page.locator('#setThickness')).toBeDisabled();await expect(page.locator('#thicknessToken')).toHaveValue('icon.thickness');
   expect(await page.evaluate(()=>window.__gw.S.lib.every(g=>g.setStyle.thickness===2))).toBe(true);
-  await page.locator('#expJson').click();const exported=JSON.parse(await page.locator('#ioText').inputValue());expect(exported.libraryProperties.source.name).toBe('design.tokens.json');
-  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('#setThickness')).toBeDisabled();
+  await openDisclosures(page,'[data-collapse="ioH"]');await page.locator('#expJson').click();const exported=JSON.parse(await page.locator('#ioText').inputValue());expect(exported.libraryProperties.source.name).toBe('design.tokens.json');
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings');await expect(page.locator('#setThickness')).toBeDisabled();
   await page.locator('#libraryPropertiesMenuBtn').click();await page.getByRole('menuitem',{name:'Disconnect tokens file',exact:true}).click();await expect(page.locator('#setThickness')).toBeEnabled();await expect(page.locator('#setThickness')).toHaveValue('2');
   await page.locator('#undoBtn').click();await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens · design.tokens.json');await expect(page.locator('#setThickness')).toBeDisabled();
   await link(page,document(2.5));await expect(page.locator('#setThickness')).toHaveValue('2.5');

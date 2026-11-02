@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
-import {openDisclosure} from './helpers.js';
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosure(page,'.set-settings');};
+import {openDisclosures} from './helpers.js';
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings','[data-collapse="pvH"]');};
 const barcode={name:'barcode-dogfood',weight:1.2,layers:[{id:'bars',name:'Bars',paint:'fill',node:{op:'union',children:[{name:'Thin bar',shape:'rect',x:4,y:3,w:1.2,h:18,r:.6},{name:'Wide bar',shape:'rect',x:8,y:3,w:2.4,h:18,r:1.2}]}},{id:'peer',name:'Peer stroke',paint:'stroke',node:{shape:'line',x1:17,y1:3,x2:17,y2:21}}]};
 async function setup(page){await ready(page);await page.evaluate(async glyph=>{await window.__gw.importLibraryText(JSON.stringify([glyph]),'dogfood.json','replace');},barcode);}
 const actions=async page=>{await page.getByRole('menuitem',{name:'Actions',exact:true}).click();};

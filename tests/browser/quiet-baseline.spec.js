@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import {revealControl} from './helpers.js';
 // UX-01 Quiet baseline. Spec: wiki/product-spec/ux-01-quiet-baseline.md (local wiki).
 const boot = async page => { await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready); await page.waitForTimeout(300); };
 const strictVisible = 'e=>e.checkVisibility({contentVisibilityAuto:true,opacityProperty:true,visibilityProperty:true})';
@@ -66,15 +67,9 @@ test('every control is still reachable', async ({ page }) => {
   await boot(page);
   const missing = [];
   for (const sel of REACHABLE) {
-    const found = await page.evaluate(async ({ sel, vis }) => {
-      const el = document.querySelector(sel); if (!el) return 'absent';
-      for (let d = el.closest('details'); d; d = d.parentElement?.closest('details')) d.open = true;
-      const opts = el.closest('.canvas-options'); const toggle = opts?.querySelector('.canvas-options-toggle');
-      if (toggle && toggle.getAttribute('aria-expanded') === 'false') toggle.click();
-      await new Promise(r => setTimeout(r, 50));
-      return (0, eval)(vis)(el) ? 'ok' : 'hidden';
-    }, { sel, vis: strictVisible });
-    if (found !== 'ok') missing.push(`${sel}: ${found}`);
+    const control = await revealControl(page, sel);
+    if (!control) missing.push(`${sel}: absent`);
+    else if (!await control.isVisible()) missing.push(`${sel}: hidden`);
   }
   expect(missing).toEqual([]);
 });
