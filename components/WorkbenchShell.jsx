@@ -230,8 +230,8 @@ export function WorkbenchShell() {
             <label className="cleanup-tolerance" htmlFor="mergeDistance">Merge distance <input id="mergeDistance" type="number" min="1" max="64" step="1" defaultValue="8" /> screen px</label>
             <div className="row cleanup-presets" role="group" aria-label="Cleanup tolerance presets"><Button className="btn sm" data-cleanup-tolerance="0.03">0.03</Button><Button className="btn sm" data-cleanup-tolerance="0.1">0.1</Button><Button className="btn sm" data-cleanup-tolerance="0.25">0.25</Button><Button className="btn sm" data-cleanup-tolerance="0.5">0.5</Button><Button className="btn sm" data-cleanup-tolerance="1">1</Button><Button className="btn sm" data-cleanup-tolerance="5">5</Button></div>
             <p className="lbl">Maximum outline deviation on the 24-unit canvas. Higher values allow more simplification.</p>
-            <Button className="btn sm" id="cleanupSelectedBtn" disabled>Cleanup selected anchors</Button>
-            <p className="lbl" id="cleanupSelectionHint">Select anchors to clean up. Undo restores the original.</p>
+            <Button className="btn sm" id="cleanupSelectedBtn" disabled>Simplify selected anchors</Button>
+            <p className="lbl" id="cleanupSelectionHint">Select anchors to simplify. Undo restores the original.</p>
           </div>
         </details>
       </section>

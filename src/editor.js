@@ -98,6 +98,7 @@ try {
 let penDraft = null; // { s } while the pen is placing anchors
 let areaPolygon = null;
 let appStudio=null;
+let editAsDataOpen = false;
 try { const scope=localStorage.getItem('gw-area-scope');if(['anchors','objects'].includes(scope))S.areaScope=scope; }catch{}
 try { const mode=localStorage.getItem('gw-area-mode');if(['marquee','lasso','polygon'].includes(mode))S.areaMode=mode; }catch{}
 function idx(name) { return S.lib.findIndex(g => g.name === name); }
@@ -973,23 +974,28 @@ function renderOverlays() {
   renderMeasurements();
   appStudio?.render();
   $('cleanupSelectedBtn').disabled=!S.selectedAnchors.length && S.anchor==null;
-  $('cleanupSelectionHint').textContent=S.selectedAnchors.length ? `${S.selectedAnchors.length} selected anchors. Undo restores the original.` : 'Select anchors to clean up. Undo restores the original.';
+  $('cleanupSelectionHint').textContent=S.selectedAnchors.length ? `${S.selectedAnchors.length} selected anchors. Undo restores the original.` : 'Select anchors to simplify. Undo restores the original.';
   renderIsoBar();
 }
 // Editable anchors are independent of evaluated rounding and boolean output.
 // Convert primitives only when their anchors are actually selected.
+function anchorPointsForNode(node, selection) {
+  const points = [];
+  const owner = selection;
+  const converted = node.shape === 'pen' ? null : core.toPen(node);
+  const walk = (current, currentSelection, parent) => {
+    const matrix = mul(parent, core.nodeMatrix(current));
+    if (current.shape === 'pen') current.pts.forEach((q, index) => points.push({ ...ap(matrix, q), index, selection: currentSelection, owner, converted, node: current, key: treeKey(currentSelection), name: current.name || node.name || node.shape }));
+    else (current.children || []).forEach((child, i) => walk(child, {l:currentSelection.l,p:currentSelection.p.concat(i)}, matrix));
+  };
+  if (converted || node.shape === 'pen') walk(converted || node, selection, parentMatrix(selection));
+  return points;
+}
 function sourceAnchorPoints() {
   const points = [];
   for (const form of leafList()) {
     if (S.glyph.layers[form.l].visible === false || !inIso(form.l, form.p)) continue;
-    const owner = { l: form.l, p: form.p };
-    const converted = form.n.shape === 'pen' ? null : core.toPen(form.n);
-    const walk = (node, selection, parent) => {
-      const matrix = mul(parent, core.nodeMatrix(node));
-      if (node.shape === 'pen') node.pts.forEach((q, index) => points.push({ ...ap(matrix, q), index, selection, owner, converted, node, key: treeKey(selection), name: node.name || form.n.name || form.n.shape }));
-      else (node.children || []).forEach((child, i) => walk(child, {l:selection.l,p:selection.p.concat(i)}, matrix));
-    };
-    if (converted || form.n.shape === 'pen') walk(converted || form.n, owner, parentMatrix(owner));
+    points.push(...anchorPointsForNode(form.n, { l: form.l, p: form.p }));
   }
   return points;
 }
@@ -2111,7 +2117,7 @@ function openCanvasMenu(event) {
     menuAction('Snap to nearest','grid',snapSelectedAnchors,null,!S.snap);
     const alignment = selectedAnchorAlignment();
     if (alignment) menuAction(`Align ${alignment.axis.toUpperCase()}`, 'anchor', alignSelectedAnchors);
-    menuAction('Cleanup','anchor',cleanupSelectedAnchors);
+    menuAction('Simplify','anchor',cleanupSelectedAnchors);
     menuAction('Retract handles','anchor',()=>retractSelectedHandles());
     menuAction('Merge to corner','anchor',mergeSelectedCorners,null,anchors<2);
     menuAction('Select all anchors','select',selectAllAnchors);
@@ -2495,6 +2501,53 @@ function smallBtn(text, fn, title, icon) {
   if (text) { const sp = document.createElement('span'); sp.textContent = text; b.appendChild(sp); }
   return b;
 }
+function inspectorPathData(s, n) {
+  const form = core.form(n, ancestorsOf(s));
+  return [form.closed, ...form.open].filter(Boolean).map(core.itemD).join('');
+}
+function renderDataPointRows(list, s, n) {
+  list.replaceChildren();
+  for (const point of anchorPointsForNode(n, s)) {
+    const row = document.createElement('button'); row.type = 'button'; row.className = 'data-point';
+    const active = anchorSelected(point.selection, point.index);
+    row.dataset.point = point.index;
+    row.dataset.x = r4(point.x);
+    row.dataset.y = r4(point.y);
+    if (active) row.setAttribute('aria-current', 'true');
+    row.textContent = `${point.index + 1}  ${r4(point.x)}  ${r4(point.y)}`;
+    row.onclick = event => {
+      materializeAnchorPoints([point]);
+      S.sourceAnchor = { key: point.key, index: point.index }; S.anchor = null; S.hmode = 'shape';
+      const target = getNode(point.selection);
+      if (target?.shape === 'pen') { selectAnchor(point.selection, point.index, event.shiftKey); setTool('direct'); }
+      refresh(true);
+    };
+    const item = document.createElement('li'); item.appendChild(row); list.appendChild(item);
+  }
+}
+function editAsDataSection(g, s, n) {
+  const details = document.createElement('details'); details.className = 'edit-as-data wide'; details.open = editAsDataOpen;
+  const summary = document.createElement('summary'); summary.textContent = 'Edit as data'; details.appendChild(summary);
+  const body = document.createElement('div'); body.className = 'edit-as-data-body'; details.appendChild(body);
+  if (n.shape === 'pen') field(body, 'anchors (JSON, local: x, y, in/out handle offsets)', JSON.stringify(n.pts), v => { try { const p = JSON.parse(v); if (Array.isArray(p) && p.length >= 2) n.pts = p; } catch (e) {} }, { area: true, wide: true, rows: 4 });
+  if (n.shape === 'polyline') field(body, 'points (x,y[,r] …)', n.pts.map(p => p.join(',')).join(' '), v => { const pts = v.trim().split(/\s+/).map(t => t.split(',').map(Number)).filter(p => (p.length === 2 || p.length === 3) && p.every(isFinite)); if (pts.length >= 2) n.pts = pts; }, { text: true, mono: true, wide: true });
+  if (n.shape === 'path') field(body, 'd (escape hatch)', n.d, v => { n.d = v; }, { area: true, wide: true });
+  if (n.shape !== 'path') {
+    const pathLabel = document.createElement('label'); pathLabel.className = 'f wide';
+    const pathTitle = document.createElement('span'); pathTitle.textContent = 'Path data (SVG d)'; pathLabel.appendChild(pathTitle);
+    const pathData = document.createElement('textarea'); pathData.rows = 3; pathData.readOnly = true; pathData.value = inspectorPathData(s, n); pathLabel.appendChild(pathData); body.appendChild(pathLabel);
+    const pathNote = document.createElement('p'); pathNote.className = 'wide data-path-note'; pathNote.textContent = 'This path in canvas coordinates, before Booleans and stroke.'; body.appendChild(pathNote);
+  }
+  const heading = document.createElement('p'); heading.className = 'wide data-points-heading'; heading.textContent = 'Points (canvas)'; body.appendChild(heading);
+  const list = document.createElement('ol'); list.className = 'wide data-points'; body.appendChild(list);
+  if (details.open) renderDataPointRows(list, s, n);
+  listen(details, 'toggle', () => {
+    editAsDataOpen = details.open;
+    if (details.open) renderDataPointRows(list, s, n);
+    else list.replaceChildren();
+  });
+  g.appendChild(details);
+}
 const DEF_FIELDS = { taper: ['top', 'bottom', 'left', 'right'], skew: ['x', 'y'], round: ['r'], offset: ['d'] };
 function transformSection(g, n) {
   const t = n.transform || {};
@@ -2742,7 +2795,6 @@ function renderInspector() {
     case 'ellipse': nf('cx'); nf('cy'); nf('rx'); nf('ry'); break;
     case 'line': nf('x1'); nf('y1'); nf('x2'); nf('y2'); capField(); break;
     case 'polyline': {
-      field(g, 'points (x,y[,r] …)', n.pts.map(p => p.join(',')).join(' '), v => { const pts = v.trim().split(/\s+/).map(t => t.split(',').map(Number)).filter(p => (p.length === 2 || p.length === 3) && p.every(isFinite)); if (pts.length >= 2) n.pts = pts; }, { text: true, mono: true, wide: true });
       field(g, 'closed', !!n.closed, v => { n.closed = v; }, { check: true });
       capField();
       g.appendChild(smallBtn('+ point', () => { const a = n.pts[n.pts.length - 1], b = n.pts[n.pts.length - 2] || [a[0] - 2, a[1]]; n.pts.push([r4(a[0] + (a[0] - b[0]) / 2), r4(a[1] + (a[1] - b[1]) / 2)]); commit(); refresh(true); }));
@@ -2750,7 +2802,6 @@ function renderInspector() {
       break;
     }
     case 'pen': {
-      field(g, 'anchors (JSON: x, y, in/out handle offsets)', JSON.stringify(n.pts), v => { try { const p = JSON.parse(v); if (Array.isArray(p) && p.length >= 2) n.pts = p; } catch (e) {} }, { area: true, wide: true, rows: 4 });
       field(g, 'closed', !!n.closed, v => { n.closed = v; }, { check: true });
       capField();
       if (S.anchor != null && n.pts[S.anchor]) {
@@ -2772,8 +2823,9 @@ function renderInspector() {
       if (n.star) field(g, 'inner radius', n.star.inner, v => { n.star.inner = v; });
       break;
     case 'arc': nf('cx'); nf('cy'); nf('r'); nf('start', 'start° (0 = top)', 1); nf('end', 'end°', 1); capField(); break;
-    case 'path': field(g, 'd (escape hatch)', n.d, v => { n.d = v; }, { area: true, wide: true }); break;
+    case 'path': break;
   }
+  if (['pen', 'polyline', 'path'].includes(n.shape)) editAsDataSection(g, s, n);
   field(g, 'hidden', !!n.hidden, v => { if (v) n.hidden = true; else delete n.hidden; }, { check: true });
   if (n.shape !== 'pen' && n.shape !== 'path') g.appendChild(smallBtn('Edit points', () => {
     const pn = core.toPen(n); if (!pn) return;
