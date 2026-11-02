@@ -2688,7 +2688,7 @@ function renderInspector() {
     if(L.paint!=='fill'){
       const cell=document.createElement('div');cell.className='stroke-inherit';g.appendChild(cell);
       const own=field(cell,'own stroke width',L.strokeWidth!=null,v=>{if(v)L.strokeWidth=strokeWeight(S.glyph);else delete L.strokeWidth;},{check:true});
-      const inherited=document.createElement('p');inherited.className='lbl layer-stroke-source';inherited.id='layerStrokeSource';inherited.textContent=`Icon ${displayIconValue(strokeWeight(S.glyph))}`;cell.appendChild(inherited);own.setAttribute('aria-describedby',inherited.id);
+      const inherited=document.createElement('p');inherited.className='lbl layer-stroke-source';inherited.id='layerStrokeSource';inherited.textContent=`Inherits icon ${displayIconValue(strokeWeight(S.glyph))}`;cell.appendChild(inherited);own.setAttribute('aria-describedby',inherited.id);
     }
     if(L.rounding!=null||L.strokeWidth!=null)field(g,'layer corner rounding',L.rounding??S.glyph.setStyle?.rounding??0,v=>{L.rounding=v;},{min:0,step:.1});
     endRoundingFields(g,L);

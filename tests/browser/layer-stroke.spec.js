@@ -13,7 +13,7 @@ const source = page => page.locator('#insp .layer-stroke-source');
 test('layer stroke shows the icon value it inherits', async ({ page }) => {
   await boot(page);
   await expect(own(page)).not.toBeChecked();
-  await expect(source(page)).toHaveText('Icon 1.2');
+  await expect(source(page)).toHaveText('Inherits icon 1.2');
 });
 
 test('own stroke width keeps the icon value beside it', async ({ page }) => {
@@ -21,7 +21,7 @@ test('own stroke width keeps the icon value beside it', async ({ page }) => {
   await own(page).check();
   expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].strokeWidth)).toBe(1.2);
   await expect(page.getByLabel('layer stroke width', { exact: true })).toBeVisible();
-  await expect(source(page)).toHaveText('Icon 1.2');
+  await expect(source(page)).toHaveText('Inherits icon 1.2');
   await own(page).uncheck();
   expect(await page.evaluate(() => window.__gw.S.glyph.layers[0].strokeWidth)).toBeUndefined();
   await page.locator('#undoBtn').click();
@@ -31,9 +31,9 @@ test('own stroke width keeps the icon value beside it', async ({ page }) => {
 test('inherited value follows the icon override', async ({ page }) => {
   await boot(page);
   await page.locator('#iconThicknessOverride').check();
+  await expect(source(page)).toHaveText('Inherits icon 1.2');
   await page.locator('#iconThickness').fill('2'); await page.locator('#iconThickness').press('Tab');
-  await page.evaluate(() => { window.__gw.S.sel = [{ l: 0, p: null }]; window.__gw.refresh(true); });
-  await expect(source(page)).toHaveText('Icon 2');
+  await expect(source(page)).toHaveText('Inherits icon 2');
 });
 
 test('fill layers have no stroke inheritance', async ({ page }) => {

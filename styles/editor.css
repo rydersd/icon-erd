@@ -466,5 +466,5 @@ button.glyph-tag { background: transparent; cursor: pointer; }
 #solidBoxSettings input[type="number"] { width:72px; min-width:0; }
 #solidBoxSettings label:has(input[type="checkbox"]) { display:flex; align-items:flex-start; gap:6px; }
 #solidBoxSettings input[type="checkbox"] { flex:none; margin-top:2px; }
-.insp .stroke-inherit { display: flex; flex-direction: column; gap: 2px; }
+.insp .stroke-inherit { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .insp .layer-stroke-source { margin: 0; color: var(--text-2); }
