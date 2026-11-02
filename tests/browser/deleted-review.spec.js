@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test';
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
+import {openDisclosures} from './helpers.js';
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="libraryActions"]','[data-collapse="metadataH"]','[data-collapse="ioH"]');};
 const deleteThree=async page=>{const tiles=page.locator('.lib-item');await tiles.nth(0).click();await tiles.nth(2).click({modifiers:['Shift']});await page.locator('#deleteIconsBtn').click();await expect(tiles).toHaveCount(1);};
 const choose=async(page,name)=>page.locator('.deleted-icon-card').filter({hasText:name}).getByRole('checkbox').check();
 test('deleted review restores only checked items and preserves remaining trash, edits and originals after reload',async({page})=>{

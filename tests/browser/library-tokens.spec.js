@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test';
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
+import {openDisclosures} from './helpers.js';
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="libraryActions"]','.set-settings','[data-collapse="ioH"]');};
 const document=(width=2)=>({icon:{$type:'number',thickness:{$value:width},cornerRadius:{$value:0.4},endRadius:{$value:0.7}}});
 const link=async(page,doc=document())=>page.locator('#tokensFile').setInputFiles({name:'design.tokens.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(doc))});
 const emptyLibrary=async page=>{await page.locator('#selectShownIconsBtn').click();await page.locator('#deleteIconsBtn').click();await expect(page.locator('.lib-item')).toHaveCount(0);};

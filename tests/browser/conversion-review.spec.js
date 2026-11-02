@@ -1,5 +1,5 @@
-import {test,expect} from '@playwright/test';import {readFile} from 'node:fs/promises';import {readLibraryZIP} from '../../src/library-zip.js';
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
+import {test,expect} from '@playwright/test';import {readFile} from 'node:fs/promises';import {readLibraryZIP} from '../../src/library-zip.js';import {openDisclosures} from './helpers.js';
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="libraryActions"]','.set-settings');};
 const disc={name:'disc',group:'Shapes',weight:1.2,layers:[{id:'disc',paint:'fill',node:{shape:'circle',cx:12,cy:12,r:5}}]};
 const outline={name:'disc-outline',group:'Shapes',weight:1.2,layers:[{id:'line',paint:'stroke',node:{shape:'circle',cx:12,cy:12,r:4.4}}]};
 async function setup(page,paired=true){await ready(page);await page.evaluate(async ({disc,outline,paired})=>{await window.__gw.importLibraryText(JSON.stringify(paired?[disc,outline]:[disc]),'conversion.json','replace');},{disc,outline,paired});await page.locator('#insetReviewBtn').click();}

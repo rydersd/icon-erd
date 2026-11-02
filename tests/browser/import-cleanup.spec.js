@@ -1,9 +1,10 @@
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 import {unzipSync,strFromU8} from 'fflate';
+import {openDisclosures} from './helpers.js';
 const circle=(name,paint,r=4)=>({name,weight:1.2,group:'Faces',layers:[{id:'eye',name:'Eye',role:'accent',paint,node:{shape:'circle',cx:12,cy:12,r}}]});
 const pair=[circle('eye','fill',4.6),circle('eye-outline','stroke')];
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings','[data-collapse="libraryActions"]');};
 const request=async(page,glyphs)=>{await page.locator('#impFile').setInputFiles({name:'test-set.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(glyphs))});};
 test('import offers explained cleanup; cancellation and just import keep source variants',async({page})=>{
   await ready(page);await request(page,pair);await expect(page.locator('#importOnly')).toBeChecked();await expect(page.locator('#importCleanupHelp')).toContainText('untouched import');await page.locator('#importCleanup').check();await page.locator('#cancelImportBtn').click();expect(await page.evaluate(()=>window.__gw.S.lib.length)).toBe(4);

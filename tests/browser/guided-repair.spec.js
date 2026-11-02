@@ -1,7 +1,8 @@
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
+import {openDisclosures} from './helpers.js';
 const source={name:'disc',group:'Shapes',weight:1.2,layers:[{id:'disc',paint:'fill',node:{shape:'circle',cx:12,cy:12,r:5}}]};
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="libraryActions"]','.set-settings');};
 async function setup(page){await ready(page);await page.evaluate(async source=>{await window.__gw.importLibraryText(JSON.stringify([source]),'test.json','replace');},source);await page.locator('#insetReviewBtn').click();await expect(page.locator('#groupReview')).toContainText('1 / 1 tested');}
 async function repair(page){await setup(page);await page.getByRole('button',{name:'Repair on canvas',exact:true}).click();await expect(page.getByRole('region',{name:'Guided outline repair'})).toBeVisible();}
 async function canvasPoint(page,x,y){return page.evaluate(({x,y})=>{const c=document.querySelector('#canvas'),p=c.createSVGPoint();p.x=x;p.y=y;const q=p.matrixTransform(c.getScreenCTM());return{x:q.x,y:q.y};},{x,y});}

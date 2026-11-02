@@ -1,6 +1,7 @@
 import {test,expect} from '@playwright/test';
+import {openDisclosures} from './helpers.js';
 const glyph={name:'fusion-bars-outline',weight:1.2,layers:[{id:'bars',name:'Barcode bars',paint:'stroke',node:{name:'Neighboring bars',op:'union',children:[7,8.8,12].map((x,i)=>({name:`Bar ${i+1}`,shape:'line',x1:x,y1:4,x2:x,y2:20}))}}]};
-async function setup(page){await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await page.evaluate(async g=>window.__gw.importLibraryText(JSON.stringify([g]),'fusion.json','replace'),glyph);}
+async function setup(page){await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings','[data-collapse="pvH"]');await page.evaluate(async g=>window.__gw.importLibraryText(JSON.stringify([g]),'fusion.json','replace'),glyph);}
 async function open(page,canvas=false){if(canvas){await page.evaluate(()=>{const w=window.__gw;w.S.sel=[{l:0,p:[]}];w.refresh(true);});await page.locator('#canvas').press('Shift+F10');}else await page.locator('[data-tree-key="0:"]').click({button:'right'});await page.getByRole('menuitem',{name:'Actions',exact:true}).click();await page.getByRole('menuitem',{name:'Fuse nearby strokes',exact:true}).click();}
 test('Fusion Actions shows both variants, persists editable recipe and undo; layer width regenerates fill geometry',async({page})=>{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));await setup(page);const before=await page.evaluate(()=>JSON.stringify(window.__gw.S.glyph.layers[0].node.children));await open(page);

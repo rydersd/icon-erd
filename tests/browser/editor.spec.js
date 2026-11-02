@@ -1,13 +1,14 @@
 import { readLibraryZIP } from '../../src/library-zip.js';
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-const ready = async page => { await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready); };
+import {openDisclosures,openDrawingControls} from './helpers.js';
+const ready = async page => { await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready); await openDisclosures(page,'[data-collapse="libraryActions"]','.set-settings','[data-collapse="metadataH"]','[data-collapse="ioH"]','[data-collapse="solidPreviewH"]'); await openDrawingControls(page); };
 test('fresh launch, Font Awesome controls, remembered library collapse, metadata search and top-right diagnostics', async ({ page }) => {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await ready(page);
   await expect(page.locator('.lib-item')).toHaveCount(4);
   await expect(page.locator('#undoBtn svg path')).toHaveCount(1);
-  await expect(page.locator('.col-right > details').first()).toHaveAttribute('aria-labelledby', 'geometryH');
+  await expect(page.locator('#pane-right [data-collapse="geometryH"]')).toHaveAttribute('aria-labelledby', 'geometryH');
   await page.locator('#iconAliases').fill('suggestion, vote, ballot'); await page.locator('#iconAliases').press('Tab');
   await page.locator('#libSearch').fill('ballot'); await expect(page.locator('.lib-item:visible')).toHaveCount(1);
   await page.locator('#libToggle').click(); await expect(page.locator('#libBody')).toBeHidden();

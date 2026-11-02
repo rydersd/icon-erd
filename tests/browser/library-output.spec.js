@@ -1,10 +1,11 @@
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 import {unzipSync,strFromU8} from 'fflate';
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
+import {openDisclosures} from './helpers.js';
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings','[data-collapse="ioH"]');};
 const circle=(name,r,paint='stroke')=>({name,group:'Eyes',weight:2,layers:[{id:'eye',name:'Eye',paint,node:{shape:'circle',cx:12,cy:12,r}}]});
 const importPair=async page=>{await page.locator('#ioText').fill(JSON.stringify([circle('eye-outline',4),circle('eye',5,'fill'),circle('broken-outline',2),circle('broken',7,'fill')]));await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();};
-const properties=async page=>page.locator('.set-settings').evaluate(el=>el.open=true);
+const properties=async page=>openDisclosures(page,'.set-settings');
 test('solid test, grouped problem isolation, family view and approval retain sources',async({page})=>{
  const errors=[];page.on('pageerror',e=>errors.push(e.message));await ready(page);await importPair(page);await properties(page);
  await page.locator('#testSolidVariantsBtn').click();await expect(page.locator('#solidTestProgress')).toContainText('1 matched; 1 need review');

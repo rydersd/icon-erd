@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-const ready = async page => { await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready); };
+import {openDisclosure} from './helpers.js';
+const ready = async page => { await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready); await openDisclosure(page, '.set-settings'); };
 const value = (page, name) => page.locator(`[data-measurement="${name}"]`);
 test('Measurements below source anchors shows complete transformed object and painted stroke dimensions', async ({ page }) => {
   await ready(page);

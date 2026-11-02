@@ -1,6 +1,7 @@
 import {test,expect} from '@playwright/test';
+import {openDisclosures,openDrawingControls} from './helpers.js';
 const screen=async(page,x,y)=>page.evaluate(({x,y})=>{const c=document.querySelector('#canvas'),p=c.createSVGPoint();p.x=x;p.y=y;const q=p.matrixTransform(c.getScreenCTM());return {x:q.x,y:q.y};},{x,y});
-const setup=async(page,node)=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await page.evaluate(async node=>{const w=window.__gw;await w.importLibraryText(JSON.stringify({name:'cleanup-fixture',weight:0.2,layers:[{id:'outline',paint:'stroke',node},{id:'untouched',paint:'stroke',node:{shape:'pen',pts:[{x:15,y:15},{x:16,y:15},{x:17,y:15}]}}]}),'cleanup.json');w.S.sel=[{l:0,p:[]}];w.setTool('direct');w.refresh(true);},node);};
+const setup=async(page,node)=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings');await openDrawingControls(page);await page.evaluate(async node=>{const w=window.__gw;await w.importLibraryText(JSON.stringify({name:'cleanup-fixture',weight:0.2,layers:[{id:'outline',paint:'stroke',node},{id:'untouched',paint:'stroke',node:{shape:'pen',pts:[{x:15,y:15},{x:16,y:15},{x:17,y:15}]}}]}),'cleanup.json');w.S.sel=[{l:0,p:[]}];w.setTool('direct');w.refresh(true);},node);};
 test('Direct selection selects all anchors in the selected path, Cleanup simplifies only it and Undo/Redo persists',async({page})=>{
  const pts=Array.from({length:21},(_,i)=>({x:2+i/2,y:4+Math.sin(i/20)*2}));await setup(page,{shape:'pen',pts});
  await page.locator('#canvas').focus();await page.keyboard.press('ControlOrMeta+a');expect(await page.evaluate(()=>window.__gw.S.selectedAnchors.length)).toBe(21);

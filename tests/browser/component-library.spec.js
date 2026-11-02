@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test';
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
+import {openDisclosures} from './helpers.js';
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'#componentsPanel','.set-settings','[data-collapse="ioH"]');};
 const bell={name:'bell',weight:1.2,symmetry:{mirror:'x',rotate:1,axis:{x:12,y:12,angle:0}},layers:[{id:'bell',name:'Bell',paint:'stroke',node:{name:'Half bell',shape:'pen',pts:[{x:12,y:4},{x:8,y:7},{x:7,y:17},{x:12,y:17}],closed:false}}]};
 const target={name:'silence-alarms',symmetry:{mirror:'xy',rotate:2},layers:[{id:'slash',name:'Slash',paint:'stroke',symmetry:false,node:{shape:'line',x1:4,y1:4,x2:20,y2:20}}]};
 async function setup(page){await ready(page);await page.evaluate(async glyphs=>{await window.__gw.importLibraryText(JSON.stringify(glyphs),'bells.json','replace');},[bell,target]);}

@@ -6,11 +6,12 @@
 import {test,expect} from '@playwright/test';
 import {readFile,writeFile} from 'node:fs/promises';
 import {unzipSync,strFromU8} from 'fflate';
+import {openDisclosures} from './helpers.js';
 
 const FIXTURE=new URL('../fixtures/designspace-noop.json',import.meta.url);
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
-const properties=async page=>page.locator('.set-settings').evaluate(el=>el.open=true);
-const exportsOpen=async page=>page.locator('.export-options').evaluate(el=>el.open=true);
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings','[data-collapse="ioH"]');};
+const properties=async page=>openDisclosures(page,'.set-settings');
+const exportsOpen=async page=>openDisclosures(page,'.export-options');
 const icons=[
   {name:'thin-line',group:'Fixtures',weight:1.1,layers:[{id:'art',name:'Line',paint:'stroke',node:{shape:'line',x1:3,y1:12,x2:21,y2:12}}]},
   {name:'ring',group:'Fixtures',weight:1.1,layers:[{id:'ring',name:'Ring',paint:'stroke',node:{shape:'circle',cx:12,cy:12,r:6}}]},

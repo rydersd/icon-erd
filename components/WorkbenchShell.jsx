@@ -6,7 +6,6 @@ import { LibraryPanel } from './LibraryPanel';
 // React owns the shell. The editor controller owns children of its empty canvas/tree/inspector slots.
 export function WorkbenchShell() {
   const [openPane, setOpenPane] = useState(null);
-  const [drawingControls, setDrawingControls] = useState(false);
   const paneTrigger = useRef(null);
   function closePane() { setOpenPane(null); paneTrigger.current?.focus({ preventScroll: true }); }
   useEffect(() => {
@@ -39,7 +38,7 @@ export function WorkbenchShell() {
     <p className="history-note">Stopping keeps this state. A new edit replaces later states for this icon.</p>
   </div>
   <div className="responsive-pane-controls" role="group" aria-label="Editor panes">
-    {[['left', 'Library'], ['details', 'Details'], ['right', 'Output']].map(([pane, label]) => <Button key={pane} className="btn sm" aria-controls={`pane-${pane}`} aria-expanded={openPane === pane} onClick={event => { paneTrigger.current = event.currentTarget; setOpenPane(openPane === pane ? null : pane); }}>{label}</Button>)}
+    {[['left', 'Library'], ['right', 'Inspector']].map(([pane, label]) => <Button key={pane} className="btn sm" aria-controls={`pane-${pane}`} aria-expanded={openPane === pane} onClick={event => { paneTrigger.current = event.currentTarget; setOpenPane(openPane === pane ? null : pane); }}>{label}</Button>)}
   </div>
   <span className="spacer"></span>
   <label className="lbl" htmlFor="drawingMode">Drawing mode</label><select id="drawingMode" defaultValue="interface"><option value="interface">Interface icons</option><option value="app-icon">App icons</option></select>
@@ -64,27 +63,16 @@ export function WorkbenchShell() {
 
 <main className="app" data-open-pane={openPane || undefined}>
   <Button className="btn pane-backdrop" aria-label="Close editor pane" onClick={closePane} />
-  {/* LEFT: library, shapes, layer / boolean tree */}
+  {/* LEFT: library */}
   <div className="col-left" id="pane-left">
     <Button className="btn sm pane-close" onClick={closePane}>Close pane</Button>
-    <details className="panel tool-settings" data-collapse="tool-settings" open>
-      <summary>Contextual Tool Settings</summary>
-      <div className="pad">
-        <label className="cleanup-tolerance" htmlFor="cleanupTolerance">Cleanup tolerance <input id="cleanupTolerance" type="number" min="0.001" step="0.001" defaultValue="0.03" /> units</label>
-        <label className="cleanup-tolerance" htmlFor="mergeDistance">Merge distance <input id="mergeDistance" type="number" min="1" max="64" step="1" defaultValue="8" /> screen px</label>
-        <div className="row cleanup-presets" role="group" aria-label="Cleanup tolerance presets"><Button className="btn sm" data-cleanup-tolerance="0.03">0.03</Button><Button className="btn sm" data-cleanup-tolerance="0.1">0.1</Button><Button className="btn sm" data-cleanup-tolerance="0.25">0.25</Button><Button className="btn sm" data-cleanup-tolerance="0.5">0.5</Button><Button className="btn sm" data-cleanup-tolerance="1">1</Button><Button className="btn sm" data-cleanup-tolerance="5">5</Button></div>
-        <p className="lbl">Maximum outline deviation on the 24-unit canvas. Higher values allow more simplification.</p>
-        <Button className="btn sm" id="cleanupSelectedBtn" disabled>Cleanup selected anchors</Button>
-        <p className="lbl" id="cleanupSelectionHint">Select anchors to clean up. Undo restores the original.</p>
-      </div>
-    </details>
-    <div id="appIconStudio" hidden></div>
     <LibraryPanel />
-    <details id="componentsPanel" className="panel disclosure-panel component-library" data-collapse="componentsH" open>
+    <div id="appIconStudio" hidden></div>
+    <details id="componentsPanel" className="panel disclosure-panel component-library" data-collapse="componentsH">
       <summary id="componentsH">Components <span id="componentsCount" className="num">0</span></summary>
       <div className="pad"><p className="lbl">Reusable vector forms. Edit any instance to update them all; Insert adds one to the current icon.</p><div id="componentList"></div></div>
     </details>
-    <details className="panel set-settings" aria-label="Library properties" open>
+    <details className="panel set-settings" aria-label="Library properties">
       <summary id="libraryTokensTitle">Library tokens</summary>
       <div className="pad set-settings-fields">
         <div className="row library-token-source"><span className="lbl" id="libraryTokenSource">Defined in this library</span><Button className="btn icon-only" id="libraryPropertiesMenuBtn" aria-label="Library properties options" aria-haspopup="menu" aria-controls="libraryPropertiesMenu" aria-expanded="false" data-icon-ui="more" /></div>
@@ -131,25 +119,9 @@ export function WorkbenchShell() {
       </div>
     </details>
     <details className="panel shortcut-settings"><summary>Keyboard shortcuts</summary><div className="pad"><p className="lbl">Click a field and press a key combination. Mod means Cmd on Mac or Ctrl on Windows.</p><div id="shortcutFields"></div><Button className="btn sm" id="resetShortcuts">Restore defaults</Button></div></details>
-    <section className="panel" aria-labelledby="treeH">
-      <h2 id="treeH">Layers <span className="h-actions"><Button className="btn sm" id="addLayerBtn" aria-label="Add layer" data-icon-ui="plus-outline">Layer</Button></span></h2>
-      <div className="tree" id="tree" role="tree" aria-label="Layers and booleans"></div>
-      <div className="tree-tools">
-        <Button className="btn sm icon" data-group="union" aria-label="Union" data-control-tooltip="Union: combine selected shapes" title="Group selection into union (⌘G)" data-icon-ui="union"></Button>
-        <Button className="btn sm icon" data-group="subtract" aria-label="Subtract" data-control-tooltip="Subtract: first shape minus the rest" title="First minus the rest: later children become cutters" data-icon-ui="subtract"></Button>
-        <Button className="btn sm icon" data-group="intersect" aria-label="Intersect" data-control-tooltip="Intersect: keep only the overlap" data-icon-ui="intersect"></Button>
-        <Button className="btn sm icon" data-group="exclude" aria-label="Exclude" data-control-tooltip="Exclude: remove the overlap" data-icon-ui="exclude"></Button>
-        <Button className="btn sm" id="ungroupBtn" data-icon-ui="ungroup">Ungroup</Button>
-        <Button className="btn sm" id="makeCutterBtn" data-icon-ui="cutter">Use as cutter</Button>
-        <Button className="btn sm icon" id="upBtn" title="Move up" aria-label="Move up" data-icon-ui="up"></Button>
-        <Button className="btn sm icon" id="downBtn" title="Move down" aria-label="Move down" data-icon-ui="down"></Button>
-        <Button className="btn sm" id="dupBtn" title="Duplicate (⌘D)" data-icon-ui="duplicate">Duplicate</Button>
-        <Button className="btn sm" id="delBtn" title="Delete (⌫)" data-icon-ui="delete">Delete</Button>
-      </div>
-    </section>
   </div>
 
-  {/* CENTRE: canvas + inspector */}
+  {/* CENTRE: canvas */}
   <div className="col-centre">
     <section className="panel" aria-label="Canvas">
       <div className="canvas-tools">
@@ -160,8 +132,8 @@ export function WorkbenchShell() {
         <div className="palette shape-toolbar" id="palette" role="group" aria-label="Shapes"></div>
           <div className="handle-tools"><span className="lbl">Handles</span>
           <div className="seg" role="group" aria-label="Handle mode"><Button className="btn sm" data-hmode="shape" title="Edit the form's own parameters" data-icon-ui="path">Shape</Button><Button className="btn sm" data-hmode="transform" title="Rotate / scale about the anchor point (T)" data-icon-ui="transform">Transform</Button></div></div></div>
-        <div className="canvas-options" data-expanded={drawingControls}>
-        <Button className="btn sm canvas-options-toggle" aria-expanded={drawingControls} aria-controls="canvasOptions" onClick={() => setDrawingControls(!drawingControls)}><span className="disclosure-arrow" aria-hidden="true">▾</span>Drawing controls</Button>
+        <div className="canvas-options" data-expanded="false">
+        <Button className="btn sm canvas-options-toggle" aria-expanded="false" aria-controls="canvasOptions" onClick={event => { const expanded = event.currentTarget.getAttribute('aria-expanded') !== 'true'; event.currentTarget.setAttribute('aria-expanded', String(expanded)); event.currentTarget.parentElement.dataset.expanded = String(expanded); }}><span className="disclosure-arrow" aria-hidden="true">▾</span>Drawing controls</Button>
         <div id="canvasOptions" className="canvas-options-content">
         <div className="row"><span className="lbl">Boolean</span>
           <div className="seg" role="group" aria-label="Boolean on selection"><Button className="btn sm icon" data-group="union" aria-label="Union" data-control-tooltip="Union: combine selected shapes" title="Union selection (⌘G)" data-icon-ui="union"></Button><Button className="btn sm icon" data-group="subtract" aria-label="Subtract" data-control-tooltip="Subtract: first shape minus the rest" title="First minus the rest: later children become cutters" data-icon-ui="subtract"></Button><Button className="btn sm icon" data-group="intersect" aria-label="Intersect" data-control-tooltip="Intersect: keep only the overlap" data-icon-ui="intersect"></Button><Button className="btn sm icon" data-group="exclude" aria-label="Exclude" data-control-tooltip="Exclude: remove the overlap" data-icon-ui="exclude"></Button></div></div>
@@ -217,34 +189,60 @@ export function WorkbenchShell() {
       <div className="status" id="status" role="status" aria-live="polite"></div>
       <div className="hint-line">Double-click an object to isolate it (Esc exits) · Pen on an outline adds an anchor (primitives convert to vectors); Alt-click an anchor removes it; double-click an anchor for corner / smooth, ⌫ deletes it · drag the mirror axis by its square, turn it by its circle (snaps 0 / 45 / 90°) · Drag a form to move · Select a subtract group to see its cutters (dashed orange); click a cutter to drag it or pull its radius handle · Shape handles resize, round corners (inner dot), taper (◆) · Transform handles: corners scale, ○ rotates, ⊕ is the anchor point · Pen: click / drag anchors, click the first to close, Enter ends · drag from a ruler for a guide, back onto it to delete · arrows nudge (⇧ ×10) · ⌘Z ⇧⌘Z ⌘D ⌫ · ⌘-scroll zooms</div>
     </section>
-    <div className="canvas-details" id="pane-details">
-    <Button className="btn sm pane-close" onClick={closePane}>Close pane</Button>
-    <section className="panel" aria-labelledby="inspH">
-      <h2 id="inspH">Inspector <span className="h-actions mono" id="inspPath"></span></h2>
-      <div id="insp"></div>
-    </section>
-    <section className="panel" aria-labelledby="metadataH">
-      <h2 id="metadataH">Icon metadata</h2>
-      <div className="pad metadata">
-        <label htmlFor="iconDescription">Description</label><textarea id="iconDescription" rows="2" placeholder="What does this icon represent?"></textarea>
-        <label htmlFor="iconGroup">Primary group (export folder)</label><input id="iconGroup" type="text" placeholder="Navigation / Arrows" />
-        <label htmlFor="iconTags">Usage tags (comma separated)</label><input id="iconTags" type="text" placeholder="navigation, table, action" />
-        <label htmlFor="iconAliases">Search terms (comma separated)</label><input id="iconAliases" type="text" placeholder="suggestion, vote, ballot" />
-      </div>
-    </section>
-    </div>
   </div>
 
-  {/* RIGHT: previews, runtime controls, context, export */}
+  {/* RIGHT: layers, inspector, cleanup, previews, runtime controls, context, export */}
   <div className="col-right" id="pane-right">
     <Button className="btn sm pane-close" onClick={closePane}>Close pane</Button>
-    <details className="panel disclosure-panel" data-collapse="geometryH" aria-labelledby="geometryH" open>
+    <section className="panel" aria-labelledby="treeH">
+      <h2 id="treeH">Layers <span className="h-actions"><Button className="btn sm" id="addLayerBtn" aria-label="Add layer" data-icon-ui="plus-outline">Layer</Button></span></h2>
+      <div className="tree" id="tree" role="tree" aria-label="Layers and booleans"></div>
+      <div className="tree-tools">
+        <Button className="btn sm icon" data-group="union" aria-label="Union" data-control-tooltip="Union: combine selected shapes" title="Group selection into union (⌘G)" data-icon-ui="union"></Button>
+        <Button className="btn sm icon" data-group="subtract" aria-label="Subtract" data-control-tooltip="Subtract: first shape minus the rest: later children become cutters" title="First minus the rest: later children become cutters" data-icon-ui="subtract"></Button>
+        <Button className="btn sm icon" data-group="intersect" aria-label="Intersect" data-control-tooltip="Intersect: keep only the overlap" data-icon-ui="intersect"></Button>
+        <Button className="btn sm icon" data-group="exclude" aria-label="Exclude" data-control-tooltip="Exclude: remove the overlap" data-icon-ui="exclude"></Button>
+        <Button className="btn sm" id="ungroupBtn" data-icon-ui="ungroup">Ungroup</Button>
+        <Button className="btn sm" id="makeCutterBtn" data-icon-ui="cutter">Use as cutter</Button>
+        <Button className="btn sm icon" id="upBtn" title="Move up" aria-label="Move up" data-icon-ui="up"></Button>
+        <Button className="btn sm icon" id="downBtn" title="Move down" aria-label="Move down" data-icon-ui="down"></Button>
+        <Button className="btn sm" id="dupBtn" title="Duplicate (⌘D)" data-icon-ui="duplicate">Duplicate</Button>
+        <Button className="btn sm" id="delBtn" title="Delete (⌫)" data-icon-ui="delete">Delete</Button>
+      </div>
+    </section>
+    <div className="canvas-details" id="pane-details">
+      <section className="panel" aria-labelledby="inspH">
+        <h2 id="inspH">Inspector <span className="h-actions mono" id="inspPath"></span></h2>
+        <div id="insp"></div>
+      </section>
+      <details className="panel disclosure-panel" data-collapse="metadataH" aria-labelledby="metadataH">
+        <summary id="metadataH">Icon metadata</summary>
+        <div className="pad metadata">
+          <label htmlFor="iconDescription">Description</label><textarea id="iconDescription" rows="2" placeholder="What does this icon represent?"></textarea>
+          <label htmlFor="iconGroup">Primary group (export folder)</label><input id="iconGroup" type="text" placeholder="Navigation / Arrows" />
+          <label htmlFor="iconTags">Usage tags (comma separated)</label><input id="iconTags" type="text" placeholder="navigation, table, action" />
+          <label htmlFor="iconAliases">Search terms (comma separated)</label><input id="iconAliases" type="text" placeholder="suggestion, vote, ballot" />
+        </div>
+      </details>
+    </div>
+    <details className="panel tool-settings" data-collapse="tool-settings">
+      <summary>Anchor cleanup</summary>
+      <div className="pad">
+        <label className="cleanup-tolerance" htmlFor="cleanupTolerance">Cleanup tolerance <input id="cleanupTolerance" type="number" min="0.001" step="0.001" defaultValue="0.03" /> units</label>
+        <label className="cleanup-tolerance" htmlFor="mergeDistance">Merge distance <input id="mergeDistance" type="number" min="1" max="64" step="1" defaultValue="8" /> screen px</label>
+        <div className="row cleanup-presets" role="group" aria-label="Cleanup tolerance presets"><Button className="btn sm" data-cleanup-tolerance="0.03">0.03</Button><Button className="btn sm" data-cleanup-tolerance="0.1">0.1</Button><Button className="btn sm" data-cleanup-tolerance="0.25">0.25</Button><Button className="btn sm" data-cleanup-tolerance="0.5">0.5</Button><Button className="btn sm" data-cleanup-tolerance="1">1</Button><Button className="btn sm" data-cleanup-tolerance="5">5</Button></div>
+        <p className="lbl">Maximum outline deviation on the 24-unit canvas. Higher values allow more simplification.</p>
+        <Button className="btn sm" id="cleanupSelectedBtn" disabled>Cleanup selected anchors</Button>
+        <p className="lbl" id="cleanupSelectionHint">Select anchors to clean up. Undo restores the original.</p>
+      </div>
+    </details>
+    <details className="panel disclosure-panel" data-collapse="geometryH" aria-labelledby="geometryH">
       <summary id="geometryH">Points &amp; overlaps</summary>
       <div className="pad"><p className="lbl" id="geometrySummary" role="status"></p><div id="overlapList"></div>
         <details open><summary>Source anchors · canvas coordinates (24 × 24)</summary><div className="point-table-wrap"><table className="point-table"><thead><tr><th>Object</th><th>Point</th><th>X</th><th>Y</th><th>Round</th></tr></thead><tbody id="pointRows"></tbody></table></div></details>
       </div>
     </details>
-    <details className="panel disclosure-panel" data-collapse="measureH" aria-labelledby="measureH" open>
+    <details className="panel disclosure-panel" data-collapse="measureH" aria-labelledby="measureH">
       <summary id="measureH">Measurements</summary>
       <div className="pad"><div id="measurementDetails" className="measurement-details"></div>
         <div className="row measurement-actions" id="measurementActions" hidden>
@@ -252,17 +250,17 @@ export function WorkbenchShell() {
         </div><p className="lbl" id="measurementHint">Select an object or two or more anchors.</p>
       </div>
     </details>
-    <details className="panel disclosure-panel" data-collapse="solidPreviewH" aria-labelledby="solidPreviewH" open>
+    <details className="panel disclosure-panel" data-collapse="solidPreviewH" aria-labelledby="solidPreviewH">
       <summary id="solidPreviewH">Solid preview</summary>
       <div className="pad"><label>Solid treatment <select id="solidTreatment" defaultValue="expanded"><option value="expanded">Expanded artwork</option><option value="cutout">Box with cutouts</option></select></label>
         <div id="solidBoxSettings" hidden><label>Box padding <input id="solidBoxPadding" aria-label="Solid box padding" type="number" min="0" max="24" step="0.1" defaultValue="1" /></label><label><input id="solidBoxFollowsRounding" type="checkbox" defaultChecked /> Follow library box corner rounding</label><label>Box corner radius <input id="solidBoxRadius" aria-label="Solid box corner radius" type="number" min="0" max="24" step="0.1" defaultValue="0.5" /></label></div>
         <div id="solidPreview" className="variant-preview" aria-label="Solid preview artwork"></div><p id="solidPreviewStatus" className="lbl" role="status"></p><Button id="approvePreviewSolid" className="btn sm">Approve solid for export</Button></div>
     </details>
-    <details className="panel disclosure-panel" data-collapse="exportPreviewH" aria-labelledby="exportPreviewH" open>
+    <details className="panel disclosure-panel" data-collapse="exportPreviewH" aria-labelledby="exportPreviewH">
       <summary id="exportPreviewH">Export preview</summary>
       <div className="pad"><div id="exportPreview" className="variant-preview" aria-label="Export preview artwork"></div><p id="exportPreviewStatus" className="lbl" role="status"></p></div>
     </details>
-    <details className="panel disclosure-panel" data-collapse="pvH" aria-labelledby="pvH" open>
+    <details className="panel disclosure-panel" data-collapse="pvH" aria-labelledby="pvH">
       <summary id="pvH">Drawing previews</summary>
       <div className="pv-grid" id="pvGrid">
         <div className="pv-tile light" id="pvLight" aria-label="Light tile"></div>
@@ -282,11 +280,11 @@ export function WorkbenchShell() {
         </div>
       </div>
     </details>
-    <details className="panel disclosure-panel" data-collapse="ctxH" aria-labelledby="ctxH" open>
+    <details className="panel disclosure-panel" data-collapse="ctxH" aria-labelledby="ctxH">
       <summary id="ctxH">In context</summary>
       <div className="ctx" id="ctx"></div>
     </details>
-    <details className="panel io disclosure-panel" data-collapse="ioH" aria-labelledby="ioH" open>
+    <details className="panel io disclosure-panel" data-collapse="ioH" aria-labelledby="ioH">
       <summary id="ioH">Export / Import</summary>
       <div className="row">
         <Button className="btn sm" id="expJson" data-icon-ui="export">JSON</Button><Button className="btn sm" id="expSvg" data-icon-ui="export">SVG (runtime vars)</Button><Button className="btn sm" id="expBaked" data-icon-ui="export">SVG (baked)</Button>

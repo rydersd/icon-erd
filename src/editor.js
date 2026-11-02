@@ -2025,6 +2025,15 @@ function setCleanupTolerance(value) {
 $('cleanupTolerance').onchange=()=>{if(!setCleanupTolerance($('cleanupTolerance').valueAsNumber)){$('cleanupTolerance').reportValidity();$('cleanupTolerance').value=cleanupTolerance;}};
 root.querySelectorAll('[data-cleanup-tolerance]').forEach(button=>button.onclick=()=>setCleanupTolerance(Number(button.dataset.cleanupTolerance)));
 $('cleanupSelectedBtn').onclick=()=>cleanupSelectedAnchors();
+try {
+  if(localStorage.getItem('gw-layout-version')!=='ux01') {
+    for(let i=localStorage.length-1;i>=0;i--) {
+      const key=localStorage.key(i);
+      if(key?.startsWith('gw-panel-'))localStorage.removeItem(key);
+    }
+    localStorage.setItem('gw-layout-version','ux01');
+  }
+}catch{}
 root.querySelectorAll('details[data-collapse]').forEach(panel=>{
   const key=`gw-panel-${panel.dataset.collapse}`;
   try {const saved=localStorage.getItem(key);if(saved!==null)panel.open=saved==='open';}catch{}

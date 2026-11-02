@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test';
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
+import {openDisclosures,openDrawingControls} from './helpers.js';
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="libraryActions"]','[data-collapse="ioH"]');await openDrawingControls(page);};
 const screen=async(page,x,y)=>page.evaluate(({x,y})=>{const c=document.querySelector('#canvas'),p=c.createSVGPoint();p.x=x;p.y=y;const q=p.matrixTransform(c.getScreenCTM());return {x:q.x,y:q.y};},{x,y});
 const fixture=async page=>page.evaluate(async()=>{
  const w=window.__gw;await w.importLibraryText(JSON.stringify({name:'merge-fixture',weight:1.2,layers:[{id:'line',paint:'stroke',node:{name:'Bent line',shape:'pen',pts:[{x:1,y:1},{x:4,y:4,in:[-2,0],out:[0.01,0.02]},{x:6,y:6,in:[-0.01,-0.02],out:[0,-3]},{x:12,y:12}]}}]}),'merge.json');w.S.sel=[{l:0,p:[]}];w.setTool('direct');w.S.selectedAnchors=[{selection:{l:0,p:[]},index:1}];w.S.anchor=1;w.refresh(true);

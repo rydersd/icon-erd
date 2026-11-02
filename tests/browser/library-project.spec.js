@@ -1,7 +1,8 @@
 import {test,expect} from '@playwright/test';
 import {libraryZIP} from '../../src/library-zip.js';
+import {openDisclosures} from './helpers.js';
 const icon=name=>({name,weight:1.2,layers:[{id:'form',paint:'fill',node:{shape:'circle',cx:12,cy:12,r:4}}]});
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="libraryActions"]','.set-settings','[data-collapse="metadataH"]','[data-collapse="ioH"]');};
 async function importSet(page,names){const glyphs=names.map(icon);const bytes=await libraryZIP({format:'glyph-workbench-library',version:1,scope:'all',glyphs},()=>'<svg/>');await page.locator('#impFile').setInputFiles({name:'project.zip',mimeType:'application/zip',buffer:Buffer.from(bytes)});await expect(page.locator('#importReplace')).toBeChecked();await page.locator('#confirmImportBtn').click();await expect.poll(()=>page.evaluate(()=>window.__gw.S.lib.map(g=>g.name))).toEqual(names);}
 test('New library empties persisted artwork, tokens, components, history and trash; checkpoint restores the old set',async({page})=>{
  await ready(page);await page.locator('#setThicknessEnabled').check();await page.locator('#setThickness').fill('2');await page.locator('#setThickness').press('Tab');
