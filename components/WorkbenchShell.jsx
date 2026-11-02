@@ -213,11 +213,11 @@ export function WorkbenchShell() {
         <h2 id="iconSectionH">Icon</h2>
         <div className="icon-fields">
           <label className="icon-field" htmlFor="drawingMode">Kind<select id="drawingMode" defaultValue="interface"><option value="interface">Interface icons</option><option value="app-icon">App icons</option></select></label>
-          <label className="icon-field" htmlFor="exportSize">Output size<input id="exportSize" type="number" min="16" max="4096" step="1" defaultValue="24" /></label>
-          <p className="lbl size-source" hidden></p>
-          <label className="icon-check" htmlFor="iconThicknessOverride">Override library<input id="iconThicknessOverride" type="checkbox" /></label>
-          <label className="icon-field" htmlFor="iconThickness">Stroke weight<input id="iconThickness" type="number" min="0.1" max="8" step="0.1" defaultValue="1.2" /></label>
-          <p className="lbl stroke-source"></p>
+          <label className="icon-field" htmlFor="exportSize">Output size<input id="exportSize" type="number" min="16" max="4096" step="1" defaultValue="24" aria-describedby="sizeSource" /></label>
+          <p className="lbl size-source" id="sizeSource" hidden></p>
+          <label className="icon-check" htmlFor="iconThicknessOverride">Override<input id="iconThicknessOverride" type="checkbox" aria-describedby="strokeSource" /></label>
+          <label className="icon-field" htmlFor="iconThickness">Stroke weight<input id="iconThickness" type="number" min="0.1" max="8" step="0.1" defaultValue="1.2" aria-describedby="strokeSource" /></label>
+          <p className="lbl stroke-source" id="strokeSource" aria-live="polite"></p>
         </div>
       </section>
       <section className="panel" aria-labelledby="inspH">

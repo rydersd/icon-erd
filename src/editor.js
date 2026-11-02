@@ -3147,8 +3147,11 @@ function renderIconSection(output) {
   const override = S.glyph.strokeOverride != null;
   const thickness = S.libraryProperties ? tokenStyle(S.libraryProperties).thickness : null;
   const source = root.querySelector('.stroke-source');
-  const base = thickness != null ? thickness : (S.glyph.weight ?? 1.2);
-  const prefix = override ? `Overrides ${thickness != null ? 'library' : 'icon base'}` : (thickness != null ? 'Library' : 'Icon base');
+  // Without an override, an icon may carry the library style itself (imported setStyle); with one, setStyle holds the override copy.
+  const styled = thickness == null && !override && S.glyph.setStyle?.thickness != null;
+  const fromLibrary = thickness != null || styled;
+  const base = thickness != null ? thickness : styled ? S.glyph.setStyle.thickness : (S.glyph.weight ?? 1.2);
+  const prefix = override ? `Overrides ${fromLibrary ? 'library' : 'icon base'}` : (fromLibrary ? 'Library' : 'Icon base');
   source.textContent = `${prefix} ${displayIconValue(base)}`;
   const overrideControl = $('iconThicknessOverride');
   const thicknessControl = $('iconThickness');

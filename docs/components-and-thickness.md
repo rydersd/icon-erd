@@ -8,7 +8,7 @@ The component retains editable vectors and symmetry. Captured whole-icon symmetr
 
 The catalog displays the components currently represented by library instances. Independent component retention after deleting the last instance remains a separate registry-lifecycle improvement.
 
-In **Previews**, enable **Override library thickness for this icon** and enter **Icon thickness**. The saved override takes priority over library thickness, including later token changes. Other library settings still apply. Uncheck it to follow the library again. Override changes support Undo and travel through editable ZIP/JSON and SVG output. The Weight slider previews normally and saves changes when an icon override is active.
+In the **Icon** section above the Inspector, enable **Override** and enter **Stroke weight**. The line under it says where the weight comes from: the library, the icon base, or an override of either. The saved override takes priority over library thickness, including later token changes. Other library settings still apply. Uncheck it to follow the library again. Override changes support Undo and travel through editable ZIP/JSON and SVG output. The Weight slider in Drawing previews previews normally and saves changes when an icon override is active.
 
 Thickness overrides affect editable strokes, not widths baked into filled contours. A barcode can retain filled bars of different widths, or have those bars reconstructed as independently editable stroke geometry; a uniform icon-width override does not turn filled contours into centerlines.
 

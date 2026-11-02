@@ -276,7 +276,6 @@ textarea { height: auto; padding: 6px; width: 100%; resize: vertical; font-famil
   header.bar { gap: 6px; padding: 6px 8px; }
   header.bar .glyph-name { max-width: 35vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #modeHint, header.bar > label, header.bar .credits-link { display: none; }
-  #exportSize { width: 65px; }
   .canvas-tools .row { max-width: 100%; }
   .canvas-tools .seg { flex-wrap: wrap; max-width: 100%; gap: 2px; }
 }

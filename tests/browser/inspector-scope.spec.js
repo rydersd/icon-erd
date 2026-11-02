@@ -103,3 +103,13 @@ test('guided repair locks kind and output size', async ({ page }) => {
   await expect(page.locator('#iconThicknessOverride')).toBeDisabled();
   await expect(page.locator('#pane-details .icon-section #drawingMode')).toHaveCount(1);
 });
+
+test('stroke source matches the drawn weight when the icon carries a library style', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(async () => { await window.__gw.importLibraryText(JSON.stringify([{ name: 'styled', weight: 1.2, setStyle: { thickness: 1.6 }, layers: [{ id: 'ring', paint: 'stroke', node: { shape: 'circle', cx: 12, cy: 12, r: 5 } }] }]), 'styled.json', 'replace'); window.__gw.loadGlyph(0); window.__gw.S.sel = []; window.__gw.refresh(true); });
+  const drawn = await page.evaluate(() => [window.__gw.S.libraryProperties ? 'library' : 'none', window.__gw.S.glyph.setStyle?.thickness]);
+  console.log('state', JSON.stringify(drawn));
+  await expect(page.locator('#pane-details .icon-section .stroke-source')).toHaveText(`Library ${drawn[1]}`);
+  await expect(page.locator('#iconThickness')).toHaveAttribute('aria-describedby', /strokeSource/);
+  await expect(page.locator('#exportSize')).toHaveAttribute('aria-describedby', /sizeSource/);
+});
