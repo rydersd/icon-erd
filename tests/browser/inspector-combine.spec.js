@@ -19,8 +19,9 @@ const glyph = page => page.evaluate(() => JSON.parse(JSON.stringify(window.__gw.
 
 test('two selected objects show combine in the inspector', async ({ page }) => {
   await pair(page);
-  for (const name of ['Union', 'Subtract', 'Intersect', 'Exclude', 'Duplicate', 'Delete']) await expect(combine(page).getByRole('button', { name, exact: true })).toBeVisible();
-  await expect(combine(page).getByRole('button', { name: 'Group', exact: true })).toHaveCount(0);
+  for (const name of ['Union', 'Subtract', 'Intersect', 'Exclude', 'Delete']) await expect(combine(page).getByRole('button', { name, exact: true })).toBeVisible();
+  // Owner Q2 A: no separate Group button. Amendment: no Duplicate either; duplicate() copies only the primary selection.
+  for (const name of ['Group', 'Duplicate']) await expect(combine(page).getByRole('button', { name, exact: true })).toHaveCount(0);
   await expect(combine(page).getByRole('button', { name: 'Union', exact: true })).toHaveAttribute('data-control-tooltip', 'Union (⌘G, Group)');
   await boot(page, [{ id: 'a', name: 'Art', paint: 'fill', node: { op: 'union', children: [A, B] } }], [{ l: 0, p: [0] }]);
   await expect(page.locator('#insp [data-combine]')).toHaveCount(0);
@@ -30,15 +31,18 @@ test('two selected objects show combine in the inspector', async ({ page }) => {
 
 for (const op of ['union', 'subtract', 'intersect', 'exclude']) test(`combine ${op} builds the expected group`, async ({ page }) => {
   await pair(page, [C]);
+  // Import names each node; the expected tree is still written by hand from the imported forms.
+  const [a, b, c] = (await glyph(page)).layers[0].node.children;
+  expect([a.shape, b.shape, c.cy]).toEqual(['rect', 'circle', 18]);
   await page.locator(`#insp [data-combine="${op}"]`).click();
   const g = await glyph(page);
-  expect(g.layers[0].node.children).toEqual([{ op, children: [A, B] }, C]);
+  expect(g.layers[0].node.children).toEqual([{ op, name: expect.any(String), children: [a, b] }, c]);
   expect(await page.evaluate(() => window.__gw.S.sel)).toEqual([{ l: 0, p: [0] }]);
   await expect(page.locator('#status')).toContainText(`Grouped into ${op}.`);
   await page.locator('#undoBtn').click();
-  expect((await glyph(page)).layers[0].node.children).toEqual([A, B, C]);
+  expect((await glyph(page)).layers[0].node.children).toEqual([a, b, c]);
   await page.locator('#redoBtn').click();
-  expect((await glyph(page)).layers[0].node.children).toEqual([{ op, children: [A, B] }, C]);
+  expect((await glyph(page)).layers[0].node.children).toEqual([{ op, name: expect.any(String), children: [a, b] }, c]);
 });
 
 test('combine matches the keyboard group', async ({ page }) => {
@@ -50,17 +54,13 @@ test('combine matches the keyboard group', async ({ page }) => {
   expect(await glyph(page)).toEqual(viaInspector);
 });
 
-test('combine duplicate and delete act on the whole selection', async ({ page }) => {
-  await pair(page);
-  await combine(page).getByRole('button', { name: 'Duplicate', exact: true }).click();
-  expect((await glyph(page)).layers[0].node.children).toHaveLength(4);
-  await page.locator('#undoBtn').click();
-  expect((await glyph(page)).layers[0].node.children).toHaveLength(2);
+test('combine delete acts on the whole selection', async ({ page }) => {
   await pair(page, [C]);
+  const [a, b, c] = (await glyph(page)).layers[0].node.children;
   await combine(page).getByRole('button', { name: 'Delete', exact: true }).click();
-  expect((await glyph(page)).layers[0].node.children).toEqual([C]);
+  expect((await glyph(page)).layers[0].node.children).toEqual([c]);
   await page.locator('#undoBtn').click();
-  expect((await glyph(page)).layers[0].node.children).toEqual([A, B, C]);
+  expect((await glyph(page)).layers[0].node.children).toEqual([a, b, c]);
 });
 
 test('combine explains when the selection cannot be combined', async ({ page }) => {
@@ -69,7 +69,6 @@ test('combine explains when the selection cannot be combined', async ({ page }) 
     { id: 'b', name: 'More', paint: 'fill', node: { op: 'union', children: [C, B] } }], [{ l: 0, p: [0] }, { l: 1, p: [0] }]);
   for (const op of ['union', 'subtract', 'intersect', 'exclude']) await expect(page.locator(`#insp [data-combine="${op}"]`)).toBeDisabled();
   await expect(page.locator('#insp')).toContainText('Booleans need siblings in the same layer and group.');
-  await expect(combine(page).getByRole('button', { name: 'Duplicate', exact: true })).toBeEnabled();
   await expect(combine(page).getByRole('button', { name: 'Delete', exact: true })).toBeEnabled();
 });
 
