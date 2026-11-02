@@ -1,11 +1,12 @@
 import { readLibraryZIP } from '../../src/library-zip.js';
 import { test, expect } from '@playwright/test';
 import { readFile, access } from 'node:fs/promises';
+import {openDisclosure,openDisclosures} from './helpers.js';
 const available = await access('imports/illmater-icons.json').then(() => true, () => false);
 test('real project sets import in order and export every icon without data loss', async ({ page }) => {
   test.skip(!available, 'Local project import packs are intentionally excluded from public source');
   test.setTimeout(120000);
-  await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready);
+  await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready); await openDisclosures(page,'[data-collapse="libraryActions"]','[data-collapse="metadataH"]','[data-collapse="ioH"]');
   let count = 4;
   for (const set of ['illtool', 'illmater', 'spurious-ecosystem']) {
     const file = `imports/${set}-icons.json`, pack = JSON.parse(await readFile(file, 'utf8'));
@@ -17,7 +18,7 @@ test('real project sets import in order and export every icon without data loss'
     await page.locator('.lib-item').filter({ hasText: pack.glyphs[0].name }).first().click();
     await expect(page.locator('#hdrName')).toHaveText(pack.glyphs[0].name);
   }
-  await page.locator('.export-options').evaluate(el=>el.open=true);const promise = page.waitForEvent('download'); await page.locator('#expAll').click(); const download = await promise;
+  await openDisclosures(page,'.export-options');const promise = page.waitForEvent('download'); await page.locator('#expAll').click(); const download = await promise;
   const exported = JSON.parse(readLibraryZIP(await readFile(await download.path())));
   expect(exported.count).toBe(count);
   await page.reload(); await page.waitForFunction(() => window.__gw?.ready); await expect(page.locator('.lib-item')).toHaveCount(count);
@@ -25,19 +26,19 @@ test('real project sets import in order and export every icon without data loss'
 
 test('named EDS pack starts unedited with useful arrow groups, reset originals and full archive export',async({page})=>{
   const file='imports/eds-icons-named.json';test.skip(!(await access(file).then(()=>true,()=>false)),'Named private EDS pack is local only');test.setTimeout(120000);
-  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await page.locator('#impFile').setInputFiles(file);await expect(page.locator('#importDialog')).toBeVisible();await page.locator('#importReplace').uncheck();await page.locator('#confirmImportBtn').click();
+  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="metadataH"]','[data-collapse="ioH"]');await page.locator('#impFile').setInputFiles(file);await expect(page.locator('#importDialog')).toBeVisible();await page.locator('#importReplace').uncheck();await page.locator('#confirmImportBtn').click();
   await expect(page.locator('.lib-item')).toHaveCount(584);await expect(page.locator('#status')).toContainText('580 added');
   await page.locator('.lib-item').filter({hasText:'arrow-right-outline'}).click();
   await expect(page.locator('#tree')).toContainText('Head of Arrow');await expect(page.locator('#tree')).toContainText('Shaft of Arrow');await expect(page.locator('#revertBtn')).toBeDisabled();
   await page.locator('#iconDescription').fill('Edited EDS arrow');await page.locator('#iconDescription').press('Tab');
   await page.locator('#revertBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');
-  await page.locator('.export-options').evaluate(el=>el.open=true);const promise=page.waitForEvent('download');await page.locator('#expAll').click();const data=JSON.parse(readLibraryZIP(await readFile(await(await promise).path())));expect(data.count).toBe(584);expect(data.originals).toHaveLength(584);
+  await openDisclosures(page,'.export-options');const promise=page.waitForEvent('download');await page.locator('#expAll').click();const data=JSON.parse(readLibraryZIP(await readFile(await(await promise).path())));expect(data.count).toBe(584);expect(data.originals).toHaveLength(584);
   await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('.lib-item')).toHaveCount(584);await expect(page.locator('#tree')).toContainText('Head of Arrow');
 });
 
 test('EDS cloud silhouette is detected in app logic, reviewed as a near match, and edited across ten icons',async({page})=>{
   const file='imports/eds-icons-named.json';test.skip(!await access(file).then(()=>true,()=>false),'Private EDS pack is not published');test.setTimeout(120000);
-  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);
+  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosure(page,'[data-collapse="libraryActions"]');
   await page.locator('#impFile').setInputFiles(file);await page.locator('#confirmImportBtn').click();
   await page.locator('#findSharedFormsBtn').click();await page.locator('#sharedFormsSearch').fill('application-cloud');
   const card=page.locator('.shared-form-card').filter({hasText:'10 instances'});await expect(card).toHaveCount(1);

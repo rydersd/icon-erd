@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import {openDisclosure, openDrawingControls} from './helpers.js';
 
 test('editor stays in the viewport while panels scroll and canvas pans', async ({ page }) => {
   await page.goto('/');
@@ -9,7 +10,7 @@ test('editor stays in the viewport while panels scroll and canvas pans', async (
     if (viewport.width > 1180) {
       await expect(page.locator('.pane-close').first()).toBeHidden();
       await expect(page.getByRole('button', { name: 'Close editor pane', exact: true })).toBeHidden();
-      await expect(page.getByRole('button', { name: 'Drawing controls', exact: true })).toBeHidden();
+      await expect(page.getByRole('button', { name: 'Drawing controls', exact: true })).toBeVisible();
     }
     await expect(page.locator('#showToggle')).toBeInViewport();
     const before = await page.locator('header.bar').boundingBox();
@@ -21,21 +22,24 @@ test('editor stays in the viewport while panels scroll and canvas pans', async (
 
     // The lower settings remain reachable without moving the drawing plane.
     const canvasBefore = await page.locator('#canvas').boundingBox();
-    if (viewport.width <= 1180) await page.getByRole('button', { name: 'Details', exact: true }).click();
+    if (viewport.width <= 1180) await page.getByRole('button', { name: 'Inspector', exact: true }).click();
+    await openDisclosure(page, '[data-collapse="metadataH"]');
     await page.locator('#iconAliases').scrollIntoViewIfNeeded();
     await expect(page.locator('#iconAliases')).toBeInViewport();
     expect(await page.locator('#canvas').boundingBox()).toEqual(canvasBefore);
     if (viewport.width <= 1180) await page.getByRole('button', { name: 'Library', exact: true }).first().click();
+    await openDisclosure(page, '.set-settings');
     await page.locator('#libraryOutputSizes').scrollIntoViewIfNeeded();
     await expect(page.locator('#libraryOutputSizes')).toBeInViewport();
-    if (viewport.width <= 1180) await page.getByRole('button', { name: 'Output', exact: true }).click();
+    if (viewport.width <= 1180) await page.getByRole('button', { name: 'Inspector', exact: true }).click();
+    await openDisclosure(page, '[data-collapse="ioH"]');
     await page.locator('#expJson').scrollIntoViewIfNeeded();
     await expect(page.locator('#expJson')).toBeInViewport();
     expect(await page.locator('#canvas').boundingBox()).toEqual(canvasBefore);
 
     if (viewport.width <= 1180) {
       await page.keyboard.press('Escape');
-      await expect(page.getByRole('button', { name: 'Output', exact: true })).toBeFocused();
+      await expect(page.getByRole('button', { name: 'Inspector', exact: true })).toBeFocused();
       await expect(page.locator('.col-right')).toBeHidden();
     }
     const viewBefore = await page.evaluate(() => ({ ...window.__gw.S.view }));
@@ -54,7 +58,7 @@ test('compact controls expand without resetting artwork and disclosures use 12px
   await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready);
   const glyph = await page.evaluate(() => JSON.stringify(window.__gw.S.glyph));
   await expect(page.locator('#snapSeg')).toBeHidden();
-  await page.getByRole('button', { name: 'Drawing controls', exact: true }).click();
+  await openDrawingControls(page);
   await expect(page.locator('#snapSeg')).toBeVisible();
   await page.locator('[data-snap="0.5"]').click();
   expect(await page.evaluate(() => JSON.stringify(window.__gw.S.glyph))).toBe(glyph);

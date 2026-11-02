@@ -1,0 +1,121 @@
+import { test, expect } from '@playwright/test';
+import {revealControl} from './helpers.js';
+// UX-01 Quiet baseline. Spec: wiki/product-spec/ux-01-quiet-baseline.md (local wiki).
+const boot = async page => { await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready); await page.waitForTimeout(300); };
+const strictVisible = 'e=>e.checkVisibility({contentVisibilityAuto:true,opacityProperty:true,visibilityProperty:true})';
+
+// Every control reachable on main (2026-10-31 inventory, static shell markup), by id or by data hook.
+const REACHABLE = ['#drawingMode','#exportSize','#revertBtn','#undoBtn','#redoBtn','#appearanceToggle','#cleanupTolerance','#mergeDistance','#cleanupSelectedBtn','#libToggle','#tplSel','#newBtn','#libSearch','#libFilter','#organizeLibraryBtn','#undoOrganizationBtn','#findSharedFormsBtn','#insetReviewBtn','#libraryVersionsBtn','#selectShownIconsBtn','#clearIconSelectionBtn','#deleteIconsBtn','#restoreIconsBtn','#impFileBtn','#exportStructure','#exportRoot','#exportSVGs','#exportPNGs','#expOne','#expEdited','#expAll','#newLibraryBtn','#resetLibraryBtn','#undoLibraryResetBtn','#libraryPropertiesMenuBtn','#setThicknessEnabled','#setThickness','#opticalSizeEnabled','#opticalCurve','#setRoundingEnabled','#setRounding','#setEndRoundingEnabled','#setEndRounding','#libraryVariant','#libraryFamilyView','#libraryColorMode','#libraryFillColor','#libraryStrokeColor','#libraryAccentColor','#libraryUseColorTokens','#libraryFillToken','#libraryStrokeToken','#libraryAccentToken','#testSolidVariantsBtn','#libraryOutputProfile','#libraryOutputSizes','#resetShortcuts','#addLayerBtn','#ungroupBtn','#makeCutterBtn','#upBtn','#downBtn','#dupBtn','#delBtn','#areaSelectBtn','#areaSelectToggle','#proximityMergeBtn','#symScope','#showToggle','#zoomOut','#zoomFit','#zoomIn','#iconDescription','#iconGroup','#iconTags','#iconAliases','#solidTreatment','#approvePreviewSolid','#wRange','#iconThicknessOverride','#iconThickness','#hintBtn','#rtlBtn','#swSecL','#swSecD','#swAccL','#swAccD','#expJson','#expSvg','#expBaked','#downloadSvg','#downloadPng','#copyBtn','#importBtn','#ioText',
+  '[data-tool="select"]','[data-tool="direct"]','[data-tool="pen"]','[data-hmode="shape"]','[data-hmode="transform"]','[data-snap="0.1"]','[data-snap="0.3"]','[data-snap="0.5"]','[data-snap="0"]','[data-mirror="x"]','[data-mirror="y"]','[data-rot="1"]','[data-rot="2"]','[data-rot="4"]','[data-rot="6"]','[data-rot="8"]','[data-rot="12"]','[data-cap="round"]','[data-cap="butt"]','[data-cap="square"]','[data-join="round"]','[data-join="miter"]','[data-join="bevel"]','[data-cleanup-tolerance="0.03"]','[data-cleanup-tolerance="0.1"]','[data-cleanup-tolerance="0.25"]','[data-cleanup-tolerance="0.5"]','[data-cleanup-tolerance="1"]','[data-cleanup-tolerance="5"]','[data-theme-choice="light"]','[data-theme-choice="dark"]','#canvasOptions [data-group="union"]','#canvasOptions [data-group="subtract"]','#canvasOptions [data-group="intersect"]','#canvasOptions [data-group="exclude"]','.tree-tools [data-group="union"]','.tree-tools [data-group="subtract"]','.tree-tools [data-group="intersect"]','.tree-tools [data-group="exclude"]'];
+// Excluded on purpose: #useLibraryEndRounding (shown only for a layer with its own end radius), controls inside dialogs and floating menus, and rows generated into #lib, #tree, #insp, #appIconStudio.
+
+test('first screen shows at most 60 controls', async ({ page }) => {
+  await boot(page);
+  const count = await page.evaluate(`[...document.querySelectorAll('button,input,select,textarea')].filter(${strictVisible}).length`);
+  console.log(`visible controls at load: ${count}`);
+  expect(count).toBeLessThanOrEqual(60);
+});
+
+test('canvas is at least 560 px wide', async ({ page }) => {
+  await boot(page);
+  const box = await page.locator('#canvas').boundingBox();
+  console.log(`canvas width: ${box.width}`);
+  expect(box.width).toBeGreaterThanOrEqual(560);
+});
+
+test('panel headings are sentence case', async ({ page }) => {
+  await boot(page);
+  const upper = await page.evaluate(`[...document.querySelectorAll('.panel > h2, details > summary, legend')].filter(${strictVisible}).filter(e=>getComputedStyle(e).textTransform==='uppercase').map(e=>e.textContent.trim().slice(0,30))`);
+  expect(upper).toEqual([]);
+});
+
+test('layers and inspector sit in the right column', async ({ page }) => {
+  await boot(page);
+  for (const sel of ['#tree', '#insp', '#pane-details']) await expect(page.locator(`#pane-right ${sel}`)).toHaveCount(1);
+  await expect(page.locator('.col-left #tree')).toHaveCount(0);
+  await expect(page.locator('.col-centre #insp')).toHaveCount(0);
+  await expect(page.locator('.col-centre .panel')).toHaveCount(1);
+  await expect(page.locator('.col-centre .panel #canvas')).toHaveCount(1);
+  for (const sel of ['#libBody', '#tree', '#insp']) await expect(page.locator(sel), sel).toBeVisible();
+});
+
+test('secondary panels start closed', async ({ page }) => {
+  await boot(page);
+  for (const key of ['tool-settings', 'componentsH', 'metadataH', 'libraryActions', 'geometryH', 'measureH', 'solidPreviewH', 'exportPreviewH', 'pvH', 'ctxH', 'ioH']) {
+    const panel = page.locator(`details[data-collapse="${key}"]`);
+    await expect(panel, key).toHaveCount(1);
+    await expect(panel, key).not.toHaveAttribute('open', '');
+  }
+  await expect(page.locator('details.set-settings')).not.toHaveAttribute('open', '');
+  await expect(page.locator('details.shortcut-settings')).not.toHaveAttribute('open', '');
+  await expect(page.locator('[data-collapse="tool-settings"] > summary')).toHaveText(/Anchor cleanup/);
+});
+
+test('stale open state does not override new defaults once', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('gw-panel-measureH', 'open'); });
+  await page.reload(); await page.waitForFunction(() => window.__gw?.ready);
+  const measure = page.locator('details[data-collapse="measureH"]');
+  await expect(measure).not.toHaveAttribute('open', '');
+  await measure.locator(':scope > summary').click();
+  await expect(measure).toHaveAttribute('open', '');
+  await page.reload(); await page.waitForFunction(() => window.__gw?.ready);
+  await expect(measure).toHaveAttribute('open', '');
+});
+
+test('every control is still reachable', async ({ page }) => {
+  await boot(page);
+  const missing = [];
+  for (const sel of REACHABLE) {
+    const control = await revealControl(page, sel);
+    if (!control) missing.push(`${sel}: absent`);
+    else if (!await control.isVisible()) missing.push(`${sel}: hidden`);
+  }
+  expect(missing).toEqual([]);
+});
+
+test('dark previews are dark', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+  await page.locator('details[data-collapse="exportPreviewH"] > summary').click();
+  const art = page.locator('#exportPreview .variant-art').first();
+  await expect(art).toHaveCount(1);
+  const bg = await art.evaluate(e => getComputedStyle(e).backgroundImage + ' ' + getComputedStyle(e).backgroundColor);
+  const bright = [...bg.matchAll(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/g)]
+    .filter(m => m[4] === undefined || Number(m[4]) > 0.5)
+    .map(m => 0.2126 * m[1] + 0.7152 * m[2] + 0.0722 * m[3]).filter(l => l > 128);
+  expect(bright, bg).toEqual([]);
+});
+
+test('no shadows on flat controls', async ({ page }) => {
+  await boot(page);
+  const shadows = await page.evaluate(() => [...document.querySelectorAll('.seg, .seg .btn')].map(e => getComputedStyle(e).boxShadow).filter(s => s !== 'none'));
+  expect(shadows).toEqual([]);
+});
+
+test('library actions live inside the library panel', async ({ page }) => {
+  await boot(page);
+  await expect(page.locator('.library-panel details[data-collapse="libraryActions"]')).toHaveCount(1);
+  for (const id of ['#organizeLibraryBtn', '#findSharedFormsBtn', '#libraryVersionsBtn', '#deleteIconsBtn', '#newLibraryBtn', '#resetLibraryBtn'])
+    await expect(page.locator(`.library-panel ${id}`), id).toHaveCount(1);
+});
+
+test('dialogs never sit inside a closable disclosure', async ({ page }) => {
+  await boot(page);
+  const trapped = await page.evaluate(() => [...document.querySelectorAll('dialog')].filter(d => d.closest('details')).map(d => d.id));
+  expect(trapped).toEqual([]);
+});
+
+test('inspector pane shows the inspector at narrow widths', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await boot(page);
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
+  await expect(page.locator('#insp')).toBeVisible();
+  await expect(page.locator('#tree')).toBeVisible();
+});
+
+test('guided repair still locks the library dialogs', async ({ page }) => {
+  await boot(page);
+  const outside = await page.evaluate(() => ['organizeDialog', 'sharedFormsDialog', 'libraryVersionsDialog'].filter(id => !document.getElementById(id)?.closest('.library-panel')));
+  expect(outside).toEqual([]);
+});

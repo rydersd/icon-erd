@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test';
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
+import {openDisclosures,openDrawingControls} from './helpers.js';
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="libraryActions"]','[data-collapse="ioH"]');await openDrawingControls(page);};
 const screen=async(page,x,y)=>page.evaluate(({x,y})=>{const c=document.querySelector('#canvas'),p=c.createSVGPoint();p.x=x;p.y=y;const q=p.matrixTransform(c.getScreenCTM());return {x:q.x,y:q.y};},{x,y});
 const fixture=async page=>page.evaluate(async()=>{
  const w=window.__gw;await w.importLibraryText(JSON.stringify({name:'merge-fixture',weight:1.2,layers:[{id:'line',paint:'stroke',node:{name:'Bent line',shape:'pen',pts:[{x:1,y:1},{x:4,y:4,in:[-2,0],out:[0.01,0.02]},{x:6,y:6,in:[-0.01,-0.02],out:[0,-3]},{x:12,y:12}]}}]}),'merge.json');w.S.sel=[{l:0,p:[]}];w.setTool('direct');w.S.selectedAnchors=[{selection:{l:0,p:[]},index:1}];w.S.anchor=1;w.refresh(true);
@@ -14,7 +15,7 @@ test('handle hover follows the real hit zone, clears on leave, and optional merg
  const merged=await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts);expect(merged).toHaveLength(3);expect(merged[1].in).toEqual([-2,0]);expect(merged[1].out).toEqual([0,-3]);expect(merged[1].x).toBeCloseTo(6.05,3);expect(merged[1].y).toBeCloseTo(6.025,3);
  await expect(page.locator('#gSel [data-anchor="1"]')).toHaveAttribute('data-point-kind','diamond');
  await page.evaluate(()=>window.__gw.loadGlyph(0));await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.name)).toBe('merge-fixture');expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length)).toBe(4);
- await page.evaluate(()=>window.__gw.flushSaves());await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('#proximityMergeBtn')).toHaveAttribute('aria-pressed','true');await page.locator('#redoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length)).toBe(3);
+ await page.evaluate(()=>window.__gw.flushSaves());await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await openDrawingControls(page);await expect(page.locator('#proximityMergeBtn')).toHaveAttribute('aria-pressed','true');await page.locator('#redoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length)).toBe(3);
  await page.locator('#proximityMergeBtn').click();await page.locator('#undoBtn').click();await page.evaluate(()=>{const w=window.__gw;w.S.sel=[{l:0,p:[]}];w.S.selectedAnchors=[{selection:{l:0,p:[]},index:1}];w.S.anchor=1;w.setTool('direct');w.refresh(true);});
  await page.mouse.move(start.x,start.y);await page.mouse.down();await page.mouse.move(target.x,target.y);await page.mouse.up();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts.length)).toBe(4);
 });

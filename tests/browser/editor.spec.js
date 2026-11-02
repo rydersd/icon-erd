@@ -1,13 +1,14 @@
 import { readLibraryZIP } from '../../src/library-zip.js';
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-const ready = async page => { await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready); };
+import {openDisclosures,openDrawingControls} from './helpers.js';
+const ready = async page => { await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready); await openDisclosures(page,'[data-collapse="libraryActions"]','.set-settings','[data-collapse="metadataH"]','[data-collapse="geometryH"]','[data-collapse="ioH"]','[data-collapse="solidPreviewH"]','[data-collapse="pvH"]'); await openDrawingControls(page); };
 test('fresh launch, Font Awesome controls, remembered library collapse, metadata search and top-right diagnostics', async ({ page }) => {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await ready(page);
   await expect(page.locator('.lib-item')).toHaveCount(4);
   await expect(page.locator('#undoBtn svg path')).toHaveCount(1);
-  await expect(page.locator('.col-right > details').first()).toHaveAttribute('aria-labelledby', 'geometryH');
+  await expect(page.locator('#pane-right [data-collapse="geometryH"]')).toHaveAttribute('aria-labelledby', 'geometryH');
   await page.locator('#iconAliases').fill('suggestion, vote, ballot'); await page.locator('#iconAliases').press('Tab');
   await page.locator('#libSearch').fill('ballot'); await expect(page.locator('.lib-item:visible')).toHaveCount(1);
   await page.locator('#libToggle').click(); await expect(page.locator('#libBody')).toBeHidden();
@@ -35,7 +36,7 @@ test('file import add/replace library, atomic rejection, and single/all download
   await page.locator('#ioText').fill(JSON.stringify([source, { name: 'invalid', layers: [{}] }])); await page.locator('#importBtn').click();
   await expect(page.locator('#status')).toContainText('Import:'); await expect(page.locator('.lib-item')).toHaveCount(1);
   for (const [id, count] of [['expOne', 1], ['expAll', 1]]) {
-    await page.locator('.export-options').evaluate(el=>el.open=true);const downloadPromise = page.waitForEvent('download'); await page.locator(`#${id}`).click(); const download = await downloadPromise;
+    await openDisclosures(page,'.export-options');const downloadPromise = page.waitForEvent('download'); await page.locator(`#${id}`).click(); const download = await downloadPromise;
     const data = JSON.parse(readLibraryZIP(await readFile(await download.path()))); expect(data.count).toBe(count); expect(data.glyphs).toHaveLength(count);
   }
 });
@@ -346,7 +347,7 @@ test('Alt-click defines persistent snap slots and shortcuts can be remapped with
   await ready(page);await page.locator('[data-snap="0.3"]').click({modifiers:['Alt']});
   await page.getByRole('spinbutton',{name:'Custom snap spacing'}).fill('0.2');await page.getByRole('menuitem',{name:'Save snap spacing',exact:true}).click();
   await expect(page.locator('[data-snap="0.2"]')).toHaveAttribute('aria-pressed','true');
-  await page.locator('.shortcut-settings summary').click();
+  await openDisclosures(page,'.shortcut-settings');
   await page.getByRole('textbox',{name:'Selection shortcut',exact:true}).press('a');await expect(page.locator('#status')).toContainText('already assigned');
   await page.getByRole('textbox',{name:'Selection shortcut',exact:true}).press('x');
   await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('[data-snap="0.2"]')).toHaveAttribute('aria-pressed','true');
@@ -361,7 +362,7 @@ test('import originals reset after reload and exported archives retain baselines
   await page.locator('#iconDescription').fill('Edited description');await page.locator('#iconDescription').press('Tab');
   await page.waitForTimeout(400);await page.reload();await page.waitForFunction(()=>window.__gw?.ready);
   await expect(page.locator('#revertBtn')).toBeEnabled();
-  await page.locator('.export-options').evaluate(el=>el.open=true);const pending=page.waitForEvent('download');await page.locator('#expOne').click();const archive=JSON.parse(readLibraryZIP(await readFile(await(await pending).path())));
+  await openDisclosures(page,'.export-options');const pending=page.waitForEvent('download');await page.locator('#expOne').click();const archive=JSON.parse(readLibraryZIP(await readFile(await(await pending).path())));
   expect(archive.originals[0].description).toBeUndefined();expect(archive.glyphs[0].description).toBe('Edited description');
   await page.locator('#revertBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');await page.locator('#undoBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('Edited description');
   await page.locator('#resetLibraryBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');
@@ -408,7 +409,7 @@ test('primary groups organize library and ZIP folders; tags search, collapsed gr
  const section=page.locator('.lib-group[data-group="Navigation/Arrows"]');await section.locator('summary').click();await expect(section).not.toHaveAttribute('open');
  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(section).not.toHaveAttribute('open');await page.locator('#libSearch').fill('table');await expect(section).toHaveAttribute('open');await page.locator('#libSearch').fill('');
  await page.locator('#organizeLibraryBtn').click();await expect(page.locator('#organizeSummary')).toContainText('Navigation/Arrows: 3');await page.locator('#applyOrganizeBtn').click();await expect(page.locator('.lib-group')).toHaveCount(1);await expect(page.locator('#status')).toContainText('Name-based');
- await page.locator('.export-options summary').click();await page.locator('#exportRoot').fill('icons');await page.locator('#exportRoot').press('Tab');
+ await openDisclosures(page,'.export-options');await page.locator('#exportRoot').fill('icons');await page.locator('#exportRoot').press('Tab');
  const pending=page.waitForEvent('download');await page.locator('#expAll').click();const download=await pending;expect(download.suggestedFilename()).toMatch(/\.zip$/);const bytes=await readFile(await download.path());
  const exported=JSON.parse(readLibraryZIP(bytes));expect(exported.glyphs.filter(icon=>icon.group==='Navigation/Arrows')).toHaveLength(4);
  // Import the ZIP through the real picker flow and cancel first: no library mutation.

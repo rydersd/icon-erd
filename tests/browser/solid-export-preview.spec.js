@@ -1,6 +1,7 @@
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
-const setup=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await page.evaluate(async()=>{const w=window.__gw;await w.importLibraryText(JSON.stringify([{name:'barcode-outline',weight:1.6,layers:[{id:'original',name:'Original bars',paint:'fill',visible:false,node:{shape:'rect',x:3,y:3,w:16,h:18}},...[2.4,1.2,2.4].map((width,i)=>({id:`bar-${i}`,name:`Bar ${i+1}`,paint:'stroke',strokeWidth:width,rounding:0,endRounding:.5,node:{shape:'line',x1:4+i*5,y1:4.8,x2:4+i*5,y2:19.2}}))]}]),'barcode.json','replace');});};
+import {openDisclosures} from './helpers.js';
+const setup=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings','[data-collapse="solidPreviewH"]','[data-collapse="pvH"]','[data-collapse="ioH"]');await page.evaluate(async()=>{const w=window.__gw;await w.importLibraryText(JSON.stringify([{name:'barcode-outline',weight:1.6,layers:[{id:'original',name:'Original bars',paint:'fill',visible:false,node:{shape:'rect',x:3,y:3,w:16,h:18}},...[2.4,1.2,2.4].map((width,i)=>({id:`bar-${i}`,name:`Bar ${i+1}`,paint:'stroke',strokeWidth:width,rounding:0,endRounding:.5,node:{shape:'line',x1:4+i*5,y1:4.8,x2:4+i*5,y2:19.2}}))]}]),'barcode.json','replace');});};
 test('barcode solid/export previews preserve bars and approvals, report blockers, and match downloadable SVG',async({page})=>{
  const errors=[];page.on('pageerror',e=>errors.push(e.message));await setup(page);
  await expect(page.locator('#solidPreview svg')).toHaveCount(1);await expect(page.locator('#solidPreview path')).toHaveCount(3);await expect(page.locator('#solidPreview path[stroke]')).toHaveCount(0);

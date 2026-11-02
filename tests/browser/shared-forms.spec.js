@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test';
-const launch=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
+import {openDisclosure} from './helpers.js';
+const launch=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosure(page,'[data-collapse="libraryActions"]');};
 const setup=async page=>page.evaluate(async()=>{
  const make=(name,x)=>({name,grid:24,weight:1.2,layers:[{id:'body',name:'Cloud body',paint:'stroke',node:{name:'Cloud silhouette',shape:'pen',closed:true,pts:[{x,y:4},{x:x+4,y:4},{x:x+4,y:8},{x,y:8}]}}]});
  await window.__gw.importLibraryText(JSON.stringify({glyphs:[make('test-cloud',2),make('test-cloud-rain',12)]}),'components.json');window.__gw.loadGlyph(window.__gw.idx('test-cloud'));

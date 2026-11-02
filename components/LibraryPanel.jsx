@@ -7,7 +7,7 @@ export function LibraryPanel() {
   const [open, setOpen] = useState(true);
   useEffect(() => { try { setOpen(localStorage.getItem('gw-open-lib-open') !== '0'); } catch {} }, []);
   const changeOpen = value => { setOpen(value); try { localStorage.setItem('gw-open-lib-open', value ? '1' : '0'); } catch {} };
-  return (
+  return <>
     <Collapsible.Root className="panel library-panel" open={open} onOpenChange={changeOpen} aria-labelledby="libH">
       <h2 id="libH"><Collapsible.Trigger className="panel-toggle" id="libToggle"><span className="disclosure-arrow" aria-hidden="true">▾</span>Library</Collapsible.Trigger> <span className="h-actions">
         <select id="tplSel" aria-label="Template"><option value="blank">Blank</option><option value="app">App icon</option><option value="document">Document</option><option value="person">Person</option></select>
@@ -20,23 +20,21 @@ export function LibraryPanel() {
         </select>
       </div>
       <div className="lib-meta"><span id="libCount" aria-live="polite"></span><span className="legend" aria-hidden="true"><span><i className="prov-dot" data-p="hand-built"></i>hand</span><span><i className="prov-dot" data-p="converted-stroke"></i>stroke</span><span><i className="prov-dot" data-p="imported-fill"></i>fill</span></span></div>
-      <div className="row lib-organize"><Button className="btn sm" id="organizeLibraryBtn">Suggest groups</Button><Button className="btn sm" id="undoOrganizationBtn" disabled>Undo grouping</Button></div>
-      <dialog id="organizeDialog" className="import-dialog" aria-labelledby="organizeHeading"><h2 id="organizeHeading">Suggested groups</h2><p>Based on icon names, not verified product usage. Only unassigned icons will change.</p><div id="organizeSummary"></div><div className="row"><Button className="btn" id="cancelOrganizeBtn">Cancel</Button><Button className="btn" id="applyOrganizeBtn">Apply groups</Button></div></dialog>
-      <div className="row"><Button className="btn sm" id="findSharedFormsBtn">Find shared forms</Button><span className="lbl">◇ purple long dashes = linked geometry</span></div>
-      <div className="row"><Button className="btn sm" id="insetReviewBtn">Convert fills to outlines</Button></div>
-      <dialog id="sharedFormsDialog" className="import-dialog shared-forms-dialog" aria-labelledby="sharedFormsHeading">
-        <h2 id="sharedFormsHeading">Shared forms</h2><p id="sharedFormsSummary"></p>
-        <input id="sharedFormsSearch" type="search" aria-label="Search shared forms" placeholder="Filter by form or icon name" />
-        <div id="sharedFormsList"></div><Button className="btn" id="closeSharedFormsBtn">Close</Button>
-      </dialog>
-      <div className="row"><Button className="btn sm" id="libraryVersionsBtn">Library versions</Button></div>
-      <dialog id="libraryVersionsDialog" className="import-dialog" aria-labelledby="versionsHeading"><h2 id="versionsHeading">Library versions</h2><p>Named checkpoints include all icons, components, groups and reset originals. Restore saves the current set as a safety version first. Download a ZIP for a backup outside this browser.</p><label htmlFor="versionName">Version name</label><input id="versionName" type="text" placeholder="Before cloud cleanup" /><Button className="btn" id="saveLibraryVersionBtn">Save checkpoint</Button><div id="libraryVersionsList"></div><Button className="btn" id="closeLibraryVersionsBtn">Close</Button></dialog>
-      <div className="lib-selection" aria-label="Library selection">
-        <span id="librarySelectionCount" aria-live="polite">0 selected</span>
+      <span id="librarySelectionCount" className="library-selection-count" aria-live="polite">0 selected</span>
+      <details className="panel-sub lib-actions" data-collapse="libraryActions">
+        <summary>Library actions</summary>
+        <div className="row lib-organize"><Button className="btn sm" id="organizeLibraryBtn">Suggest groups</Button><Button className="btn sm" id="undoOrganizationBtn" disabled>Undo grouping</Button></div>
+        <div className="row"><Button className="btn sm" id="findSharedFormsBtn">Find shared forms</Button><span className="lbl">◇ purple long dashes = linked geometry</span></div>
+        <div className="row"><Button className="btn sm" id="insetReviewBtn">Convert fills to outlines</Button></div>
+        <div className="row"><Button className="btn sm" id="libraryVersionsBtn">Library versions</Button></div>
+        <div className="lib-selection" aria-label="Library selection">
         <Button className="btn sm" id="selectShownIconsBtn">Select shown</Button><Button className="btn sm" id="clearIconSelectionBtn" disabled>Clear</Button>
         <Button className="btn sm" id="deleteIconsBtn" disabled data-icon-ui="delete">Delete selected</Button><Button className="btn sm" id="restoreIconsBtn" disabled>Restore deleted</Button>
         <span className="lbl">⌘/Ctrl-click to toggle · Shift-click for a range</span>
-      </div>
+        </div>
+        <div className="row"><Button className="btn sm" id="newLibraryBtn" title="Start an empty library; the current library is saved in Library versions">New library</Button></div>
+        <div className="row"><Button className="btn sm" id="resetLibraryBtn" title="Restore imported originals; undo restores your edits">Revert library</Button><Button className="btn sm" id="undoLibraryResetBtn" disabled>Undo library revert</Button></div>
+      </details>
       <div className="lib-list" id="lib" aria-label="Glyphs"></div>
       <div className="lib-io">
         <div className="library-transfer-row">
@@ -55,11 +53,17 @@ export function LibraryPanel() {
         </details>
         </div>
 
-        <div className="row"><Button className="btn sm" id="newLibraryBtn" title="Start an empty library; the current library is saved in Library versions">New library</Button></div>
-        <div className="row"><Button className="btn sm" id="resetLibraryBtn" title="Restore imported originals; undo restores your edits">Revert library</Button><Button className="btn sm" id="undoLibraryResetBtn" disabled>Undo library revert</Button></div>
         <input type="file" id="impFile" accept="application/zip,.zip,application/json,.json" hidden />
       </div>
       </Collapsible.Panel>
+      {/* Dialogs stay inside .library-panel (guided-repair lock) but outside any disclosure. */}
+      <dialog id="organizeDialog" className="import-dialog" aria-labelledby="organizeHeading"><h2 id="organizeHeading">Suggested groups</h2><p>Based on icon names, not verified product usage. Only unassigned icons will change.</p><div id="organizeSummary"></div><div className="row"><Button className="btn" id="cancelOrganizeBtn">Cancel</Button><Button className="btn" id="applyOrganizeBtn">Apply groups</Button></div></dialog>
+      <dialog id="sharedFormsDialog" className="import-dialog shared-forms-dialog" aria-labelledby="sharedFormsHeading">
+      <h2 id="sharedFormsHeading">Shared forms</h2><p id="sharedFormsSummary"></p>
+      <input id="sharedFormsSearch" type="search" aria-label="Search shared forms" placeholder="Filter by form or icon name" />
+      <div id="sharedFormsList"></div><Button className="btn" id="closeSharedFormsBtn">Close</Button>
+      </dialog>
+      <dialog id="libraryVersionsDialog" className="import-dialog" aria-labelledby="versionsHeading"><h2 id="versionsHeading">Library versions</h2><p>Named checkpoints include all icons, components, groups and reset originals. Restore saves the current set as a safety version first. Download a ZIP for a backup outside this browser.</p><label htmlFor="versionName">Version name</label><input id="versionName" type="text" placeholder="Before cloud cleanup" /><Button className="btn" id="saveLibraryVersionBtn">Save checkpoint</Button><div id="libraryVersionsList"></div><Button className="btn" id="closeLibraryVersionsBtn">Close</Button></dialog>
     </Collapsible.Root>
-  );
+  </>;
 }

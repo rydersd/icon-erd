@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
+import {openDrawingControls} from './helpers.js';
 for (const finish of ['Return', 'double-click', 'Marquee', 'Lasso']) {
   test(`area object selection requires the whole path/group enclosed and ${finish} keeps selection`, async ({ page }) => {
-    await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready);
+    await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready); await openDrawingControls(page);
     await page.evaluate(async () => {
       const w = window.__gw, line = (x1, y1, x2, y2) => ({ shape: 'line', x1, y1, x2, y2 });
       await w.importLibraryText(JSON.stringify({ name: 'enclosure', layers: [
@@ -71,7 +72,7 @@ for (const scope of ['objects', 'anchors']) for (const finish of ['Return at pre
 }
 
 test('area target is explicit, remembered and independent of the previous arrow tool', async ({ page }) => {
-  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);
+  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDrawingControls(page);
   await page.locator('[data-tool="select"]').click();await page.locator('#areaSelectBtn').click();
   expect(await page.evaluate(()=>window.__gw.S.areaScope)).toBe('anchors');
   await expect(page.locator('#areaSelectBtn')).toHaveAttribute('aria-description','Select anchors');

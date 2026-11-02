@@ -1,8 +1,9 @@
 import {test,expect} from '@playwright/test';
 import {readFile,access} from 'node:fs/promises';
+import {openDisclosures,openDrawingControls} from './helpers.js';
 const screen=async(page,x,y)=>page.evaluate(({x,y})=>{const c=document.querySelector('#canvas'),p=c.createSVGPoint();p.x=x;p.y=y;const q=p.matrixTransform(c.getScreenCTM());return {x:q.x,y:q.y};},{x,y});
 const setup=async(page,node)=>{
-  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);
+  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="geometryH"]');await openDrawingControls(page);
   await page.evaluate(async node=>{const w=window.__gw;await w.importLibraryText(JSON.stringify({name:'source-selection',layers:[{id:'outline',paint:'fill',node}]}),'source.json');w.S.sel=[];w.setTool('direct');w.refresh(true);},node);
   await page.locator('#canvas').scrollIntoViewIfNeeded();
 };

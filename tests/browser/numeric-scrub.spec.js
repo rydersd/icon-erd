@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test';
-const open = async page => {await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);};
+import {openDisclosure} from './helpers.js';
+const open = async page => {await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosure(page,'[data-collapse="tool-settings"]');};
 async function drag(page,label,dx,{shift=false,cancel=false}={}) {
   const b=await label.boundingBox(),x=b.x+5,y=b.y+8;
   await page.mouse.move(x,y);await page.mouse.down();

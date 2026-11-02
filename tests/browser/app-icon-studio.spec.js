@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test';
-const setup=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await page.evaluate(async()=>{const w=window.__gw;await w.importLibraryText(JSON.stringify({name:'app-paint',kind:'app-icon',exportSize:1024,layers:[{id:'background',paint:'fill',node:{shape:'rect',x:2,y:2,w:20,h:20}}]}),'app.json');});};
+import {openDisclosure} from './helpers.js';
+const setup=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosure(page,'[data-collapse="ioH"]');await page.evaluate(async()=>{const w=window.__gw;await w.importLibraryText(JSON.stringify({name:'app-paint',kind:'app-icon',exportSize:1024,layers:[{id:'background',paint:'fill',node:{shape:'rect',x:2,y:2,w:20,h:20}}]}),'app.json');});};
 test('app studio linear/radial gradients agree across canvas, previews, SVG, Undo and saved documents',async({page})=>{
  await setup(page);await page.getByLabel('App icon fill type',{exact:true}).selectOption('linear');
  await expect(page.locator('#gLayers linearGradient')).toHaveCount(1);await expect(page.locator('#pvLight linearGradient')).toHaveCount(6);
