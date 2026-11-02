@@ -5,7 +5,8 @@ const strictVisible = 'e=>e.checkVisibility({contentVisibilityAuto:true,opacityP
 
 // Every control reachable on main (2026-10-31 inventory, static shell markup), by id or by data hook.
 const REACHABLE = ['#drawingMode','#exportSize','#revertBtn','#undoBtn','#redoBtn','#appearanceToggle','#cleanupTolerance','#mergeDistance','#cleanupSelectedBtn','#libToggle','#tplSel','#newBtn','#libSearch','#libFilter','#organizeLibraryBtn','#undoOrganizationBtn','#findSharedFormsBtn','#insetReviewBtn','#libraryVersionsBtn','#selectShownIconsBtn','#clearIconSelectionBtn','#deleteIconsBtn','#restoreIconsBtn','#impFileBtn','#exportStructure','#exportRoot','#exportSVGs','#exportPNGs','#expOne','#expEdited','#expAll','#newLibraryBtn','#resetLibraryBtn','#undoLibraryResetBtn','#libraryPropertiesMenuBtn','#setThicknessEnabled','#setThickness','#opticalSizeEnabled','#opticalCurve','#setRoundingEnabled','#setRounding','#setEndRoundingEnabled','#setEndRounding','#libraryVariant','#libraryFamilyView','#libraryColorMode','#libraryFillColor','#libraryStrokeColor','#libraryAccentColor','#libraryUseColorTokens','#libraryFillToken','#libraryStrokeToken','#libraryAccentToken','#testSolidVariantsBtn','#libraryOutputProfile','#libraryOutputSizes','#resetShortcuts','#addLayerBtn','#ungroupBtn','#makeCutterBtn','#upBtn','#downBtn','#dupBtn','#delBtn','#areaSelectBtn','#areaSelectToggle','#proximityMergeBtn','#symScope','#showToggle','#zoomOut','#zoomFit','#zoomIn','#iconDescription','#iconGroup','#iconTags','#iconAliases','#solidTreatment','#approvePreviewSolid','#wRange','#iconThicknessOverride','#iconThickness','#hintBtn','#rtlBtn','#swSecL','#swSecD','#swAccL','#swAccD','#expJson','#expSvg','#expBaked','#downloadSvg','#downloadPng','#copyBtn','#importBtn','#ioText',
-  '[data-tool="select"]','[data-tool="direct"]','[data-tool="pen"]','[data-hmode="shape"]','[data-hmode="transform"]','#canvasOptions [data-group="union"]','.tree-tools [data-group="union"]','[data-snap="0.1"]','[data-mirror="x"]','[data-rot="4"]','[data-cap="round"]','[data-join="miter"]','[data-cleanup-tolerance="0.1"]','[data-theme-choice="dark"]'];
+  '[data-tool="select"]','[data-tool="direct"]','[data-tool="pen"]','[data-hmode="shape"]','[data-hmode="transform"]','[data-snap="0.1"]','[data-snap="0.3"]','[data-snap="0.5"]','[data-snap="0"]','[data-mirror="x"]','[data-mirror="y"]','[data-rot="1"]','[data-rot="2"]','[data-rot="4"]','[data-rot="6"]','[data-rot="8"]','[data-rot="12"]','[data-cap="round"]','[data-cap="butt"]','[data-cap="square"]','[data-join="round"]','[data-join="miter"]','[data-join="bevel"]','[data-cleanup-tolerance="0.03"]','[data-cleanup-tolerance="0.1"]','[data-cleanup-tolerance="0.25"]','[data-cleanup-tolerance="0.5"]','[data-cleanup-tolerance="1"]','[data-cleanup-tolerance="5"]','[data-theme-choice="light"]','[data-theme-choice="dark"]','#canvasOptions [data-group="union"]','#canvasOptions [data-group="subtract"]','#canvasOptions [data-group="intersect"]','#canvasOptions [data-group="exclude"]','.tree-tools [data-group="union"]','.tree-tools [data-group="subtract"]','.tree-tools [data-group="intersect"]','.tree-tools [data-group="exclude"]'];
+// Excluded on purpose: #useLibraryEndRounding (shown only for a layer with its own end radius), controls inside dialogs and floating menus, and rows generated into #lib, #tree, #insp, #appIconStudio.
 
 test('first screen shows at most 60 controls', async ({ page }) => {
   await boot(page);
@@ -32,8 +33,9 @@ test('layers and inspector sit in the right column', async ({ page }) => {
   for (const sel of ['#tree', '#insp', '#pane-details']) await expect(page.locator(`#pane-right ${sel}`)).toHaveCount(1);
   await expect(page.locator('.col-left #tree')).toHaveCount(0);
   await expect(page.locator('.col-centre #insp')).toHaveCount(0);
-  await expect(page.locator('.col-centre > .panel')).toHaveCount(1);
-  await expect(page.locator('.col-centre > .panel #canvas')).toHaveCount(1);
+  await expect(page.locator('.col-centre .panel')).toHaveCount(1);
+  await expect(page.locator('.col-centre .panel #canvas')).toHaveCount(1);
+  for (const sel of ['#libBody', '#tree', '#insp']) await expect(page.locator(sel), sel).toBeVisible();
 });
 
 test('secondary panels start closed', async ({ page }) => {
@@ -84,11 +86,35 @@ test('dark previews are dark', async ({ page }) => {
   const art = page.locator('#exportPreview .variant-art').first();
   await expect(art).toHaveCount(1);
   const bg = await art.evaluate(e => getComputedStyle(e).backgroundImage + ' ' + getComputedStyle(e).backgroundColor);
-  expect(bg).not.toContain('rgb(255, 255, 255)');
+  const bright = [...bg.matchAll(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/g)]
+    .filter(m => m[4] === undefined || Number(m[4]) > 0.5)
+    .map(m => 0.2126 * m[1] + 0.7152 * m[2] + 0.0722 * m[3]).filter(l => l > 128);
+  expect(bright, bg).toEqual([]);
 });
 
 test('no shadows on flat controls', async ({ page }) => {
   await boot(page);
   const shadows = await page.evaluate(() => [...document.querySelectorAll('.seg, .seg .btn')].map(e => getComputedStyle(e).boxShadow).filter(s => s !== 'none'));
   expect(shadows).toEqual([]);
+});
+
+test('library actions live inside the library panel', async ({ page }) => {
+  await boot(page);
+  await expect(page.locator('.library-panel details[data-collapse="libraryActions"]')).toHaveCount(1);
+  for (const id of ['#organizeLibraryBtn', '#findSharedFormsBtn', '#libraryVersionsBtn', '#deleteIconsBtn', '#newLibraryBtn', '#resetLibraryBtn'])
+    await expect(page.locator(`.library-panel ${id}`), id).toHaveCount(1);
+});
+
+test('dialogs never sit inside a closable disclosure', async ({ page }) => {
+  await boot(page);
+  const trapped = await page.evaluate(() => [...document.querySelectorAll('dialog')].filter(d => d.closest('details')).map(d => d.id));
+  expect(trapped).toEqual([]);
+});
+
+test('inspector pane shows the inspector at narrow widths', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await boot(page);
+  await page.getByRole('button', { name: 'Inspector', exact: true }).click();
+  await expect(page.locator('#insp')).toBeVisible();
+  await expect(page.locator('#tree')).toBeVisible();
 });
