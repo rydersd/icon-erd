@@ -361,7 +361,7 @@ textarea { height: auto; padding: 6px; width: 100%; resize: vertical; font-famil
 
 .control-tooltip { position: fixed; z-index: 1000; max-width: min(300px, calc(100vw - 16px)); padding: 6px 9px; color: var(--text); background: var(--panel); border: 1px solid var(--border-strong); border-radius: 4px; box-shadow: 0 2px 8px rgb(0 0 0 / 18%); font-size: 12px; line-height: 1.4; pointer-events: auto; }
 .control-tooltip[hidden] { display: none; }
-.seg [data-tool], .seg [data-group] { width: 28px; height: 28px; }
+.seg [data-tool] { width: 28px; height: 28px; }
 .combine [data-combine] { width: 28px; height: 28px; }
 
 .item-menu button:disabled { opacity: .45; cursor: default; }

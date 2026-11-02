@@ -35,5 +35,9 @@ export function mountControlTooltips(root, listen) {
   // Keyboard focus can scroll the toolbar into view after its focus event.
   // Keep that tooltip attached to the focused control at its new position.
   listen(document, 'scroll', () => { if(owner === document.activeElement)show(owner);else hide(); }, {capture:true});
-  return { bind: button => attach(button, (target, event, handler) => target.addEventListener(event, handler)) };
+  return {
+    bind: button => attach(button, (target, event, handler) => target.addEventListener(event, handler)),
+    // A rebuilt container drops its buttons without mouseleave or blur; close a tooltip that belongs to it.
+    release: container => { if (owner && container.contains(owner)) hide(); },
+  };
 }

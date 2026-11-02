@@ -86,3 +86,17 @@ test('one visible boolean set', async ({ page }) => {
   const visible = await page.locator('button:visible').evaluateAll(bs => bs.filter(b => ['Union', 'Subtract', 'Intersect', 'Exclude'].includes(b.getAttribute('aria-label'))).map(b => b.closest('#insp') ? 'insp' : 'other'));
   expect(visible).toEqual(['insp', 'insp', 'insp', 'insp']);
 });
+
+test('combine tooltips show and do not outlive a rebuild', async ({ page }) => {
+  await pair(page);
+  await page.locator('#insp [data-combine="union"]').hover();
+  await expect(page.getByRole('tooltip')).toHaveText('Union (⌘G, Group)');
+  await page.locator('#canvas').press('ControlOrMeta+g');
+  await expect(page.locator('#insp [data-combine]')).toHaveCount(0);
+  await expect(page.getByRole('tooltip')).toBeHidden();
+});
+
+test('a blocked combine is described for assistive tech', async ({ page }) => {
+  await boot(page, [{ id: 'a', name: 'Art', paint: 'fill', node: { op: 'union', children: [A, B] } }], [{ l: 0, p: null }, { l: 0, p: [0] }]);
+  await expect(combine(page)).toHaveAccessibleDescription('Layers cannot join a Boolean; select forms only.');
+});

@@ -2568,7 +2568,7 @@ const COMBINE_OPS = [['union', 'Union', 'Union (⌘G, Group)'], ['subtract', 'Su
 function combineSection(g) {
   const nodes = S.sel.filter(s => s.p !== null);
   // Layer rows cannot join a Boolean; group() would silently drop them.
-  const blocked = nodes.length === S.sel.length ? combineBlocker(nodes) : 'Booleans need siblings in the same layer and group.';
+  const blocked = nodes.length === S.sel.length ? combineBlocker(nodes) : 'Layers cannot join a Boolean; select forms only.';
   const box = document.createElement('div'); box.className = 'combine wide'; box.setAttribute('role', 'group'); box.setAttribute('aria-label', 'Combine');
   const ops = document.createElement('div'); ops.className = 'seg';
   for (const [op, name, tip] of COMBINE_OPS) {
@@ -2578,7 +2578,7 @@ function combineSection(g) {
   box.append(ops, smallBtn('Delete', del, 'Delete (⌫)', 'delete'));
   sub(g, 'Combine');
   g.appendChild(box);
-  if (blocked) { const p = document.createElement('p'); p.className = 'wide lbl combine-blocked'; p.textContent = blocked; g.appendChild(p); }
+  if (blocked) { const p = document.createElement('p'); p.className = 'wide lbl combine-blocked'; p.id = 'combineBlocked'; p.textContent = blocked; g.appendChild(p); box.setAttribute('aria-describedby', p.id); }
 }
 const DEF_FIELDS = { taper: ['top', 'bottom', 'left', 'right'], skew: ['x', 'y'], round: ['r'], offset: ['d'] };
 function transformSection(g, n) {
@@ -2749,6 +2749,7 @@ function renderInspector() {
   const box = $('insp');
   // details.open changes on click; its toggle event is queued, so read the state before discarding the node.
   const shownData = box.querySelector('details.edit-as-data'); if (shownData) editAsDataOpen = shownData.open;
+  controlTooltips.release(box);
   box.innerHTML = '';
   const g = document.createElement('div'); g.className = 'insp'; box.appendChild(g);
   const s = primarySel();
