@@ -32,7 +32,7 @@ test('scrubbing a document label makes one undoable edit, including dynamic stud
 });
 test('inspector scrubs preview live, cancel without history, and commit once',async({page})=>{
   await open(page);await page.locator('#canvas').press('Escape');
-  const label=page.locator('#insp label').filter({has:page.locator('span', {hasText:'weight (standard)'})});
+  const label=page.locator('#insp label').filter({has:page.locator('span', {hasText:'base weight (no library)'})});
   const original=await page.evaluate(()=>({weight:window.__gw.S.glyph.weight,undo:window.__gw.S.undo.length}));
   const b=await label.boundingBox();await page.mouse.move(b.x+5,b.y+8);await page.mouse.down();await page.mouse.move(b.x+45,b.y+8,{steps:4});
   expect(await page.evaluate(()=>window.__gw.S.glyph.weight)).toBeCloseTo(original.weight+1);

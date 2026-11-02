@@ -72,6 +72,11 @@ header.bar .spacer { flex: 1; }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; min-width: 0; }
 .panel > h2 { font-size: 12px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--text); margin: 0; padding: 8px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 4px; }
 .panel > h2 .h-actions { margin-left: auto; display: flex; gap: 4px; text-transform: none; letter-spacing: 0; }
+.icon-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; padding: 8px 10px; }
+.icon-field { display: grid; gap: 2px; min-width: 0; font-size: 12px; }
+.icon-field input, .icon-field select { width: 100%; }
+.icon-check { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.icon-fields .size-source, .icon-fields .stroke-source { grid-column: 1 / -1; margin: -4px 0 0; color: var(--text-2); }
 .responsive-pane-controls, .btn.pane-backdrop, .btn.pane-close { display: none; }
 .btn.canvas-options-toggle { display: inline-flex; }
 .canvas-options-content { display: none; flex-wrap: wrap; gap: 8px 12px; padding-top: 8px; }

@@ -25,8 +25,8 @@ test('Pen endpoint closing highlight uses the same hit distance as closing, and 
  for(const [x,y]of [[4,4],[12,4],[12,12]]){const p=await point(x,y);await page.mouse.click(p.x,p.y);}const start=await point(4,4);await page.mouse.move(start.x+5,start.y);await expect(page.locator('[data-close-preview]')).toHaveCount(1);await page.mouse.move(start.x+20,start.y);await expect(page.locator('[data-close-preview]')).toHaveCount(0);await page.mouse.move(start.x,start.y);await expect(page.locator('[data-close-preview]')).toHaveCount(1);await page.mouse.click(start.x,start.y);expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.children[0].closed)).toBe(true);await expect(page.locator('[data-close-preview]')).toHaveCount(0);
 });
 test('gradients appear only in App icon mode, switching opens their panel, including compact UI',async({page})=>{
- await ready(page);await expect(page.locator('#appIconStudio')).toBeHidden();await page.setViewportSize({width:700,height:900});await page.locator('#drawingMode').selectOption('app-icon');await expect(page.getByLabel('App icon fill type',{exact:true})).toBeVisible();await page.getByLabel('App icon fill type',{exact:true}).selectOption('linear');await expect(page.locator('#gLayers linearGradient')).toHaveCount(1);
- await page.locator('#drawingMode').selectOption('interface');await expect(page.locator('#appIconStudio')).toBeHidden();
+ await ready(page);await expect(page.locator('#appIconStudio')).toBeHidden();await page.setViewportSize({width:700,height:900});await page.getByRole('button',{name:'Inspector',exact:true}).click();await page.locator('#drawingMode').selectOption('app-icon');await expect(page.getByLabel('App icon fill type',{exact:true})).toBeVisible();await page.getByLabel('App icon fill type',{exact:true}).selectOption('linear');await expect(page.locator('#gLayers linearGradient')).toHaveCount(1);
+ await page.getByRole('button',{name:'Inspector',exact:true}).click();await page.locator('#drawingMode').selectOption('interface');await expect(page.locator('#appIconStudio')).toBeHidden();
 });
 
 test('a corrected candidate stays visible in Problems only until it is applied',async({page})=>{
