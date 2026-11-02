@@ -41,8 +41,6 @@ export function WorkbenchShell() {
     {[['left', 'Library'], ['right', 'Inspector']].map(([pane, label]) => <Button key={pane} className="btn sm" aria-controls={`pane-${pane}`} aria-expanded={openPane === pane} onClick={event => { paneTrigger.current = event.currentTarget; setOpenPane(openPane === pane ? null : pane); }}>{label}</Button>)}
   </div>
   <span className="spacer"></span>
-  <label className="lbl" htmlFor="drawingMode">Drawing mode</label><select id="drawingMode" defaultValue="interface"><option value="interface">Interface icons</option><option value="app-icon">App icons</option></select>
-  <label className="lbl" htmlFor="exportSize">Export px</label><input id="exportSize" type="number" min="16" max="4096" step="1" defaultValue="24" />
   <span className="lbl" id="modeHint"></span>
   <span className="save-state" id="saveState" role="status" aria-live="polite" data-state="saved">Saved</span>
   <Button className="btn sm" id="revertBtn" title="Put this glyph back to its library original (undo brings your edit back)" data-icon-ui="undo">Revert icon</Button>
@@ -211,6 +209,17 @@ export function WorkbenchShell() {
       </div>
     </section>
     <div className="canvas-details" id="pane-details">
+      <section className="panel icon-section" aria-labelledby="iconSectionH">
+        <h2 id="iconSectionH">Icon</h2>
+        <div className="icon-fields">
+          <label className="icon-field" htmlFor="drawingMode">Kind<select id="drawingMode" defaultValue="interface"><option value="interface">Interface icons</option><option value="app-icon">App icons</option></select></label>
+          <label className="icon-field" htmlFor="exportSize">Output size<input id="exportSize" type="number" min="16" max="4096" step="1" defaultValue="24" aria-describedby="sizeSource" /></label>
+          <p className="lbl size-source" id="sizeSource" hidden></p>
+          <label className="icon-check" htmlFor="iconThicknessOverride">Override<input id="iconThicknessOverride" type="checkbox" aria-describedby="strokeSource" /></label>
+          <label className="icon-field" htmlFor="iconThickness">Stroke weight<input id="iconThickness" type="number" min="0.1" max="8" step="0.1" defaultValue="1.2" aria-describedby="strokeSource" /></label>
+          <p className="lbl stroke-source" id="strokeSource" aria-live="polite"></p>
+        </div>
+      </section>
       <section className="panel" aria-labelledby="inspH">
         <h2 id="inspH">Inspector <span className="h-actions mono" id="inspPath"></span></h2>
         <div id="insp"></div>
@@ -268,7 +277,6 @@ export function WorkbenchShell() {
       </div>
       <div className="ctrls">
         <div className="ctrl"><label className="lbl" htmlFor="wRange">Weight</label><input type="range" id="wRange" min="0.8" max="2" step="0.1" /><span className="num" id="wVal"></span></div>
-        <div className="row"><label><input id="iconThicknessOverride" type="checkbox" /> Override library thickness for this icon</label><input id="iconThickness" aria-label="Icon thickness" type="number" min="0.1" max="8" step="0.1" defaultValue="1.2" /></div>
         <div className="warn" id="wWarn" hidden>2.0 and heavier: small counters start to close at 12–16px.</div>
         <div className="ctrl"><span className="lbl">Linecap</span><div className="seg" role="group" aria-label="Linecap" id="capSeg"><Button className="btn sm" data-cap="round">Round</Button><Button className="btn sm" data-cap="butt">Butt</Button><Button className="btn sm" data-cap="square">Square</Button></div><span></span></div>
         <div className="ctrl"><span className="lbl">Linejoin</span><div className="seg" role="group" aria-label="Linejoin" id="joinSeg"><Button className="btn sm" data-join="round">Round</Button><Button className="btn sm" data-join="miter">Miter</Button><Button className="btn sm" data-join="bevel">Bevel</Button></div><span></span></div>

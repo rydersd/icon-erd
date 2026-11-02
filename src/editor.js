@@ -2668,8 +2668,7 @@ function renderInspector() {
   if (!s) {
     const G = S.glyph;
     field(g, 'name', G.name, v => { G.name = v; }, { text: true, mono: true, wide: true });
-    field(g, 'weight (standard)', G.weight, v => { G.weight = v; S.rt.weight = strokeWeight(G); }, { step: 0.1 });
-    if(G.strokeOverride!=null)field(g,'stroke override',G.strokeOverride,v=>{G.strokeOverride=v;if(G.insetConversion)G.insetConversion.stroke=v;S.rt.weight=v;},{min:.1,max:8,step:.1});
+    field(g, 'base weight (no library)', G.weight, v => { G.weight = v; S.rt.weight = strokeWeight(G); }, { step: 0.1 });
     field(g, 'grid', G.grid, v => { G.grid = v; }, { step: 0.1 });
     sub(g, 'Symmetry (glyph)');
     symSection(g, G);
@@ -2874,8 +2873,6 @@ function renderPreviews() {
   $('ctx').classList.toggle('rtl', S.rt.rtl);
   $('wRange').min=S.glyph.strokeOverride!=null?.1:.8;$('wRange').max=S.glyph.strokeOverride!=null?8:2;
   $('wVal').textContent = S.rt.weight.toFixed(1); $('wRange').value = S.rt.weight;
-  $('iconThicknessOverride').checked=S.glyph.strokeOverride!=null;$('iconThicknessOverride').disabled=!!guidedRepair?.active||!S.lib.length;
-  $('iconThickness').disabled=S.glyph.strokeOverride==null||!!guidedRepair?.active;if(document.activeElement!==$('iconThickness'))$('iconThickness').value=strokeWeight(S.glyph);
   $('wWarn').hidden = S.rt.weight < 2.0;
 }
 
@@ -3143,6 +3140,32 @@ function updateGlyphTags() {
 }
 
 // ---------- refresh ----------
+function displayIconValue(value) {
+  return Number(value).toFixed(2).replace(/\.?0+$/, '');
+}
+function renderIconSection(output) {
+  const override = S.glyph.strokeOverride != null;
+  const thickness = S.libraryProperties ? tokenStyle(S.libraryProperties).thickness : null;
+  const source = root.querySelector('.stroke-source');
+  // Without an override, an icon may carry the library style itself (imported setStyle); with one, setStyle holds the override copy.
+  const styled = thickness == null && !override && S.glyph.setStyle?.thickness != null;
+  const fromLibrary = thickness != null || styled;
+  const base = thickness != null ? thickness : styled ? S.glyph.setStyle.thickness : (S.glyph.weight ?? 1.2);
+  const prefix = override ? `Overrides ${fromLibrary ? 'library' : 'icon base'}` : (fromLibrary ? 'Library' : 'Icon base');
+  source.textContent = `${prefix} ${displayIconValue(base)}`;
+  const overrideControl = $('iconThicknessOverride');
+  const thicknessControl = $('iconThickness');
+  overrideControl.checked = override;
+  overrideControl.disabled = !!guidedRepair?.active || !S.lib.length;
+  thicknessControl.disabled = !override || !!guidedRepair?.active;
+  if (document.activeElement !== thicknessControl) thicknessControl.value = strokeWeight(S.glyph);
+  const sizeSource = root.querySelector('.size-source');
+  sizeSource.hidden = !output;
+  if (output) {
+    const profileLabel = $('libraryOutputProfile').selectedOptions[0]?.textContent || OUTPUT_PROFILES[output.profile].label;
+    sizeSource.textContent = `From library output: ${profileLabel}, ${$('exportSize').value} px`;
+  }
+}
 function refresh(full) {
   S.resolved = core.resolve(S.glyph,S.rt);
   const errs = S.resolved.filter(r => r.error);
@@ -3165,6 +3188,7 @@ function refresh(full) {
   const output=S.libraryProperties?.output;
   $('exportSize').value=output ? (output.profile==='custom'?output.sizes.at(-1):OUTPUT_PROFILES[output.profile].size) : S.glyph.exportSize || (S.glyph.kind==='app-icon'?1024:24);
   $('exportSize').disabled=!!output;$('exportSize').title=output?'Managed by Library properties → Output target':'';
+  renderIconSection(output);
   $('modeHint').textContent = S.glyph.kind === 'app-icon' ? 'App icon · 24-unit canvas · scalable export' : 'Interface icon · 24-unit canvas';
   if (document.activeElement !== $('iconDescription')) $('iconDescription').value = S.glyph.description || '';
   if (document.activeElement !== $('iconGroup')) $('iconGroup').value = S.glyph.group || '';
@@ -3285,7 +3309,8 @@ $('iconThicknessOverride').onchange=()=>{
   if($('iconThicknessOverride').checked)setIconThickness(strokeWeight(S.glyph));
   else {delete S.glyph.strokeOverride;if(S.glyph.insetConversion)S.glyph.insetConversion.strokeBinding='library';if(S.libraryProperties)S.glyph.setStyle=libraryStyle(S.glyph,tokenStyle(S.libraryProperties));else if(S.glyph.setStyle)S.glyph.setStyle.thickness=S.glyph.weight;S.rt.weight=strokeWeight(S.glyph);commit();refresh(true);status('Icon thickness follows the library.');}
 };
-$('iconThickness').onchange=()=>{const input=$('iconThickness');if(!input.checkValidity()||!Number.isFinite(input.valueAsNumber)){input.value=strokeWeight(S.glyph);return;}setIconThickness(input.valueAsNumber);};
+$('iconThickness').oninput=()=>{const input=$('iconThickness');if(S.glyph.strokeOverride==null||!input.checkValidity()||!Number.isFinite(input.valueAsNumber))return;S.rt.weight=input.valueAsNumber;S.resolved=core.resolve(S.glyph,S.rt);renderCanvas();renderPreviews();};
+$('iconThickness').onchange=()=>{const input=$('iconThickness');if(!input.checkValidity()||!Number.isFinite(input.valueAsNumber)){S.rt.weight=strokeWeight(S.glyph);input.value=S.rt.weight;refresh(false);return;}setIconThickness(input.valueAsNumber);};
 $('wRange').onchange=()=>{if(S.glyph.strokeOverride!=null&&!guidedRepair?.active)setIconThickness(S.rt.weight);};
 root.querySelectorAll('[data-cap]').forEach(b => b.onclick = () => { const selected=primarySel(),layer=selected&&layerOf(selected);if(layer?.strokeWidth!=null&&layer.paint!=='fill'){layer.strokeCap=b.dataset.cap;layer.endRounding=0;commit();refresh(true);return;} S.rt.cap = b.dataset.cap;if(guidedRepair?.active||S.glyph.strokeCap!=null){S.glyph.strokeCap=S.rt.cap;commit();} refresh(false); });
 root.querySelectorAll('[data-join]').forEach(b => b.onclick = () => { const selected=primarySel(),layer=selected&&layerOf(selected);if(layer?.strokeWidth!=null&&layer.paint!=='fill'){layer.strokeJoin=b.dataset.join;layer.rounding=0;commit();refresh(true);return;} S.rt.join = b.dataset.join;if(guidedRepair?.active||S.glyph.strokeJoin!=null){S.glyph.strokeJoin=S.rt.join;commit();} refresh(false); });

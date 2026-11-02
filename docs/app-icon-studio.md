@@ -1,6 +1,6 @@
 # App-icon paint foundation
 
-Choose App icons in Drawing mode to reveal the App icon Fill and Bitmap reference panels on the left. This foundation shares the existing geometry, library history and export pipeline; it does not introduce a separate document.
+Choose App icons under Kind in the Icon section to reveal the App icon Fill and Bitmap reference panels on the left. This foundation shares the existing geometry, library history and export pipeline; it does not introduce a separate document.
 
 ## Gradient fills
 
