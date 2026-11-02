@@ -61,3 +61,9 @@ test('simplify open state persists', async ({ page }) => {
   await page.reload(); await page.waitForFunction(() => window.__gw?.ready);
   await expect(simplify(page)).toHaveAttribute('open', '');
 });
+
+test('the simplify action has one name', async ({ page }) => {
+  await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready);
+  await expect(page.locator('#cleanupSelectedBtn')).toHaveText('Simplify selected anchors');
+  await expect(page.locator('details.tool-settings > summary')).toHaveText(/Simplify/);
+});
