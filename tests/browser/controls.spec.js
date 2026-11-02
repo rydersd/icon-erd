@@ -7,7 +7,9 @@ test('icon tools and Boolean actions have names, hover/focus tooltips, Escape di
  for(const name of ['Select','Direct selection','Pen']) {
   const button=tool.getByRole('button',{name,exact:true});await expect(button).toHaveText('');await expect(button.locator('svg')).toHaveCount(1);
  }
- const booleans=page.getByRole('group',{name:'Boolean on selection',exact:true});
+ // UX-02c (owner Q1 A, 2026-11-02): the Boolean set lives in the Inspector's Combine group for two or more forms.
+ await page.evaluate(async()=>{const w=window.__gw;await w.importLibraryText(JSON.stringify([{name:'pair',layers:[{id:'a',paint:'fill',node:{op:'union',children:[{shape:'rect',x:4,y:4,w:8,h:8},{shape:'circle',cx:14,cy:14,r:4}]}}]}]),'p.json','replace');w.loadGlyph(0);w.S.sel=[{l:0,p:[0]},{l:0,p:[1]}];w.refresh(true);});
+ const booleans=page.locator('#insp').getByRole('group',{name:'Combine',exact:true});
  const paths=[];
  for(const name of ['Union','Subtract','Intersect','Exclude']) {
   const button=booleans.getByRole('button',{name,exact:true});await expect(button).toHaveText('');
