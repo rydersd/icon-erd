@@ -40,7 +40,7 @@ test('simplify follows the anchor selection', async ({ page }) => {
   await setup(page);
   await openDisclosure(page, '[data-collapse="tool-settings"]');
   await expect(page.locator('#cleanupSelectedBtn')).toBeDisabled();
-  await expect(page.locator('#cleanupSelectionHint')).toHaveText(/^Select anchors to clean up/);
+  await expect(page.locator('#cleanupSelectionHint')).toHaveText(/^Select anchors to simplify/);
   await page.locator('#canvas').press('ControlOrMeta+a');
   await expect(page.locator('#cleanupSelectedBtn')).toBeEnabled();
   await expect(page.locator('#cleanupSelectionHint')).toHaveText(/^4 selected anchors/);
@@ -60,4 +60,10 @@ test('simplify open state persists', async ({ page }) => {
   await openDisclosure(page, '[data-collapse="tool-settings"]');
   await page.reload(); await page.waitForFunction(() => window.__gw?.ready);
   await expect(simplify(page)).toHaveAttribute('open', '');
+});
+
+test('the simplify action has one name', async ({ page }) => {
+  await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready);
+  await expect(page.locator('#cleanupSelectedBtn')).toHaveText('Simplify selected anchors');
+  await expect(page.locator('details.tool-settings > summary')).toHaveText(/Simplify/);
 });
