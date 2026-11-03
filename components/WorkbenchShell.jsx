@@ -133,8 +133,6 @@ export function WorkbenchShell() {
         <div className="canvas-options" data-expanded="false">
         <Button className="btn sm canvas-options-toggle" aria-expanded="false" aria-controls="canvasOptions" onClick={event => { const expanded = event.currentTarget.getAttribute('aria-expanded') !== 'true'; event.currentTarget.setAttribute('aria-expanded', String(expanded)); event.currentTarget.parentElement.dataset.expanded = String(expanded); }}><span className="disclosure-arrow" aria-hidden="true">▾</span>Drawing controls</Button>
         <div id="canvasOptions" className="canvas-options-content">
-        <div className="row"><span className="lbl">Boolean</span>
-          <div className="seg" role="group" aria-label="Boolean on selection"><Button className="btn sm icon" data-group="union" aria-label="Union" data-control-tooltip="Union: combine selected shapes" title="Union selection (⌘G)" data-icon-ui="union"></Button><Button className="btn sm icon" data-group="subtract" aria-label="Subtract" data-control-tooltip="Subtract: first shape minus the rest" title="First minus the rest: later children become cutters" data-icon-ui="subtract"></Button><Button className="btn sm icon" data-group="intersect" aria-label="Intersect" data-control-tooltip="Intersect: keep only the overlap" data-icon-ui="intersect"></Button><Button className="btn sm icon" data-group="exclude" aria-label="Exclude" data-control-tooltip="Exclude: remove the overlap" data-icon-ui="exclude"></Button></div></div>
         <div className="row"><span className="lbl">Snap</span>
           <div className="seg" role="group" aria-label="Snap step" id="snapSeg">
             <Button className="btn sm" data-snap="0.1">0.1</Button><Button className="btn sm" data-snap="0.3">0.3</Button><Button className="btn sm" data-snap="0.5">0.5</Button><Button className="btn sm" data-snap="0">off</Button>
@@ -196,10 +194,6 @@ export function WorkbenchShell() {
       <h2 id="treeH">Layers <span className="h-actions"><Button className="btn sm" id="addLayerBtn" aria-label="Add layer" data-icon-ui="plus-outline">Layer</Button></span></h2>
       <div className="tree" id="tree" role="tree" aria-label="Layers and booleans"></div>
       <div className="tree-tools">
-        <Button className="btn sm icon" data-group="union" aria-label="Union" data-control-tooltip="Union: combine selected shapes" title="Group selection into union (⌘G)" data-icon-ui="union"></Button>
-        <Button className="btn sm icon" data-group="subtract" aria-label="Subtract" data-control-tooltip="Subtract: first shape minus the rest: later children become cutters" title="First minus the rest: later children become cutters" data-icon-ui="subtract"></Button>
-        <Button className="btn sm icon" data-group="intersect" aria-label="Intersect" data-control-tooltip="Intersect: keep only the overlap" data-icon-ui="intersect"></Button>
-        <Button className="btn sm icon" data-group="exclude" aria-label="Exclude" data-control-tooltip="Exclude: remove the overlap" data-icon-ui="exclude"></Button>
         <Button className="btn sm" id="ungroupBtn" data-icon-ui="ungroup">Ungroup</Button>
         <Button className="btn sm" id="makeCutterBtn" data-icon-ui="cutter">Use as cutter</Button>
         <Button className="btn sm icon" id="upBtn" title="Move up" aria-label="Move up" data-icon-ui="up"></Button>

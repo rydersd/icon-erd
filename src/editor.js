@@ -51,7 +51,7 @@ let opticalPending=false;
 let guidedRepair=null,repairContext=null;
 const listen = (target, event, handler, options = {}) => target.addEventListener(event, handler, { ...options, signal: abort.signal });
 const core = createGlyphCore(paper);
-mountControlTooltips(root, listen);
+const controlTooltips = mountControlTooltips(root, listen);
 mountNumericScrub(root, listen);
 const $ = id => root.querySelector(`#${id}`);
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -2334,12 +2334,16 @@ function addLayer(doCommit = true) {
   S.sel = [{ l: S.glyph.layers.length - 1, p: null }];
   if (doCommit) { commit(); refresh(true); }
 }
+function combineBlocker(nodes) {
+  const l = nodes[0].l, parentKey = JSON.stringify(nodes[0].p.slice(0, -1));
+  return nodes.some(s => s.l !== l || JSON.stringify(s.p.slice(0, -1)) !== parentKey || (s.p.length === 0 && nodes.length > 1)) ? 'Booleans need siblings in the same layer and group.' : null;
+}
 function group(op) {
   const nodes = S.sel.filter(s => s.p !== null);
   if (!nodes.length) { status('Select one or more forms first (⇧-click to add to the selection).', true); return; }
   if (nodes.length === 1 && getNode(nodes[0]).children) { getNode(nodes[0]).op = op; commit(); refresh(true); status(`Group set to ${op}.`); return; }
-  const l = nodes[0].l, parentKey = JSON.stringify(nodes[0].p.slice(0, -1));
-  if (nodes.some(s => s.l !== l || JSON.stringify(s.p.slice(0, -1)) !== parentKey || (s.p.length === 0 && nodes.length > 1))) { status('Booleans need siblings in the same layer and group.', true); return; }
+  const l = nodes[0].l, blocked = combineBlocker(nodes);
+  if (blocked) { status(blocked, true); return; }
   if (nodes.length === 1 && nodes[0].p.length === 0) {
     const L = S.glyph.layers[l]; L.node = { op, children: [L.node] }; S.sel = [{ l, p: [] }];
   } else {
@@ -2560,6 +2564,22 @@ function editAsDataSection(g, s, n) {
     if (details.open) fill(); else { list.replaceChildren(); if (pathData) pathData.value = ''; }
   };
 }
+const COMBINE_OPS = [['union', 'Union', 'Union (⌘G, Group)'], ['subtract', 'Subtract', 'Subtract: first shape minus the rest'], ['intersect', 'Intersect', 'Intersect: keep only the overlap'], ['exclude', 'Exclude', 'Exclude: remove the overlap']];
+function combineSection(g) {
+  const nodes = S.sel.filter(s => s.p !== null);
+  // Layer rows cannot join a Boolean; group() would silently drop them.
+  const blocked = nodes.length === S.sel.length ? combineBlocker(nodes) : 'Layers cannot join a Boolean; select forms only.';
+  const box = document.createElement('div'); box.className = 'combine wide'; box.setAttribute('role', 'group'); box.setAttribute('aria-label', 'Combine');
+  const ops = document.createElement('div'); ops.className = 'seg';
+  for (const [op, name, tip] of COMBINE_OPS) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'btn sm icon'; b.dataset.combine = op; b.setAttribute('aria-label', name); b.dataset.controlTooltip = tip;
+    b.innerHTML = uiIcon(op); b.disabled = !!blocked; b.onclick = () => group(op); controlTooltips.bind(b); ops.appendChild(b);
+  }
+  box.append(ops, smallBtn('Delete', del, 'Delete (⌫)', 'delete'));
+  sub(g, 'Combine');
+  g.appendChild(box);
+  if (blocked) { const p = document.createElement('p'); p.className = 'wide lbl combine-blocked'; p.id = 'combineBlocked'; p.textContent = blocked; g.appendChild(p); box.setAttribute('aria-describedby', p.id); }
+}
 const DEF_FIELDS = { taper: ['top', 'bottom', 'left', 'right'], skew: ['x', 'y'], round: ['r'], offset: ['d'] };
 function transformSection(g, n) {
   const t = n.transform || {};
@@ -2729,6 +2749,7 @@ function renderInspector() {
   const box = $('insp');
   // details.open changes on click; its toggle event is queued, so read the state before discarding the node.
   const shownData = box.querySelector('details.edit-as-data'); if (shownData) editAsDataOpen = shownData.open;
+  controlTooltips.release(box);
   box.innerHTML = '';
   const g = document.createElement('div'); g.className = 'insp'; box.appendChild(g);
   const s = primarySel();
@@ -2745,7 +2766,13 @@ function renderInspector() {
     if ((G.guides || []).length) g.appendChild(smallBtn('Clear guides', () => { delete G.guides; commit(); refresh(true); renderRulers(); }));
     return;
   }
-  if (S.sel.length > 1) { const p = document.createElement('div'); p.className = 'wide lbl'; p.textContent = `${S.sel.length} items selected — combine them with the Boolean buttons (union, subtract, intersect, exclude), nudge with arrows, or delete.`; g.appendChild(p); return; }
+  if (S.sel.length > 1) {
+    const p = document.createElement('div'); p.className = 'wide lbl'; g.appendChild(p);
+    if (S.selectedAnchors.length) { p.textContent = `${S.selectedAnchors.length} anchors selected on ${S.sel.length} objects — use Simplify below or the right-click anchor menu.`; return; }
+    p.textContent = `${S.sel.length} items selected — nudge with arrows, or combine them.`;
+    combineSection(g);
+    return;
+  }
   const L = layerOf(s);
   if (s.p === null) {
     field(g, 'layer name', L.name, v => { L.name = v; }, { text: true });
@@ -3310,7 +3337,6 @@ listen(moreLbl,'toggle',()=>{if(!moreLbl.open)return;const bounds=moreSummary.ge
 listen(moreLbl,'keydown',event=>{if(event.key==='Escape'){event.preventDefault();moreLbl.open=false;moreSummary.focus({preventScroll:true});}});
 listen(document,'pointerdown',event=>{if(moreLbl.open && !moreLbl.contains(event.target))moreLbl.open=false;}, {capture:true});
 
-root.querySelectorAll('[data-group]').forEach(b => b.onclick = () => group(b.dataset.group));
 root.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
 root.querySelectorAll('[data-hmode]').forEach(b => b.onclick = () => { S.hmode = b.dataset.hmode; syncToggles(); renderSelection(); });
 function updateAreaTool() {

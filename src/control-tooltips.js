@@ -4,16 +4,17 @@ export function mountControlTooltips(root, listen) {
   tooltip.id = 'workbench-control-tooltip'; tooltip.className = 'control-tooltip';
   tooltip.setAttribute('role', 'tooltip'); tooltip.hidden = true; root.appendChild(tooltip);
   let owner = null, timer = null;
-  const buttons = [...root.querySelectorAll('[data-control-tooltip]')];
-  const descriptions = new Map(buttons.map(button => [button, button.getAttribute('aria-describedby')]));
-  for (const button of buttons) {
+  const descriptions = new WeakMap();
+  const attach = (button, on) => {
+    descriptions.set(button, button.getAttribute('aria-describedby'));
     button.removeAttribute('title'); // Avoid a second browser-native tooltip.
-    listen(button, 'mouseenter', () => show(button));
-    listen(button, 'mouseleave', () => scheduleHide());
-    listen(button, 'focus', () => show(button));
-    listen(button, 'blur', () => hide());
-    listen(button, 'click', () => hide());
-  }
+    on(button, 'mouseenter', () => show(button));
+    on(button, 'mouseleave', () => scheduleHide());
+    on(button, 'focus', () => show(button));
+    on(button, 'blur', () => hide());
+    on(button, 'click', () => hide());
+  };
+  for (const button of root.querySelectorAll('[data-control-tooltip]')) attach(button, listen);
   function show(button) {
     hide(); owner = button;
     button.setAttribute('aria-describedby', [descriptions.get(button), tooltip.id].filter(Boolean).join(' ')); tooltip.textContent = button.dataset.controlTooltip; tooltip.hidden = false;
@@ -34,4 +35,9 @@ export function mountControlTooltips(root, listen) {
   // Keyboard focus can scroll the toolbar into view after its focus event.
   // Keep that tooltip attached to the focused control at its new position.
   listen(document, 'scroll', () => { if(owner === document.activeElement)show(owner);else hide(); }, {capture:true});
+  return {
+    bind: button => attach(button, (target, event, handler) => target.addEventListener(event, handler)),
+    // A rebuilt container drops its buttons without mouseleave or blur; close a tooltip that belongs to it.
+    release: container => { if (owner && container.contains(owner)) hide(); },
+  };
 }
