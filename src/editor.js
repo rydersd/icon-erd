@@ -556,6 +556,12 @@ function setPlace(place) {
   $('placeIcon').setAttribute('aria-pressed', String(place === 'icon'));
   $('placeLibrary').setAttribute('aria-pressed', String(place === 'library'));
   if (place === 'library') showLibrarySection(librarySection);
+  // Keep keyboard focus on a visible control: the section nav in the Library place, the canvas in the Icon place.
+  const active = document.activeElement;
+  if (!active || active === document.body || !active.checkVisibility?.()) {
+    if (place === 'library') library.querySelector('nav [aria-current="true"]')?.focus({ preventScroll: true });
+    else $('canvas')?.focus({ preventScroll: true });
+  }
   document.dispatchEvent(new CustomEvent('gw:place-change', {detail: place}));
 }
 // These controls are rendered by React. Its responsive-pane rerenders replace
@@ -3750,7 +3756,7 @@ listen(document, 'keydown', e => {
   }
   if (t && (t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
   const key = shortcutFromEvent(e), action = Object.keys(shortcuts).find(action => shortcuts[action] === key);
-  if (action === 'libraryPlace') { e.preventDefault(); setPlace(inLibraryPlace ? 'icon' : 'library'); return; }
+  if (action === 'libraryPlace') { e.preventDefault(); if (!document.querySelector('dialog[open], .floating-panel:not([hidden])')) setPlace(inLibraryPlace ? 'icon' : 'library'); return; }
   const mod = e.metaKey || e.ctrlKey;
   if(t?.closest?.('#lib')) {
     if(e.key === 'Delete' || e.key === 'Backspace'){e.preventDefault();deleteLibraryIcons();return;}
