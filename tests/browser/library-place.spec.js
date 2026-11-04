@@ -327,3 +327,9 @@ test('use library end rounding for this layer sits with the inspector', async ({
   await ready(page);
   expect(await page.evaluate(() => ['useLibraryEndRounding', 'lineEndScopeNote'].map(id => { const el = document.getElementById(id); return [!!el?.closest('#pane-details'), !!el?.closest('#libraryPlace')]; }))).toEqual([[true, false], [true, false]]);
 });
+
+test('the inspector end-rounding choice stays hidden until a layer has its own end radius', async ({ page }) => {
+  await ready(page);
+  await expect(page.locator('#useLibraryEndRounding')).toBeHidden();
+  await expect(page.locator('#lineEndScopeNote')).toBeHidden();
+});
