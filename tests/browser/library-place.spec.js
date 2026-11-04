@@ -263,3 +263,58 @@ for (const [width, height] of [[900, 900], [430, 900]]) test(`library place fits
   await expect(page.locator('#libraryPlace')).toBeHidden();
   await expect(page.locator('#pane-right')).toBeVisible();
 });
+
+// T2 review findings (2026-11-03): focus follows the place; the place shortcut waits for dialogs and menus; A2 coverage.
+test('switching place moves focus out of the hidden surface', async ({ page }) => {
+  await ready(page);
+  await page.locator('#canvas').focus();
+  await toggleKey(page);
+  await expect(page.locator('#libraryPlace')).toBeVisible();
+  expect(await page.evaluate(() => { const a = document.activeElement; return !!a?.closest('#libraryPlace nav') && a.getAttribute('aria-current') === 'true'; })).toBe(true);
+  await toggleKey(page);
+  await expect(page.locator('#libraryPlace')).toBeHidden();
+  expect(await page.evaluate(() => { const a = document.activeElement; return a !== document.body && !!a && a.checkVisibility(); })).toBe(true);
+});
+
+test('the place shortcut does nothing while a dialog or menu is open', async ({ page }) => {
+  await ready(page);
+  await libraryButton(page).click();
+  await nav(page).locator('[data-library-section="versions"]').click();
+  await page.locator('#libraryVersionsBtn').click();
+  await expect(page.locator('#libraryVersionsDialog')).toBeVisible();
+  await page.locator('#libraryVersionsDialog h2').click();
+  await toggleKey(page);
+  await expect(page.locator('#libraryVersionsDialog')).toBeVisible();
+  await expect(page.locator('#libraryPlace')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await nav(page).locator('[data-library-section="tokens"]').click();
+  await page.locator('#libraryPropertiesMenuBtn').click();
+  await expect(page.locator('#libraryPropertiesMenu')).toBeVisible();
+  await toggleKey(page);
+  await expect(page.locator('#libraryPlace')).toBeVisible();
+});
+
+test('group review and component edit from the library place return to the icon place', async ({ page }) => {
+  await ready(page);
+  await libraryButton(page).click();
+  const review = page.locator('#lib [aria-label^="Review "]').first();
+  await review.click();
+  await expect(page.locator('#libraryPlace')).toBeHidden();
+  await expect(page.locator('#groupReview')).toBeVisible();
+  await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready);
+  const bell = { name: 'bell', weight: 1.2, layers: [{ id: 'bell', name: 'Bell', paint: 'stroke', node: { name: 'Half bell', shape: 'pen', pts: [{ x: 12, y: 4 }, { x: 8, y: 7 }, { x: 7, y: 17 }, { x: 12, y: 17 }], closed: false } }] };
+  const target = { name: 'target', layers: [{ id: 'slash', name: 'Slash', paint: 'stroke', node: { shape: 'line', x1: 4, y1: 4, x2: 20, y2: 20 } }] };
+  await page.evaluate(async glyphs => window.__gw.importLibraryText(JSON.stringify(glyphs), 'bells.json', 'replace'), [bell, target]);
+  const point = await page.evaluate(() => { const c = document.querySelector('#canvas'), p = c.createSVGPoint(); p.x = 7.4; p.y = 13; const q = p.matrixTransform(c.getScreenCTM()); return { x: q.x, y: q.y }; });
+  await page.mouse.click(point.x, point.y, { button: 'right' });
+  await page.getByRole('menuitem', { name: 'Actions', exact: true }).click();
+  page.once('dialog', d => d.accept('Bell'));
+  await page.getByRole('menuitem', { name: 'Create component', exact: true }).click();
+  await page.evaluate(() => window.__gw.loadGlyph(1));
+  await libraryButton(page).click();
+  await nav(page).locator('[data-library-section="components"]').click();
+  await page.getByRole('button', { name: /^Edit component Bell/ }).click();
+  await expect(page.locator('#libraryPlace')).toBeHidden();
+  await expect(page.locator('#hdrName')).toHaveText('bell');
+  expect(await page.evaluate(() => { const a = document.activeElement; return a !== document.body && !!a && a.checkVisibility(); })).toBe(true);
+});
