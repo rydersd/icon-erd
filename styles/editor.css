@@ -109,6 +109,7 @@ details[open] > summary::before { transform: rotate(90deg); }
 .panel.collapsed > h2 { border-bottom: 0; }
 .pad { padding: 8px 10px; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 28px; padding: 0 8px; border: 1px solid var(--border-strong); background: var(--panel); border-radius: 4px; cursor: pointer; white-space: nowrap; }
+.btn[hidden] { display: none; }
 .btn:hover { background: var(--panel-2); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .btn.sm { height: 24px; padding: 0 6px; font-size: 12px; }
