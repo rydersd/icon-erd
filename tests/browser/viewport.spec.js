@@ -62,11 +62,11 @@ test('compact controls expand without resetting artwork and disclosures use 12px
   await expect(page.locator('#snapSeg')).toBeVisible();
   await page.locator('[data-snap="0.5"]').click();
   expect(await page.evaluate(() => JSON.stringify(window.__gw.S.glyph))).toBe(glyph);
-  await page.getByRole('group', { name: 'Editor panes' }).getByRole('button', { name: 'Library', exact: true }).click();
+  await page.getByRole('group', { name: 'Editor panes' }).getByRole('button', { name: 'Icons', exact: true }).click();
   expect(await page.locator('#libToggle .disclosure-arrow').evaluate(el => [getComputedStyle(el).width, getComputedStyle(el).height])).toEqual(['12px', '12px']);
   expect(await page.locator('#libraryTokensTitle').evaluate(el => getComputedStyle(el).fontSize)).toBe('15px');
   await page.keyboard.press('Escape');
-  await page.getByRole('group', { name: 'Editor panes' }).getByRole('button', { name: 'Library', exact: true }).click();
+  await page.getByRole('group', { name: 'Editor panes' }).getByRole('button', { name: 'Icons', exact: true }).click();
   const app = await page.locator('.app').boundingBox();
   await page.mouse.click(app.x + app.width - 20, app.y + app.height / 2);
   await expect(page.locator('.col-left')).toBeHidden();

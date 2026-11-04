@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 // UX-03 Library place. Spec: wiki/product-spec/ux-03-library-place.md (local wiki); owner ruling 2026-11-03: centre placement.
 const SECTIONS = {
-  tokens: ['libraryTokensTitle', 'libraryTokenSource', 'libraryPropertiesMenu', 'libraryPropertiesMenuBtn', 'linkTokensBtn', 'unlinkTokensBtn', 'exportTokensBtn', 'tokensFile', 'setThicknessEnabled', 'setThickness', 'thicknessTokenRow', 'thicknessToken', 'opticalSizeEnabled', 'opticalCurve', 'setRoundingEnabled', 'setRounding', 'roundingTokenRow', 'roundingToken', 'setEndRoundingEnabled', 'setEndRounding', 'lineEndScopeNote', 'useLibraryEndRounding', 'endRoundingTokenRow', 'endRoundingToken'],
+  tokens: ['libraryTokensTitle', 'libraryTokenSource', 'libraryPropertiesMenu', 'libraryPropertiesMenuBtn', 'linkTokensBtn', 'unlinkTokensBtn', 'exportTokensBtn', 'tokensFile', 'setThicknessEnabled', 'setThickness', 'thicknessTokenRow', 'thicknessToken', 'opticalSizeEnabled', 'opticalCurve', 'setRoundingEnabled', 'setRounding', 'roundingTokenRow', 'roundingToken', 'setEndRoundingEnabled', 'setEndRounding', 'endRoundingTokenRow', 'endRoundingToken'],
   output: ['libraryOutputProfile', 'libraryOutputSizes', 'libraryOutputHint'],
   colors: ['libraryVariant', 'libraryFamilyView', 'libraryColorMode', 'libraryFillColor', 'libraryStrokeColor', 'libraryAccentColor', 'libraryUseColorTokens', 'libraryFillToken', 'libraryStrokeToken', 'libraryAccentToken', 'testSolidVariantsBtn', 'solidTestProgress'],
   components: ['componentsCount', 'componentList'],
@@ -14,7 +14,8 @@ const place = page => page.getByRole('group', { name: 'Place', exact: true });
 const libraryButton = page => place(page).getByRole('button', { name: 'Library', exact: true });
 const iconButton = page => place(page).getByRole('button', { name: 'Icon', exact: true });
 const nav = page => page.locator('#libraryPlace').getByRole('navigation', { name: 'Library sections' });
-const toggleKey = page => page.keyboard.press('ControlOrMeta+l');
+// Owner ruling 2026-11-03: the default is Cmd/Ctrl+Option/Alt+L (Cmd+L is the browser address bar).
+const toggleKey = page => page.keyboard.press('ControlOrMeta+Alt+KeyL');
 
 test('the library place switch shows library sections in the centre', async ({ page }) => {
   await ready(page);
@@ -238,7 +239,7 @@ test('the library place shortcut is customizable', async ({ page }) => {
   await libraryButton(page).click();
   await nav(page).locator('[data-library-section="shortcuts"]').click();
   const field = page.getByLabel('Library place shortcut', { exact: true });
-  await expect(field).toHaveValue('Mod+L');
+  await expect(field).toHaveValue('Mod+Alt+L');
   await field.fill('Mod+Shift+L'); await field.dispatchEvent('change');
   await expect(field).toHaveValue('Mod+Shift+L');
   await iconButton(page).click();
@@ -256,9 +257,11 @@ for (const [width, height] of [[900, 900], [430, 900]]) test(`library place fits
   await expect(page.locator('#libraryPlace section[data-library-section]:visible')).toHaveCount(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   const panes = page.getByRole('group', { name: 'Editor panes' });
-  await panes.getByRole('button', { name: 'Library' }).click();
+  // Owner ruling 2026-11-03 Q4 A: the narrow-width drawer is "Icons", so "Library" names one thing.
+  await expect(panes.getByRole('button', { name: 'Library' })).toHaveCount(0);
+  await panes.getByRole('button', { name: 'Icons', exact: true }).click();
   await expect(page.locator('#pane-left')).toBeVisible();
-  await panes.getByRole('button', { name: 'Library' }).click();
+  await panes.getByRole('button', { name: 'Icons', exact: true }).click();
   await panes.getByRole('button', { name: 'Inspector' }).click();
   await expect(page.locator('#libraryPlace')).toBeHidden();
   await expect(page.locator('#pane-right')).toBeVisible();
@@ -317,4 +320,10 @@ test('group review and component edit from the library place return to the icon 
   await expect(page.locator('#libraryPlace')).toBeHidden();
   await expect(page.locator('#hdrName')).toHaveText('bell');
   expect(await page.evaluate(() => { const a = document.activeElement; return a !== document.body && !!a && a.checkVisibility(); })).toBe(true);
+});
+
+// Owner ruling 2026-11-03 Q2 A: the per-layer end-rounding choice sits with the Inspector, where its layer is visible.
+test('use library end rounding for this layer sits with the inspector', async ({ page }) => {
+  await ready(page);
+  expect(await page.evaluate(() => ['useLibraryEndRounding', 'lineEndScopeNote'].map(id => { const el = document.getElementById(id); return [!!el?.closest('#pane-details'), !!el?.closest('#libraryPlace')]; }))).toEqual([[true, false], [true, false]]);
 });
