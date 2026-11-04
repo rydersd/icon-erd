@@ -47,6 +47,7 @@ test('EDS cloud silhouette is detected in app logic, reviewed as a near match, a
   await card.getByRole('button',{name:'Adopt shared shape and link',exact:true}).click();
   const linked=await page.evaluate(()=>window.__gw.S.lib.flatMap(g=>g.layers.flatMap((l,li)=>{const result=[];const walk=(n,p)=>{if(n.component?.name==='Cloud silhouette')result.push({name:g.name,l:li,p});(n.children||[]).forEach((c,i)=>walk(c,[...p,i]));};walk(l.node,[]);return result;})));
   expect(linked).toHaveLength(10);
+  await showPlace(page,'icon');
   await page.evaluate(instance=>{const w=window.__gw;w.loadGlyph(w.idx(instance.name));w.S.sel=[{l:instance.l,p:instance.p}];w.setTool('direct');w.refresh(true);},linked[0]);
   const before=await page.evaluate(()=>{const w=window.__gw,n=w.getNode(w.S.sel[0]);return {id:n.component.id,point:n.pts[0].x};});
   // Perform an actual inspector edit to exercise the event/commit path, not just a utility call.
