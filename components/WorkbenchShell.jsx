@@ -46,7 +46,7 @@ export function WorkbenchShell() {
     <p className="history-note">Stopping keeps this state. A new edit replaces later states for this icon.</p>
   </div>
   <div className="responsive-pane-controls" role="group" aria-label="Editor panes">
-    {[['left', 'Library'], ['right', 'Inspector']].map(([pane, label]) => <Button key={pane} className="btn sm" aria-controls={`pane-${pane}`} aria-expanded={openPane === pane} onClick={event => { if (pane === 'right') document.dispatchEvent(new CustomEvent('gw:set-place', { detail: 'icon' })); paneTrigger.current = event.currentTarget; setOpenPane(openPane === pane ? null : pane); }}>{label}</Button>)}
+    {[['left', 'Icons'], ['right', 'Inspector']].map(([pane, label]) => <Button key={pane} className="btn sm" aria-controls={`pane-${pane}`} aria-expanded={openPane === pane} onClick={event => { if (pane === 'right') document.dispatchEvent(new CustomEvent('gw:set-place', { detail: 'icon' })); paneTrigger.current = event.currentTarget; setOpenPane(openPane === pane ? null : pane); }}>{label}</Button>)}
   </div>
   <span className="spacer"></span>
   <span className="lbl" id="modeHint"></span>
@@ -107,7 +107,6 @@ export function WorkbenchShell() {
         <label id="roundingTokenRow" hidden>Corner radius token <select id="roundingToken" /></label>
         <label><input id="setEndRoundingEnabled" type="checkbox" /> Round line ends</label>
         <label htmlFor="setEndRounding">End radius <input id="setEndRounding" type="number" min="0" max="6" step="0.1" defaultValue="0.5" /></label>
-        <p id="lineEndScopeNote" className="lbl" role="status" hidden></p><Button id="useLibraryEndRounding" className="btn sm" hidden>Use library end rounding for this layer</Button>
         <label id="endRoundingTokenRow" hidden>End radius token <select id="endRoundingToken" /></label>
           </div>
         </section>
@@ -256,6 +255,7 @@ export function WorkbenchShell() {
       </section>
       <section className="panel" aria-labelledby="inspH">
         <h2 id="inspH">Inspector <span className="h-actions mono" id="inspPath"></span></h2>
+        <p id="lineEndScopeNote" className="lbl" role="status" hidden></p><Button id="useLibraryEndRounding" className="btn sm" hidden>Use library end rounding for this layer</Button>
         <div id="insp"></div>
         <details className="tool-settings insp-sub" data-collapse="tool-settings">
           <summary>Simplify</summary>

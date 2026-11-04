@@ -2,7 +2,7 @@ export const SHORTCUT_ACTIONS = {
   select: { label: 'Selection', key: 'V' }, direct: { label: 'Direct selection', key: 'A' }, pen: { label: 'Pen', key: 'P' },
   handles: { label: 'Toggle shape / transform handles', key: 'T' }, selectAll: { label: 'Select all objects', key: 'Mod+A' },
   undo: { label: 'Undo', key: 'Mod+Z' }, redo: { label: 'Redo', key: 'Mod+Shift+Z' },
-  libraryPlace: { label: 'Library place', key: 'Mod+L' },
+  libraryPlace: { label: 'Library place', key: 'Mod+Alt+L' },
   duplicate: { label: 'Duplicate', key: 'Mod+D' }, group: { label: 'Group', key: 'Mod+G' }, ungroup: { label: 'Ungroup', key: 'Mod+Shift+G' },
   delete: { label: 'Delete', key: 'Delete' },
 };
@@ -14,7 +14,9 @@ export function normalizeShortcut(value) {
   return [...['Mod', 'Shift', 'Alt'].filter(part => modifiers.has(part)), key === 'Backspace' ? 'Delete' : key.length === 1 ? key.toUpperCase() : key].join('+');
 }
 export function shortcutFromEvent(event) {
-  const key = event.key === 'Backspace' ? 'Delete' : event.key;
+  // Option on a Mac changes event.key (Option+L types "¬"), so Alt combinations name the physical key.
+  const physical = event.altKey && /^(?:Key([A-Z])|Digit(\d))$/.exec(event.code || '');
+  const key = physical ? physical[1] || physical[2] : event.key === 'Backspace' ? 'Delete' : event.key;
   return [event.metaKey || event.ctrlKey ? 'Mod' : null, event.shiftKey ? 'Shift' : null, event.altKey ? 'Alt' : null, key.length === 1 ? key.toUpperCase() : key].filter(Boolean).join('+');
 }
 export function setShortcut(shortcuts, action, value) {
@@ -31,7 +33,7 @@ export function restoreShortcuts(stored = {}) {
     if (action === 'libraryPlace') continue;
     restored = setShortcut(restored, action, saved[action] ?? DEFAULT_SHORTCUTS[action]);
   }
-  const requested = Object.prototype.hasOwnProperty.call(saved, 'libraryPlace') ? [saved.libraryPlace] : [DEFAULT_SHORTCUTS.libraryPlace, 'Mod+Shift+L', 'Mod+Alt+L', 'Alt+L', 'Shift+L', 'L'];
+  const requested = Object.prototype.hasOwnProperty.call(saved, 'libraryPlace') ? [saved.libraryPlace] : [DEFAULT_SHORTCUTS.libraryPlace, 'Mod+Shift+L', 'Alt+L', 'Shift+L', 'L'];
   let error;
   for (const key of requested) {
     try { return setShortcut(restored, 'libraryPlace', key); } catch (caught) { error = caught; }
