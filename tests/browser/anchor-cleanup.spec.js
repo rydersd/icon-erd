@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {openDisclosures,openDrawingControls} from './helpers.js';
+import {openDisclosures,openDrawingControls,showPlace} from './helpers.js';
 const screen=async(page,x,y)=>page.evaluate(({x,y})=>{const c=document.querySelector('#canvas'),p=c.createSVGPoint();p.x=x;p.y=y;const q=p.matrixTransform(c.getScreenCTM());return {x:q.x,y:q.y};},{x,y});
 const setup=async(page,node)=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings');await openDrawingControls(page);await page.evaluate(async node=>{const w=window.__gw;await w.importLibraryText(JSON.stringify({name:'cleanup-fixture',weight:0.2,layers:[{id:'outline',paint:'stroke',node},{id:'untouched',paint:'stroke',node:{shape:'pen',pts:[{x:15,y:15},{x:16,y:15},{x:17,y:15}]}}]}),'cleanup.json');w.S.sel=[{l:0,p:[]}];w.setTool('direct');w.refresh(true);},node);};
 test('Direct selection selects all anchors in the selected path, Cleanup simplifies only it and Undo/Redo persists',async({page})=>{
@@ -15,7 +15,7 @@ test('marquee selects a corner cluster, Merge to corner preserves exterior edges
  const p=await screen(page,3.95,3.05);await page.mouse.click(p.x,p.y,{button:'right'});await page.getByRole('menuitem',{name:'Actions',exact:true}).click();await expect(page.locator('#itemMenu')).toContainText('3 selected anchors');await page.getByRole('menuitem',{name:'Merge to corner',exact:true}).click();
  const result=await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts);expect(result).toHaveLength(3);expect(result[1].x).toBeCloseTo(4);expect(result[1].y).toBeCloseTo(3);expect(result[0]).toEqual(pts[0]);expect(result[2]).toEqual(pts[4]);expect(await page.evaluate(()=>window.__gw.S.selectedAnchors.map(a=>a.index))).toEqual([1]);
  await page.screenshot({path:'artifacts/anchor-corner-merged.png'});await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts)).toEqual(pts);await page.locator('#redoBtn').click();
- const before=await page.evaluate(()=>window.__gw.core.resolve(window.__gw.S.glyph)[0].d);await page.locator('#setRoundingEnabled').check();const after=await page.evaluate(()=>window.__gw.core.resolve(window.__gw.S.glyph)[0].d);expect(after).not.toBe(before);
+ const before=await page.evaluate(()=>window.__gw.core.resolve(window.__gw.S.glyph)[0].d);await showPlace(page,'library','tokens');await page.locator('#setRoundingEnabled').check();const after=await page.evaluate(()=>window.__gw.core.resolve(window.__gw.S.glyph)[0].d);expect(after).not.toBe(before);
 });
 test('area split control supports lasso and polygon, Shift add, Alt subtract, keyboard dismissal and anchor Delete',async({page})=>{
  await setup(page,{shape:'pen',pts:[{x:2,y:4},{x:4,y:4},{x:6,y:4},{x:8,y:4},{x:10,y:4}]});

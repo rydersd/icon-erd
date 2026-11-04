@@ -41,13 +41,12 @@ test('layers and inspector sit in the right column', async ({ page }) => {
 
 test('secondary panels start closed', async ({ page }) => {
   await boot(page);
-  for (const key of ['tool-settings', 'componentsH', 'metadataH', 'libraryActions', 'geometryH', 'measureH', 'solidPreviewH', 'exportPreviewH', 'pvH', 'ctxH', 'ioH']) {
+  for (const key of ['tool-settings', 'metadataH', 'libraryActions', 'geometryH', 'measureH', 'solidPreviewH', 'exportPreviewH', 'pvH', 'ctxH', 'ioH']) {
     const panel = page.locator(`details[data-collapse="${key}"]`);
     await expect(panel, key).toHaveCount(1);
     await expect(panel, key).not.toHaveAttribute('open', '');
   }
-  await expect(page.locator('details.set-settings')).not.toHaveAttribute('open', '');
-  await expect(page.locator('details.shortcut-settings')).not.toHaveAttribute('open', '');
+  await expect(page.locator('#libraryPlace')).toBeHidden();
   await expect(page.locator('[data-collapse="tool-settings"] > summary')).toHaveText(/Simplify/);
 });
 
@@ -99,11 +98,12 @@ test('no shadows on flat controls', async ({ page }) => {
   expect(shadows).toEqual([]);
 });
 
-test('library actions live inside the library panel', async ({ page }) => {
+test('library selection stays in the left panel and library-wide actions have their own place', async ({ page }) => {
   await boot(page);
   await expect(page.locator('.library-panel details[data-collapse="libraryActions"]')).toHaveCount(1);
-  for (const id of ['#organizeLibraryBtn', '#findSharedFormsBtn', '#libraryVersionsBtn', '#deleteIconsBtn', '#newLibraryBtn', '#resetLibraryBtn'])
-    await expect(page.locator(`.library-panel ${id}`), id).toHaveCount(1);
+  await expect(page.locator('.library-panel #deleteIconsBtn')).toHaveCount(1);
+  for (const id of ['#organizeLibraryBtn', '#findSharedFormsBtn', '#libraryVersionsBtn', '#newLibraryBtn', '#resetLibraryBtn'])
+    await expect(page.locator(`#libraryPlace ${id}`), id).toHaveCount(1);
 });
 
 test('dialogs never sit inside a closable disclosure', async ({ page }) => {

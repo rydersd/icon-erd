@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import {openDisclosure, openDrawingControls} from './helpers.js';
+import {openDisclosure, openDrawingControls, showPlace} from './helpers.js';
 
 test('editor stays in the viewport while panels scroll and canvas pans', async ({ page }) => {
   await page.goto('/');
@@ -27,10 +27,10 @@ test('editor stays in the viewport while panels scroll and canvas pans', async (
     await page.locator('#iconAliases').scrollIntoViewIfNeeded();
     await expect(page.locator('#iconAliases')).toBeInViewport();
     expect(await page.locator('#canvas').boundingBox()).toEqual(canvasBefore);
-    if (viewport.width <= 1180) await page.getByRole('button', { name: 'Library', exact: true }).first().click();
-    await openDisclosure(page, '.set-settings');
+    await showPlace(page, 'library', 'output');
     await page.locator('#libraryOutputSizes').scrollIntoViewIfNeeded();
     await expect(page.locator('#libraryOutputSizes')).toBeInViewport();
+    await showPlace(page, 'icon');
     if (viewport.width <= 1180) await page.getByRole('button', { name: 'Inspector', exact: true }).click();
     await openDisclosure(page, '[data-collapse="ioH"]');
     await page.locator('#expJson').scrollIntoViewIfNeeded();
@@ -62,11 +62,11 @@ test('compact controls expand without resetting artwork and disclosures use 12px
   await expect(page.locator('#snapSeg')).toBeVisible();
   await page.locator('[data-snap="0.5"]').click();
   expect(await page.evaluate(() => JSON.stringify(window.__gw.S.glyph))).toBe(glyph);
-  await page.getByRole('button', { name: 'Library', exact: true }).first().click();
+  await page.getByRole('group', { name: 'Editor panes' }).getByRole('button', { name: 'Icons', exact: true }).click();
   expect(await page.locator('#libToggle .disclosure-arrow').evaluate(el => [getComputedStyle(el).width, getComputedStyle(el).height])).toEqual(['12px', '12px']);
-  expect(await page.locator('#libraryTokensTitle').evaluate(el => [getComputedStyle(el, '::before').width, getComputedStyle(el, '::before').height])).toEqual(['12px', '12px']);
+  expect(await page.locator('#libraryTokensTitle').evaluate(el => getComputedStyle(el).fontSize)).toBe('15px');
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Library', exact: true }).first().click();
+  await page.getByRole('group', { name: 'Editor panes' }).getByRole('button', { name: 'Icons', exact: true }).click();
   const app = await page.locator('.app').boundingBox();
   await page.mouse.click(app.x + app.width - 20, app.y + app.height / 2);
   await expect(page.locator('.col-left')).toBeHidden();

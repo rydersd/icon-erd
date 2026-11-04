@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import {openDisclosures,openDrawingControls} from './helpers.js';
+import {openDisclosures,openDrawingControls,showPlace} from './helpers.js';
 const ready = async page => { await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready); await openDisclosures(page, '.set-settings', '[data-collapse="measureH"]'); await openDrawingControls(page); };
 const value = (page, name) => page.locator(`[data-measurement="${name}"]`);
 test('Measurements below source anchors shows complete transformed object and painted stroke dimensions', async ({ page }) => {
@@ -40,7 +40,7 @@ test('selected range measures first to last; rounding uses pixel or current snap
   await page.locator('#roundDistanceSnap').click(); await expect(value(page, 'Distance')).toHaveText('4 units');
 });
 test('fill and stroke use adjacent previews which update from the saved colors', async ({ page }) => {
-  await ready(page);
+  await ready(page); await showPlace(page, 'library', 'colors');
   const fill = await page.locator('#libraryFillColor').boundingBox(), stroke = await page.locator('#libraryStrokeColor').boundingBox();
   expect(fill.y).toBe(stroke.y);
   await page.locator('#libraryFillColor').fill('#ff0000'); await page.locator('#libraryFillColor').dispatchEvent('change');

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { anchorMarker } from '../src/anchor-marker.js';
-import { DEFAULT_SHORTCUTS, setShortcut, shortcutFromEvent } from '../src/shortcuts.js';
+import { DEFAULT_SHORTCUTS, restoreShortcuts, setShortcut, shortcutFromEvent } from '../src/shortcuts.js';
 import { parseLibraryArchive, libraryDocument } from '../src/library-io.js';
 import { LIBRARY } from '../src/starter-library.js';
 test('marker shape distinguishes rounded, sharp and disconnected points independently of selection', () => {
@@ -19,6 +19,22 @@ test('shortcut remapping rejects conflicts and matches platform modifiers', () =
   assert.equal(shortcutFromEvent({key:'z',metaKey:true,shiftKey:true}),'Mod+Shift+Z');
   assert.equal(shortcutFromEvent({key:'z',ctrlKey:true,shiftKey:true}),'Mod+Shift+Z');
   assert.equal(shortcutFromEvent({key:'Backspace'}),'Delete');
+});
+test('shortcut migration preserves a legacy Mod+L assignment', () => {
+  const restored=restoreShortcuts({duplicate:'Mod+L'});
+  assert.equal(restored.duplicate,'Mod+L');
+  assert.equal(restored.libraryPlace,'Mod+Alt+L');
+  // A stored Mod+Alt+L elsewhere keeps its owner; the library place falls back.
+  assert.equal(restoreShortcuts({duplicate:'Mod+Alt+L'}).libraryPlace,'Mod+Shift+L');
+});
+test('library place defaults to Mod+Alt+L and Option combinations read the physical key', () => {
+  // Owner ruling 2026-11-03: Cmd+L belongs to the browser address bar; use Cmd+Option+L.
+  assert.equal(DEFAULT_SHORTCUTS.libraryPlace,'Mod+Alt+L');
+  // On a Mac, Option changes event.key (Option+L types "¬"); the shortcut follows event.code.
+  assert.equal(shortcutFromEvent({key:'¬',code:'KeyL',metaKey:true,altKey:true}),'Mod+Alt+L');
+  assert.equal(shortcutFromEvent({key:'l',code:'KeyL',ctrlKey:true,altKey:true}),'Mod+Alt+L');
+  assert.equal(shortcutFromEvent({key:'º',code:'Digit0',altKey:true}),'Alt+0');
+  assert.equal(shortcutFromEvent({key:'z',code:'KeyY',metaKey:true}),'Mod+Z');
 });
 test('editable archives carry reset baselines and reject malformed originals atomically', () => {
   const original=structuredClone(LIBRARY[0]),edited=structuredClone(original);edited.weight=3;

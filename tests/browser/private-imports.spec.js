@@ -1,7 +1,7 @@
 import { readLibraryZIP } from '../../src/library-zip.js';
 import { test, expect } from '@playwright/test';
 import { readFile, access } from 'node:fs/promises';
-import {openDisclosure,openDisclosures} from './helpers.js';
+import {openDisclosure,openDisclosures,showPlace} from './helpers.js';
 const available = await access('imports/illmater-icons.json').then(() => true, () => false);
 test('real project sets import in order and export every icon without data loss', async ({ page }) => {
   test.skip(!available, 'Local project import packs are intentionally excluded from public source');
@@ -40,13 +40,14 @@ test('EDS cloud silhouette is detected in app logic, reviewed as a near match, a
   const file='imports/eds-icons-named.json';test.skip(!await access(file).then(()=>true,()=>false),'Private EDS pack is not published');test.setTimeout(120000);
   await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosure(page,'[data-collapse="libraryActions"]');
   await page.locator('#impFile').setInputFiles(file);await page.locator('#confirmImportBtn').click();
-  await page.locator('#findSharedFormsBtn').click();await page.locator('#sharedFormsSearch').fill('application-cloud');
+  await showPlace(page,'library','organize');await page.locator('#findSharedFormsBtn').click();await page.locator('#sharedFormsSearch').fill('application-cloud');
   const card=page.locator('.shared-form-card').filter({hasText:'10 instances'});await expect(card).toHaveCount(1);
   await card.getByRole('textbox',{name:'Shared form name'}).fill('Cloud silhouette');
   await page.screenshot({path:'artifacts/shared-cloud-review.png'});
   await card.getByRole('button',{name:'Adopt shared shape and link',exact:true}).click();
   const linked=await page.evaluate(()=>window.__gw.S.lib.flatMap(g=>g.layers.flatMap((l,li)=>{const result=[];const walk=(n,p)=>{if(n.component?.name==='Cloud silhouette')result.push({name:g.name,l:li,p});(n.children||[]).forEach((c,i)=>walk(c,[...p,i]));};walk(l.node,[]);return result;})));
   expect(linked).toHaveLength(10);
+  await showPlace(page,'icon');
   await page.evaluate(instance=>{const w=window.__gw;w.loadGlyph(w.idx(instance.name));w.S.sel=[{l:instance.l,p:instance.p}];w.setTool('direct');w.refresh(true);},linked[0]);
   const before=await page.evaluate(()=>{const w=window.__gw,n=w.getNode(w.S.sel[0]);return {id:n.component.id,point:n.pts[0].x};});
   // Perform an actual inspector edit to exercise the event/commit path, not just a utility call.

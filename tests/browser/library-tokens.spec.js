@@ -1,11 +1,11 @@
 import {test,expect} from '@playwright/test';
-import {openDisclosures} from './helpers.js';
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="libraryActions"]','.set-settings','[data-collapse="ioH"]');};
+import {openDisclosures,showPlace} from './helpers.js';
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="libraryActions"]','[data-collapse="ioH"]');await showPlace(page,'icon');};
 const document=(width=2)=>({icon:{$type:'number',thickness:{$value:width},cornerRadius:{$value:0.4},endRadius:{$value:0.7}}});
-const link=async(page,doc=document())=>page.locator('#tokensFile').setInputFiles({name:'design.tokens.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(doc))});
+const link=async(page,doc=document())=>{await showPlace(page,'library','tokens');return page.locator('#tokensFile').setInputFiles({name:'design.tokens.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(doc))});};
 const emptyLibrary=async page=>{await page.locator('#selectShownIconsBtn').click();await page.locator('#deleteIconsBtn').click();await expect(page.locator('.lib-item')).toHaveCount(0);};
 test('empty libraries retain token edits and their Undo history without creating an icon',async({page})=>{
-  await ready(page);await emptyLibrary(page);await link(page);
+  await ready(page);await emptyLibrary(page);await link(page);await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens · design.tokens.json');
   await expect(page.locator('.lib-item')).toHaveCount(0);
   await page.reload();await page.waitForFunction(()=>window.__gw?.ready);
   await expect(page.locator('.lib-item')).toHaveCount(0);
@@ -20,24 +20,24 @@ test('empty libraries retain token edits and their Undo history without creating
   await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('.lib-item')).toHaveCount(1);await expect(page.locator('#setThickness')).toHaveValue('2');
 });
 test('restoring an empty checkpoint restores its linked library tokens',async({page})=>{
-  await ready(page);await link(page);await emptyLibrary(page);
-  await page.locator('#libraryVersionsBtn').click();await page.locator('#versionName').fill('Empty linked library');await page.locator('#saveLibraryVersionBtn').click();
+  await ready(page);await link(page);await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens · design.tokens.json');await emptyLibrary(page);
+  await showPlace(page,'library','versions');await page.locator('#libraryVersionsBtn').click();await page.locator('#versionName').fill('Empty linked library');await page.locator('#saveLibraryVersionBtn').click();
   await expect(page.locator('#libraryVersionsList')).toContainText('Empty linked library');await page.locator('#closeLibraryVersionsBtn').click();
-  await page.locator('#libraryPropertiesMenuBtn').click();await page.getByRole('menuitem',{name:'Disconnect tokens file',exact:true}).click();
-  await page.locator('#libraryVersionsBtn').click();await page.locator('.version-row').filter({hasText:'Empty linked library'}).getByRole('button',{name:'Restore',exact:true}).click();
+  await showPlace(page,'library','tokens');await page.locator('#libraryPropertiesMenuBtn').click();await page.getByRole('menuitem',{name:'Disconnect tokens file',exact:true}).click();
+  await showPlace(page,'library','versions');await page.locator('#libraryVersionsBtn').click();await page.locator('.version-row').filter({hasText:'Empty linked library'}).getByRole('button',{name:'Restore',exact:true}).click();
   await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens · design.tokens.json');await expect(page.locator('.lib-item')).toHaveCount(0);
   await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(page.locator('#setThickness')).toHaveValue('2');await expect(page.locator('.lib-item')).toHaveCount(0);
 });
 test('local library tokens survive reload and linking binds names/values, while disconnect and Undo retain ownership',async({page})=>{
-  await ready(page);await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens');
+  await ready(page);await showPlace(page,'library','tokens');await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens');
   await expect(page.locator('#thicknessTokenRow')).toBeHidden();
   await page.locator('#setThicknessEnabled').check();await page.locator('#setThickness').fill('1.8');await page.locator('#setThickness').press('Tab');
-  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings','[data-collapse="ioH"]');await expect(page.locator('#setThickness')).toHaveValue('1.8');
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await showPlace(page,'library','tokens');await expect(page.locator('#setThickness')).toHaveValue('1.8');
   await page.locator('#libraryPropertiesMenuBtn').click();await expect(page.getByRole('menuitem',{name:'Link tokens file…',exact:true})).toBeVisible();await page.keyboard.press('Escape');await expect(page.locator('#libraryPropertiesMenuBtn')).toBeFocused();
   await link(page);await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens · design.tokens.json');await expect(page.locator('#setThickness')).toHaveValue('2');await expect(page.locator('#setThickness')).toBeDisabled();await expect(page.locator('#thicknessToken')).toHaveValue('icon.thickness');
   expect(await page.evaluate(()=>window.__gw.S.lib.every(g=>g.setStyle.thickness===2))).toBe(true);
-  await openDisclosures(page,'[data-collapse="ioH"]');await page.locator('#expJson').click();const exported=JSON.parse(await page.locator('#ioText').inputValue());expect(exported.libraryProperties.source.name).toBe('design.tokens.json');
-  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings');await expect(page.locator('#setThickness')).toBeDisabled();
+  await showPlace(page,'icon');await openDisclosures(page,'[data-collapse="ioH"]');await page.locator('#expJson').click();const exported=JSON.parse(await page.locator('#ioText').inputValue());expect(exported.libraryProperties.source.name).toBe('design.tokens.json');
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await showPlace(page,'library','tokens');await expect(page.locator('#setThickness')).toBeDisabled();
   await page.locator('#libraryPropertiesMenuBtn').click();await page.getByRole('menuitem',{name:'Disconnect tokens file',exact:true}).click();await expect(page.locator('#setThickness')).toBeEnabled();await expect(page.locator('#setThickness')).toHaveValue('2');
   await page.locator('#undoBtn').click();await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens · design.tokens.json');await expect(page.locator('#setThickness')).toBeDisabled();
   await link(page,document(2.5));await expect(page.locator('#setThickness')).toHaveValue('2.5');
@@ -45,10 +45,10 @@ test('local library tokens survive reload and linking binds names/values, while 
   await link(page,{bad:{$type:'number',$value:99}});await expect(page.locator('#status')).toContainText('Updated tokens file is missing');await expect(page.locator('#setThickness')).toHaveValue('2.5');
 });
 test('library token import is explicit and invalid token archives are atomic',async({page})=>{
-  await ready(page);await link(page);await page.locator('#expJson').click();const exported=await page.locator('#ioText').inputValue();
-  await page.locator('#libraryPropertiesMenuBtn').click();await page.getByRole('menuitem',{name:'Disconnect tokens file',exact:true}).click();
+  await ready(page);await link(page);await showPlace(page,'icon');await page.locator('#expJson').click();const exported=await page.locator('#ioText').inputValue();
+  await showPlace(page,'library','tokens');await page.locator('#libraryPropertiesMenuBtn').click();await page.getByRole('menuitem',{name:'Disconnect tokens file',exact:true}).click();
   await page.locator('#setThickness').fill('1');await page.locator('#setThickness').press('Tab');
-  await page.locator('#ioText').fill(exported);await page.locator('#importBtn').click();await expect(page.locator('#importLibraryTokens')).not.toBeChecked();await page.locator('#confirmImportBtn').click();await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens');await expect(page.locator('#setThickness')).toHaveValue('1');
-  await page.locator('#ioText').fill(exported);await page.locator('#importBtn').click();await page.locator('#importLibraryTokens').check();await page.locator('#confirmImportBtn').click();await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens · design.tokens.json');await expect(page.locator('#setThickness')).toHaveValue('2');
-  const before=await page.evaluate(()=>JSON.stringify(window.__gw.S.lib));const invalid=JSON.parse(exported);invalid.libraryProperties.source.document.icon.thickness.$value=99;await page.locator('#ioText').fill(JSON.stringify(invalid));await page.locator('#importBtn').click();await expect(page.locator('#status')).toContainText('Thickness must');expect(await page.evaluate(()=>JSON.stringify(window.__gw.S.lib))).toBe(before);
+  await showPlace(page,'icon');await page.locator('#ioText').fill(exported);await page.locator('#importBtn').click();await expect(page.locator('#importLibraryTokens')).not.toBeChecked();await page.locator('#confirmImportBtn').click();await showPlace(page,'library','tokens');await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens');await expect(page.locator('#setThickness')).toHaveValue('1');
+  await showPlace(page,'icon');await page.locator('#ioText').fill(exported);await page.locator('#importBtn').click();await page.locator('#importLibraryTokens').check();await page.locator('#confirmImportBtn').click();await showPlace(page,'library','tokens');await expect(page.locator('#libraryTokensTitle')).toHaveText('Library tokens · design.tokens.json');await expect(page.locator('#setThickness')).toHaveValue('2');
+  const before=await page.evaluate(()=>JSON.stringify(window.__gw.S.lib));const invalid=JSON.parse(exported);invalid.libraryProperties.source.document.icon.thickness.$value=99;await showPlace(page,'icon');await page.locator('#ioText').fill(JSON.stringify(invalid));await page.locator('#importBtn').click();await expect(page.locator('#status')).toContainText('Thickness must');expect(await page.evaluate(()=>JSON.stringify(window.__gw.S.lib))).toBe(before);
 });

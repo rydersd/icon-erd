@@ -1,8 +1,8 @@
-import {test,expect} from '@playwright/test';import {readFile} from 'node:fs/promises';import {readLibraryZIP} from '../../src/library-zip.js';import {openDisclosures} from './helpers.js';
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="libraryActions"]','.set-settings');};
+import {test,expect} from '@playwright/test';import {readFile} from 'node:fs/promises';import {readLibraryZIP} from '../../src/library-zip.js';import {openDisclosures,showPlace} from './helpers.js';
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="libraryActions"]');await showPlace(page,'icon');};
 const disc={name:'disc',group:'Shapes',weight:1.2,layers:[{id:'disc',paint:'fill',node:{shape:'circle',cx:12,cy:12,r:5}}]};
 const outline={name:'disc-outline',group:'Shapes',weight:1.2,layers:[{id:'line',paint:'stroke',node:{shape:'circle',cx:12,cy:12,r:4.4}}]};
-async function setup(page,paired=true){await ready(page);await page.evaluate(async ({disc,outline,paired})=>{await window.__gw.importLibraryText(JSON.stringify(paired?[disc,outline]:[disc]),'conversion.json','replace');},{disc,outline,paired});await page.locator('#insetReviewBtn').click();}
+async function setup(page,paired=true){await ready(page);await page.evaluate(async ({disc,outline,paired})=>{await window.__gw.importLibraryText(JSON.stringify(paired?[disc,outline]:[disc]),'conversion.json','replace');},{disc,outline,paired});await showPlace(page,'library','organize');await page.locator('#insetReviewBtn').click();}
 test('conversion isolates distortion, updates each inset/stroke, exports its baseline and applies with Undo',async({page})=>{
  await setup(page);await expect(page.locator('#groupReview')).toContainText('0 need review');const filter=page.getByLabel('Problems only',{exact:true});await filter.uncheck();const card=page.locator('.inset-review-card');await expect(card).toHaveCount(1);
  const original=await page.evaluate(()=>JSON.stringify(window.__gw.S.lib.find(g=>g.name==='disc')));
@@ -12,7 +12,7 @@ test('conversion isolates distortion, updates each inset/stroke, exports its bas
  await card.getByRole('button',{name:'Apply outline',exact:true}).click();await expect(card).toContainText('Applied. Undo');expect(await page.evaluate(()=>JSON.stringify(window.__gw.S.lib.find(g=>g.name==='disc')))).toBe(original);
  await page.getByRole('button',{name:'Back to canvas',exact:true}).click();await expect(page.locator('#gLayers path').first()).toHaveAttribute('stroke-width','1.6');
  await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.shape)).toBe('circle');await page.locator('#redoBtn').click();expect(await page.evaluate(()=>window.__gw.S.glyph.insetConversion.inset)).toBe(2);
- await page.locator('#setThicknessEnabled').check();await page.locator('#setThickness').fill('2.5');await page.locator('#setThickness').press('Tab');expect(await page.evaluate(()=>window.__gw.S.rt.weight)).toBe(1.6);
+ await showPlace(page,'library','tokens');await page.locator('#setThicknessEnabled').check();await page.locator('#setThickness').fill('2.5');await page.locator('#setThickness').press('Tab');expect(await page.evaluate(()=>window.__gw.S.rt.weight)).toBe(1.6);
  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);expect(await page.evaluate(()=>window.__gw.S.glyph.strokeOverride)).toBe(1.6);
 });
 test('new outline creation is undoable, survives reload, and does not replace its source',async({page})=>{

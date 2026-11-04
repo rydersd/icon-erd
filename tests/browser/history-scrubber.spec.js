@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import {openDisclosure} from './helpers.js';
+import {openDisclosure,showPlace} from './helpers.js';
 
 test('Edited badge scrubs only the current icon history, preserves other icons, and branches after an edit', async ({ page }) => {
   await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready);
@@ -47,7 +47,7 @@ test('Edited badge scrubs only the current icon history, preserves other icons, 
 test('icon history keeps linked geometry live while retaining unrelated peer edits', async ({page}) => {
  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosure(page,'[data-collapse="libraryActions"]');
  await page.evaluate(async()=>{const make=(name,x)=>({name,weight:0.2,layers:[{id:'body',paint:'stroke',node:{shape:'pen',closed:true,pts:[{x,y:4},{x:x+4,y:4},{x:x+4,y:8},{x,y:8}]}}]});const w=window.__gw;await w.importLibraryText(JSON.stringify({glyphs:[make('history-cloud',2),make('history-peer',12)]}),'history.json');w.loadGlyph(w.idx('history-cloud'));});
- await page.locator('#findSharedFormsBtn').click();await page.locator('#sharedFormsSearch').fill('history-');await page.getByRole('button',{name:'Link repeated form',exact:true}).click();
+ await showPlace(page,'library','organize');await page.locator('#findSharedFormsBtn').click();await page.locator('#sharedFormsSearch').fill('history-');await page.getByRole('button',{name:'Link repeated form',exact:true}).click();
  await page.evaluate(()=>{const w=window.__gw;w.S.glyph.layers[0].node.pts[1].y=3;w.commit();w.refresh(true);w.loadGlyph(w.idx('history-peer'));w.S.glyph.description='Keep this peer note';w.commit();w.refresh(true);w.loadGlyph(w.idx('history-cloud'));});
  await page.locator('#hdrEdited').click();const slider=page.getByRole('slider',{name:'History position',exact:true});await slider.press('ArrowLeft');
  expect(await page.evaluate(()=>window.__gw.S.glyph.name)).toBe('history-cloud');

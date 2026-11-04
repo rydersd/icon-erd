@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {openDisclosure,openDrawingControls} from './helpers.js';
+import {openDisclosure,openDrawingControls,showPlace} from './helpers.js';
 test('icon tools and Boolean actions have names, hover/focus tooltips, Escape dismissal and separated frames',async({page})=>{
  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);
  await openDrawingControls(page);
@@ -28,7 +28,7 @@ test('icon tools and Boolean actions have names, hover/focus tooltips, Escape di
  const frame=await tool.evaluate(el=>{const s=getComputedStyle(el);const buttons=[...el.children];return {gap:s.gap,border:s.borderTopWidth,shadow:s.boxShadow,separation:buttons[1].getBoundingClientRect().left-buttons[0].getBoundingClientRect().right};});
  expect(frame.gap).toBe('2px');expect(frame.border).toBe('1px');expect(frame.shadow).toBe('none');expect(frame.separation).toBe(2);
  await expect(tool.getByRole('button',{name:'Direct selection',exact:true})).not.toHaveAttribute('title');
- await openDisclosure(page,'.shortcut-settings');await page.getByRole('textbox',{name:'Direct selection shortcut',exact:true}).press('x');
+ await openDisclosure(page,'.shortcut-settings');await page.getByRole('textbox',{name:'Direct selection shortcut',exact:true}).press('x');await showPlace(page,'icon');
  await tool.getByRole('button',{name:'Select',exact:true}).focus();await page.keyboard.press('Tab');await expect(page.getByRole('tooltip')).toHaveText('Direct selection (X)');
  await expect(tool.getByRole('button',{name:'Direct selection',exact:true})).toHaveAttribute('aria-keyshortcuts','X');
  await page.screenshot({path:'artifacts/controls-light.png'});

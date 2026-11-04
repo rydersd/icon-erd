@@ -1,12 +1,12 @@
 import {test,expect} from '@playwright/test';
-import {openDisclosure} from './helpers.js';
-const launch=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosure(page,'[data-collapse="libraryActions"]');};
+import {openDisclosure,showPlace} from './helpers.js';
+const launch=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosure(page,'[data-collapse="libraryActions"]');await showPlace(page,'icon');};
 const setup=async page=>page.evaluate(async()=>{
  const make=(name,x)=>({name,grid:24,weight:1.2,layers:[{id:'body',name:'Cloud body',paint:'stroke',node:{name:'Cloud silhouette',shape:'pen',closed:true,pts:[{x,y:4},{x:x+4,y:4},{x:x+4,y:8},{x,y:8}]}}]});
  await window.__gw.importLibraryText(JSON.stringify({glyphs:[make('test-cloud',2),make('test-cloud-rain',12)]}),'components.json');window.__gw.loadGlyph(window.__gw.idx('test-cloud'));
 });
 test('shared forms link through UI, propagate direct edits, undo every peer, preserve moves, detach and reload',async({page})=>{
- await launch(page);await setup(page);
+ await launch(page);await setup(page);await showPlace(page,'library','organize');
  await page.locator('#findSharedFormsBtn').click();await page.locator('#sharedFormsSearch').fill('test-cloud');
  await expect(page.locator('.shared-form-card')).toHaveCount(1);await page.getByRole('button',{name:'Link repeated form',exact:true}).click();
  await expect(page.locator('#gForms [data-component]')).toHaveCount(1);
@@ -18,7 +18,7 @@ test('shared forms link through UI, propagate direct edits, undo every peer, pre
  await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.lib.find(g=>g.name==='test-cloud-rain').layers[0].node.pts[1].y)).toBe(4);await expect(peerThumb).toHaveJSProperty('innerHTML',originalThumb);
  await page.locator('#redoBtn').click();expect(await page.evaluate(()=>window.__gw.S.lib.find(g=>g.name==='test-cloud-rain').layers[0].node.pts[1].y)).toBe(3);
  // Object movement moves only this instance; direct-selection geometry is shared.
- await page.evaluate(()=>{window.__gw.setTool('select');document.activeElement?.blur();});await page.keyboard.press('ArrowRight');
+ await showPlace(page,'icon');await page.evaluate(()=>{window.__gw.setTool('select');document.activeElement?.blur();});await page.keyboard.press('ArrowRight');
  expect(await page.evaluate(()=>window.__gw.S.lib.find(g=>g.name==='test-cloud-rain').layers[0].node.pts[0].x)).toBe(12);
  await page.getByRole('button',{name:'Detach instance',exact:true}).click();
  await page.evaluate(()=>{const w=window.__gw;w.S.glyph.layers[0].node.pts[1].y=1;w.commit();w.refresh(true);});
