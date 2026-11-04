@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { anchorMarker } from '../src/anchor-marker.js';
-import { DEFAULT_SHORTCUTS, setShortcut, shortcutFromEvent } from '../src/shortcuts.js';
+import { DEFAULT_SHORTCUTS, restoreShortcuts, setShortcut, shortcutFromEvent } from '../src/shortcuts.js';
 import { parseLibraryArchive, libraryDocument } from '../src/library-io.js';
 import { LIBRARY } from '../src/starter-library.js';
 test('marker shape distinguishes rounded, sharp and disconnected points independently of selection', () => {
@@ -19,6 +19,11 @@ test('shortcut remapping rejects conflicts and matches platform modifiers', () =
   assert.equal(shortcutFromEvent({key:'z',metaKey:true,shiftKey:true}),'Mod+Shift+Z');
   assert.equal(shortcutFromEvent({key:'z',ctrlKey:true,shiftKey:true}),'Mod+Shift+Z');
   assert.equal(shortcutFromEvent({key:'Backspace'}),'Delete');
+});
+test('shortcut migration preserves a legacy Mod+L assignment', () => {
+  const restored=restoreShortcuts({duplicate:'Mod+L'});
+  assert.equal(restored.duplicate,'Mod+L');
+  assert.equal(restored.libraryPlace,'Mod+Shift+L');
 });
 test('editable archives carry reset baselines and reject malformed originals atomically', () => {
   const original=structuredClone(LIBRARY[0]),edited=structuredClone(original);edited.weight=3;

@@ -24,6 +24,14 @@ export function WorkbenchShell() {
     document.addEventListener('keydown', escape, true);
     return () => document.removeEventListener('keydown', escape, true);
   }, [openPane]);
+  useEffect(() => {
+    const placeChange = event => { if (event.detail === 'library') setOpenPane(null); };
+    document.addEventListener('gw:place-change', placeChange);
+    const main = document.querySelector('main.app');
+    const placeObserver = new MutationObserver(() => { if (main?.dataset.place === 'library') setOpenPane(null); });
+    if (main) placeObserver.observe(main, {attributes: true, attributeFilter: ['data-place']});
+    return () => { document.removeEventListener('gw:place-change', placeChange); placeObserver.disconnect(); };
+  }, []);
   return <>
 <header className="bar">
   <h1>ICONERD <span className="app-version" aria-label={`Version ${process.env.NEXT_PUBLIC_ICONERD_VERSION}`}>{process.env.NEXT_PUBLIC_ICONERD_VERSION}</span></h1><a className="lbl credits-link" href="/third-party-notices.txt" target="_blank" rel="noreferrer">Credits</a>
@@ -38,12 +46,16 @@ export function WorkbenchShell() {
     <p className="history-note">Stopping keeps this state. A new edit replaces later states for this icon.</p>
   </div>
   <div className="responsive-pane-controls" role="group" aria-label="Editor panes">
-    {[['left', 'Library'], ['right', 'Inspector']].map(([pane, label]) => <Button key={pane} className="btn sm" aria-controls={`pane-${pane}`} aria-expanded={openPane === pane} onClick={event => { paneTrigger.current = event.currentTarget; setOpenPane(openPane === pane ? null : pane); }}>{label}</Button>)}
+    {[['left', 'Library'], ['right', 'Inspector']].map(([pane, label]) => <Button key={pane} className="btn sm" aria-controls={`pane-${pane}`} aria-expanded={openPane === pane} onClick={event => { if (pane === 'right') document.dispatchEvent(new CustomEvent('gw:set-place', { detail: 'icon' })); paneTrigger.current = event.currentTarget; setOpenPane(openPane === pane ? null : pane); }}>{label}</Button>)}
   </div>
   <span className="spacer"></span>
   <span className="lbl" id="modeHint"></span>
   <span className="save-state" id="saveState" role="status" aria-live="polite" data-state="saved">Saved</span>
   <Button className="btn sm" id="revertBtn" title="Put this glyph back to its library original (undo brings your edit back)" data-icon-ui="undo">Revert icon</Button>
+  <div className="seg" role="group" aria-label="Place">
+    <Button className="btn sm" id="placeIcon" aria-pressed="true">Icon</Button>
+    <Button className="btn sm" id="placeLibrary" aria-pressed="false">Library</Button>
+  </div>
   <div className="seg" role="group" aria-label="History">
     <Button className="btn sm icon" id="undoBtn" title="Undo (⌘Z)" aria-label="Undo" data-icon-ui="undo"></Button>
     <Button className="btn sm icon" id="redoBtn" title="Redo (⇧⌘Z)" aria-label="Redo" data-icon-ui="redo"></Button>
@@ -66,13 +78,18 @@ export function WorkbenchShell() {
     <Button className="btn sm pane-close" onClick={closePane}>Close pane</Button>
     <LibraryPanel />
     <div id="appIconStudio" hidden></div>
-    <details id="componentsPanel" className="panel disclosure-panel component-library" data-collapse="componentsH">
-      <summary id="componentsH">Components <span id="componentsCount" className="num">0</span></summary>
-      <div className="pad"><p className="lbl">Reusable vector forms. Edit any instance to update them all; Insert adds one to the current icon.</p><div id="componentList"></div></div>
-    </details>
-    <details className="panel set-settings" aria-label="Library properties">
-      <summary id="libraryTokensTitle">Library tokens</summary>
-      <div className="pad set-settings-fields">
+  </div>
+
+  <section id="libraryPlace" className="library-place" aria-label="Library place" hidden>
+    <nav className="library-section-nav" aria-label="Library sections">
+      {['tokens', 'output', 'colors', 'components', 'organize', 'versions', 'shortcuts'].map(section => <Button key={section} className="btn sm" data-library-section={section}>{section[0].toUpperCase() + section.slice(1)}</Button>)}
+    </nav>
+    <div className="library-place-content">
+      <div className="set-settings" aria-label="Library properties">
+        <section data-library-section="tokens">
+          <h2 id="libraryTokensTitle">Library tokens</h2>
+          <p className="lbl library-place-lead">Applies to the whole library. Source shapes remain editable.</p>
+          <div className="set-settings-fields">
         <div className="row library-token-source"><span className="lbl" id="libraryTokenSource">Defined in this library</span><Button className="btn icon-only" id="libraryPropertiesMenuBtn" aria-label="Library properties options" aria-haspopup="menu" aria-controls="libraryPropertiesMenu" aria-expanded="false" data-icon-ui="more" /></div>
         <div id="libraryPropertiesMenu" className="floating-panel item-menu" role="menu" aria-label="Library properties options" hidden>
           <Button className="menu-item" role="menuitem" id="linkTokensBtn">Link tokens file…</Button>
@@ -92,8 +109,11 @@ export function WorkbenchShell() {
         <label htmlFor="setEndRounding">End radius <input id="setEndRounding" type="number" min="0" max="6" step="0.1" defaultValue="0.5" /></label>
         <p id="lineEndScopeNote" className="lbl" role="status" hidden></p><Button id="useLibraryEndRounding" className="btn sm" hidden>Use library end rounding for this layer</Button>
         <label id="endRoundingTokenRow" hidden>End radius token <select id="endRoundingToken" /></label>
-        <span className="lbl">Applies to the whole library. Source shapes remain editable.</span>
-        <fieldset className="library-output-fields"><legend>Variants &amp; colors</legend>
+          </div>
+        </section>
+        <section data-library-section="colors" hidden>
+          <h2>Variants and colors</h2><p className="lbl library-place-lead">Set the exported variants and colors for every icon.</p>
+          <fieldset className="library-output-fields"><legend>Variants &amp; colors</legend>
           <label>Output variant <select id="libraryVariant" defaultValue="source"><option value="source">As drawn</option><option value="outline">Outline</option><option value="solid">Generated solid</option><option value="both">Outline + solid files</option><option value="fill-stroke">Filled with stroke</option></select></label>
           <label><input id="libraryFamilyView" type="checkbox" /> One icon per EDS family</label>
           <label>Colors <select id="libraryColorMode" defaultValue="original"><option value="original">Keep layer colors</option><option value="single">Single color</option><option value="multicolor">Fill / stroke / accent</option></select></label>
@@ -108,16 +128,36 @@ export function WorkbenchShell() {
           <label>Accent token <input id="libraryAccentToken" type="text" defaultValue="--icon-accent" /></label>
           <p className="lbl">Accent applies to layers with the Accent color role. CSS custom properties with fallback colors. Applies to solid paint; gradients keep their stop colors. PNG uses the fallback colors.</p>
           <Button className="btn sm" id="testSolidVariantsBtn">Test solid variants</Button><span className="lbl" id="solidTestProgress" role="status" aria-live="polite"></span>
-        </fieldset>
-        <fieldset className="library-output-fields"><legend>Output target</legend>
+          </fieldset>
+        </section>
+        <section data-library-section="output" hidden>
+          <h2>Output</h2><p className="lbl library-place-lead">Choose the target and sizes for generated output.</p>
+          <fieldset className="library-output-fields"><legend>Output target</legend>
           <label>Profile <select id="libraryOutputProfile" defaultValue="interface"><option value="interface">Interface icons</option><option value="menu-bar">macOS menu bar</option><option value="mac-app">Mac app icon</option><option value="pc-app">PC app icon</option><option value="custom">Custom</option></select></label>
           <label>Export sizes (px) <input id="libraryOutputSizes" type="text" defaultValue="24" /></label>
           <p className="lbl" id="libraryOutputHint">Vector artwork stays editable. Output scales to these pixel sizes.</p>
-        </fieldset>
+          </fieldset>
+        </section>
       </div>
-    </details>
-    <details className="panel shortcut-settings"><summary>Keyboard shortcuts</summary><div className="pad"><p className="lbl">Click a field and press a key combination. Mod means Cmd on Mac or Ctrl on Windows.</p><div id="shortcutFields"></div><Button className="btn sm" id="resetShortcuts">Restore defaults</Button></div></details>
-  </div>
+      <section id="componentsPanel" className="panel component-library" data-library-section="components" hidden>
+        <h2>Components <span id="componentsCount" className="num">0</span></h2><p className="lbl library-place-lead">Reusable vector forms. Edit any instance to update them all; Insert adds one to the current icon.</p><div id="componentList"></div>
+      </section>
+      <section data-library-section="organize" hidden>
+        <h2>Organize</h2><p className="lbl library-place-lead">Organize and review library-wide relationships.</p>
+        <div className="row lib-organize"><Button className="btn sm" id="organizeLibraryBtn">Suggest groups</Button><Button className="btn sm" id="undoOrganizationBtn" disabled>Undo grouping</Button></div>
+        <div className="row"><Button className="btn sm" id="findSharedFormsBtn">Find shared forms</Button><span className="lbl">◇ purple long dashes = linked geometry</span></div>
+        <div className="row"><Button className="btn sm" id="insetReviewBtn">Convert fills to outlines</Button></div>
+        <div className="row"><Button className="btn sm" id="resetLibraryBtn" title="Restore imported originals; undo restores your edits">Revert library</Button><Button className="btn sm" id="undoLibraryResetBtn" disabled>Undo library revert</Button></div>
+      </section>
+      <section data-library-section="versions" hidden>
+        <h2>Versions</h2><p className="lbl library-place-lead">Save a checkpoint before changing the whole library.</p>
+        <div className="row"><Button className="btn sm" id="libraryVersionsBtn">Library versions</Button><Button className="btn sm" id="newLibraryBtn" title="Start an empty library; the current library is saved in Library versions">New library</Button></div>
+      </section>
+      <section className="shortcut-settings" data-library-section="shortcuts" hidden>
+        <h2>Keyboard shortcuts</h2><p className="lbl library-place-lead">Click a field and press a key combination. Mod means Cmd on Mac or Ctrl on Windows.</p><div id="shortcutFields"></div><Button className="btn sm" id="resetShortcuts">Restore defaults</Button>
+      </section>
+    </div>
+  </section>
 
   {/* CENTRE: canvas */}
   <div className="col-centre">

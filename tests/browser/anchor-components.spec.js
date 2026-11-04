@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {openDisclosures,openDrawingControls} from './helpers.js';
+import {openDisclosures,openDrawingControls,showPlace} from './helpers.js';
 const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="libraryActions"]','[data-collapse="ioH"]');await openDrawingControls(page);};
 const screen=async(page,x,y)=>page.evaluate(({x,y})=>{const c=document.querySelector('#canvas'),p=c.createSVGPoint();p.x=x;p.y=y;const q=p.matrixTransform(c.getScreenCTM());return {x:q.x,y:q.y};},{x,y});
 const fixture=async page=>page.evaluate(async()=>{
@@ -32,7 +32,7 @@ test('duplicate creates a separately stored component and edits update every ins
 });
 test('named library checkpoints restore complete libraries and retain the pre-restore set as a safety version',async({page})=>{
  await ready(page);await fixture(page);await page.locator('[data-tool="select"]').click();await page.locator('#dupBtn').click();
- await page.locator('#libraryVersionsBtn').click();await page.locator('#versionName').fill('Linked baseline');await page.locator('#saveLibraryVersionBtn').click();await expect(page.locator('#libraryVersionsList')).toContainText('Linked baseline');await page.locator('#closeLibraryVersionsBtn').click();
+ await showPlace(page,'library','versions');await page.locator('#libraryVersionsBtn').click();await page.locator('#versionName').fill('Linked baseline');await page.locator('#saveLibraryVersionBtn').click();await expect(page.locator('#libraryVersionsList')).toContainText('Linked baseline');await page.locator('#closeLibraryVersionsBtn').click();
  await page.evaluate(async()=>{const w=window.__gw;w.S.glyph.layers[0].node.pts[1].y=9;w.S.glyph.tags=['damaged'];w.commit();w.refresh(true);await w.flushSaves();});
  await page.locator('#libraryVersionsBtn').click();await page.locator('.version-row').filter({hasText:'Linked baseline'}).getByRole('button',{name:'Restore',exact:true}).click();await expect(page.locator('#libraryVersionsList')).toContainText('Before restoring Linked baseline');await page.locator('#closeLibraryVersionsBtn').click();
  expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.pts[1].y)).toBe(4);expect(await page.evaluate(()=>window.__gw.S.glyph.tags)).toBeUndefined();expect(await page.evaluate(()=>window.__gw.S.components.size)).toBe(1);
@@ -48,7 +48,7 @@ test('proximity merge also applies during Pen drawing while ordinary drawing rem
 });
 test('matching and linking scaled forms keeps their local scale when either instance edits the component',async({page})=>{
  await ready(page);await page.evaluate(async()=>{const make=(name,x,size)=>({name,layers:[{id:'body',node:{shape:'rect',x,y:3,w:size,h:size*0.8}}]});const w=window.__gw;await w.importLibraryText(JSON.stringify({glyphs:[make('scale-large',1,5),make('scale-small',12,2.5)]}),'scaled.json');w.loadGlyph(w.idx('scale-large'));});
- await page.locator('#findSharedFormsBtn').click();await page.locator('#sharedFormsSearch').fill('scale-large');await page.getByRole('button',{name:'Link repeated form',exact:true}).click();
+ await showPlace(page,'library','organize');await page.locator('#findSharedFormsBtn').click();await page.locator('#sharedFormsSearch').fill('scale-large');await page.getByRole('button',{name:'Link repeated form',exact:true}).click();
  await page.evaluate(()=>{const w=window.__gw;w.S.glyph.layers[0].node.h=6;w.commit();w.refresh(true);});expect(await page.evaluate(()=>window.__gw.S.lib.find(g=>g.name==='scale-small').layers[0].node.h)).toBeCloseTo(3,6);
  await page.evaluate(()=>{const w=window.__gw;w.loadGlyph(w.idx('scale-small'));w.S.glyph.layers[0].node.w=4;w.commit();w.refresh(true);});expect(await page.evaluate(()=>window.__gw.S.lib.find(g=>g.name==='scale-large').layers[0].node.w)).toBeCloseTo(8,6);
  expect(await page.evaluate(()=>window.__gw.S.glyph.layers[0].node.x)).toBe(12);await page.locator('#undoBtn').click();expect(await page.evaluate(()=>window.__gw.S.lib.find(g=>g.name==='scale-large').layers[0].node.w)).toBe(5);

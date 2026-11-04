@@ -6,12 +6,12 @@
 import {test,expect} from '@playwright/test';
 import {readFile,writeFile} from 'node:fs/promises';
 import {unzipSync,strFromU8} from 'fflate';
-import {openDisclosures} from './helpers.js';
+import {openDisclosures,showPlace} from './helpers.js';
 
 const FIXTURE=new URL('../fixtures/designspace-noop.json',import.meta.url);
-const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings','[data-collapse="ioH"]');};
-const properties=async page=>openDisclosures(page,'.set-settings');
-const exportsOpen=async page=>openDisclosures(page,'.export-options');
+const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'[data-collapse="ioH"]');await showPlace(page,'icon');};
+const properties=async page=>showPlace(page,'library','tokens');
+const exportsOpen=async page=>{await showPlace(page,'icon');await openDisclosures(page,'.export-options');};
 const icons=[
   {name:'thin-line',group:'Fixtures',weight:1.1,layers:[{id:'art',name:'Line',paint:'stroke',node:{shape:'line',x1:3,y1:12,x2:21,y2:12}}]},
   {name:'ring',group:'Fixtures',weight:1.1,layers:[{id:'ring',name:'Ring',paint:'stroke',node:{shape:'circle',cx:12,cy:12,r:6}}]},
@@ -30,7 +30,7 @@ const strokeWidths=svg=>[...svg.matchAll(/stroke-width="([\d.]+)"/g)].map(m=>+m[
 // Records what a library without a designspace exports. Captured once from main
 // (CAPTURE_NOOP=1) before AXIS-01a changes; every later build must reproduce it.
 async function noopSnapshot(page){
-  await ready(page);await importFixtures(page);await properties(page);
+  await ready(page);await importFixtures(page);await showPlace(page,'library','output');
   await page.locator('#libraryOutputProfile').selectOption('menu-bar');
   const files=await exportAll(page);
   await select(page,'ring');
@@ -86,7 +86,7 @@ test('malformed curve rejected',async({page})=>{
 });
 
 test('menu-bar 18 export uses 18 thickness',async({page})=>{
-  await ready(page);await importFixtures(page);await properties(page);
+  await ready(page);await importFixtures(page);await showPlace(page,'library','output');
   await page.locator('#libraryOutputProfile').selectOption('menu-bar');await setCurve(page,'18: 1.2121, 24: 1');
   const svgs=svgFiles(await exportAll(page));
   // 36px is 18pt @2x, so both sizes carry the 18pt thickness: 1.1 × 1.2121 ≈ 1.3333.
@@ -97,7 +97,7 @@ test('menu-bar 18 export uses 18 thickness',async({page})=>{
 });
 
 test('single download equals ZIP at 18',async({page})=>{
-  await ready(page);await importFixtures(page);await properties(page);
+  await ready(page);await importFixtures(page);await showPlace(page,'library','output');
   await page.locator('#libraryOutputProfile').selectOption('menu-bar');await setCurve(page,'18: 1.2121, 24: 1');
   const svgs=svgFiles(await exportAll(page));
   await select(page,'thin-line');

@@ -151,6 +151,19 @@ test('canvas shortcuts do nothing in the library place; undo stays live', async 
   await expect(page.locator('#setThickness')).toHaveValue(thickness);
 });
 
+test('library-list shortcuts remain available while the library place is open', async ({ page }) => {
+  await ready(page);
+  await libraryButton(page).click();
+  const tile = page.locator('.lib-item').first();
+  await tile.focus();
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect(page.locator('#deleteIconsBtn')).toBeEnabled();
+  await page.keyboard.press('Delete');
+  await expect(page.locator('#deleteIconsBtn')).toBeDisabled();
+  await expect(page.locator('#restoreIconsBtn')).toBeEnabled();
+  await expect(page.locator('#libraryPlace')).toBeVisible();
+});
+
 test('a plain icon tile click returns to the icon place; modified clicks stay', async ({ page }) => {
   await ready(page);
   await libraryButton(page).click();

@@ -23,17 +23,11 @@ export function LibraryPanel() {
       <span id="librarySelectionCount" className="library-selection-count" aria-live="polite">0 selected</span>
       <details className="panel-sub lib-actions" data-collapse="libraryActions">
         <summary>Library actions</summary>
-        <div className="row lib-organize"><Button className="btn sm" id="organizeLibraryBtn">Suggest groups</Button><Button className="btn sm" id="undoOrganizationBtn" disabled>Undo grouping</Button></div>
-        <div className="row"><Button className="btn sm" id="findSharedFormsBtn">Find shared forms</Button><span className="lbl">◇ purple long dashes = linked geometry</span></div>
-        <div className="row"><Button className="btn sm" id="insetReviewBtn">Convert fills to outlines</Button></div>
-        <div className="row"><Button className="btn sm" id="libraryVersionsBtn">Library versions</Button></div>
         <div className="lib-selection" aria-label="Library selection">
         <Button className="btn sm" id="selectShownIconsBtn">Select shown</Button><Button className="btn sm" id="clearIconSelectionBtn" disabled>Clear</Button>
         <Button className="btn sm" id="deleteIconsBtn" disabled data-icon-ui="delete">Delete selected</Button><Button className="btn sm" id="restoreIconsBtn" disabled>Restore deleted</Button>
         <span className="lbl">⌘/Ctrl-click to toggle · Shift-click for a range</span>
         </div>
-        <div className="row"><Button className="btn sm" id="newLibraryBtn" title="Start an empty library; the current library is saved in Library versions">New library</Button></div>
-        <div className="row"><Button className="btn sm" id="resetLibraryBtn" title="Restore imported originals; undo restores your edits">Revert library</Button><Button className="btn sm" id="undoLibraryResetBtn" disabled>Undo library revert</Button></div>
       </details>
       <div className="lib-list" id="lib" aria-label="Glyphs"></div>
       <div className="lib-io">

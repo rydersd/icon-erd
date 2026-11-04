@@ -1,7 +1,7 @@
 import { readLibraryZIP } from '../../src/library-zip.js';
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import {openDisclosures,openDrawingControls} from './helpers.js';
+import {openDisclosures,openDrawingControls,showPlace} from './helpers.js';
 const ready = async page => { await page.goto('/'); await page.waitForFunction(() => window.__gw?.ready); await openDisclosures(page,'[data-collapse="libraryActions"]','.set-settings','[data-collapse="metadataH"]','[data-collapse="geometryH"]','[data-collapse="ioH"]','[data-collapse="solidPreviewH"]','[data-collapse="pvH"]'); await openDrawingControls(page); };
 test('fresh launch, Font Awesome controls, remembered library collapse, metadata search and top-right diagnostics', async ({ page }) => {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
@@ -65,9 +65,9 @@ test('app icon, per-layer colors, set settings, points and overlap diagnostics',
   expect(svg).toContain('#ff0000');expect(svg).toContain('#0267e0');expect(svg).toContain('width="1024"');
   await expect(page.locator('#pvLight path[fill="#ff0000"]').first()).toHaveCount(1);
   const pngPromise=page.waitForEvent('download');await page.locator('#downloadPng').click();const png=await pngPromise;const bytes=await readFile(await png.path());expect(bytes.readUInt32BE(16)).toBe(1024);expect(bytes.readUInt32BE(20)).toBe(1024);
-  await page.locator('#setThicknessEnabled').check(); await page.locator('#setRoundingEnabled').check();
+  await showPlace(page,'library','tokens'); await page.locator('#setThicknessEnabled').check(); await page.locator('#setRoundingEnabled').check();
   await page.locator('#setEndRoundingEnabled').check();
-  expect(await page.evaluate(()=>window.__gw.S.lib.every(g=>g.setStyle.thickness===1.6&&g.setStyle.rounding===0.5))).toBe(true);
+  expect(await page.evaluate(()=>window.__gw.S.lib.every(g=>g.setStyle.thickness===1.6&&g.setStyle.rounding===0.5))).toBe(true); await showPlace(page,'icon');
   await expect(page.locator('#pointRows tr').first()).toBeVisible();
   await page.evaluate(()=>{const app=window.__gw; app.S.glyph.layers[1].node.children=[{shape:'line',x1:4,y1:12,x2:20,y2:12},{shape:'line',x1:20,y1:12,x2:4,y2:12}];app.refresh(true);});
   await expect(page.locator('#geometrySummary')).toContainText('coincident segment(s)');
@@ -81,17 +81,17 @@ test('corner rounding controls stroke joins and caps across canvas, previews and
   const canvas = page.locator('#gLayers path').first();
   await expect(canvas).toHaveAttribute('stroke-linecap', 'butt');
   await expect(canvas).toHaveAttribute('stroke-linejoin', 'miter');
-  await page.locator('#setRoundingEnabled').check();
+  await showPlace(page,'library','tokens'); await page.locator('#setRoundingEnabled').check();
   await page.locator('#setEndRoundingEnabled').check();
   await expect(canvas).toHaveAttribute('stroke-linecap', 'butt');
   await expect(canvas).toHaveAttribute('stroke-linejoin', 'round');
   const previewStyle = () => page.locator('#pvLight path').first().evaluate(path => ({ cap: getComputedStyle(path).strokeLinecap, join: getComputedStyle(path).strokeLinejoin }));
   expect(await previewStyle()).toEqual({ cap: 'butt', join: 'round' });
-  await page.locator('#expSvg').click();
+  await showPlace(page,'icon'); await page.locator('#expSvg').click();
   expect(await page.locator('#ioText').inputValue()).toContain('stroke-linecap:butt;stroke-linejoin:round');
   await page.locator('#expBaked').click();
   expect(await page.locator('#ioText').inputValue()).toContain('stroke-linecap="butt" stroke-linejoin="round"');
-  await page.locator('#setRoundingEnabled').uncheck();
+  await showPlace(page,'library','tokens'); await page.locator('#setRoundingEnabled').uncheck();
   await page.locator('#setEndRoundingEnabled').uncheck();
   await expect(canvas).toHaveAttribute('stroke-linecap', 'butt');
   await expect(canvas).toHaveAttribute('stroke-linejoin', 'miter');
@@ -205,14 +205,14 @@ test('Radius rounds joined strokes and the isolated view agrees with the canvas'
     { shape: 'line', x1: 4, y1: 4, x2: 16, y2: 4 }, { shape: 'line', x1: 16, y1: 4, x2: 16, y2: 20 },
   ] } }] }));
   await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();
-  await page.locator('#setRoundingEnabled').check();
+  await showPlace(page,'library','tokens'); await page.locator('#setRoundingEnabled').check();
   await page.locator('#setEndRoundingEnabled').check();
   await page.locator('#setRounding').fill('2'); await page.locator('#setRounding').press('Tab');
   const rounded = await page.locator('#gLayers path').first().getAttribute('d');
   expect(rounded).toContain('C');
-  await page.locator('[data-isolate="0:"]').click();
+  await showPlace(page,'icon'); await page.locator('[data-isolate="0:"]').click();
   await expect(page.locator('#gIso > path')).toHaveAttribute('d', rounded);
-  await page.locator('#setRounding').fill('0.5'); await page.locator('#setRounding').press('Tab');
+  await showPlace(page,'library','tokens'); await page.locator('#setRounding').fill('0.5'); await page.locator('#setRounding').press('Tab');
   const smaller = await page.locator('#gLayers path').first().getAttribute('d');
   expect(smaller).not.toBe(rounded);
   await expect(page.locator('#gIso > path')).toHaveAttribute('d', smaller);
@@ -234,7 +234,7 @@ test('source anchor selection and rounding tags change individual stroke tips wi
   await ready(page);
   await page.locator('#ioText').fill(JSON.stringify({ name: 'tagged-tips', layers: [{ id: 'stroke', paint: 'stroke', node: { shape: 'pen', name: 'Stem', pts: [{ x: 12, y: 5 }, { x: 12, y: 20 }] } }] }));
   await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();
-  await page.locator('#setRoundingEnabled').check();
+  await showPlace(page,'library','tokens'); await page.locator('#setRoundingEnabled').check();
   await page.locator('#setEndRoundingEnabled').check();
   await page.locator('#setEndRounding').fill('0.1'); await page.locator('#setEndRounding').press('Tab');
   const tips = page.locator('#gLayers [data-stroke-tip] path');
@@ -242,7 +242,7 @@ test('source anchor selection and rounding tags change individual stroke tips wi
   const small = await tips.first().getAttribute('d');
   await page.locator('#setEndRounding').fill('0.6'); await page.locator('#setEndRounding').press('Tab');
   expect(await tips.first().getAttribute('d')).not.toBe(small);
-  await page.locator('[data-source-point="0::0"]').click();
+  await showPlace(page,'icon'); await page.locator('[data-source-point="0::0"]').click();
   await expect(page.locator('#gPoints [data-selected-source-point]')).toHaveCount(1);
   expect(await page.evaluate(() => window.__gw.S.anchor)).toBe(0);
   const roundedEnd = await tips.last().getAttribute('d');
@@ -279,12 +279,12 @@ test('corner and line-end radii are independent', async ({ page }) => {
   await ready(page);
   await page.locator('#ioText').fill(JSON.stringify({ name: 'independent-radii', layers: [{ id: 'stroke', paint: 'stroke', node: { shape: 'pen', pts: [{ x: 4, y: 4 }, { x: 16, y: 4 }, { x: 16, y: 20 }] } }] }));
   await page.locator('#importBtn').click();await page.locator('#confirmImportBtn').click();
-  await page.locator('#setEndRoundingEnabled').check();
+  await showPlace(page,'library','tokens'); await page.locator('#setEndRoundingEnabled').check();
   const path = page.locator('#gLayers > path').first();
   const tip = page.locator('#gLayers [data-stroke-tip] path').first();
   const sharp = await path.getAttribute('d'), originalTip = await tip.getAttribute('d');
   expect(sharp).not.toContain('C');
-  await page.locator('#setRoundingEnabled').check();
+  await showPlace(page,'library','tokens'); await page.locator('#setRoundingEnabled').check();
   await page.locator('#setRounding').fill('2'); await page.locator('#setRounding').press('Tab');
   const rounded = await path.getAttribute('d'); expect(rounded).toContain('C');
   await expect(tip).toHaveAttribute('d', originalTip);
@@ -365,8 +365,8 @@ test('import originals reset after reload and exported archives retain baselines
   await openDisclosures(page,'.export-options');const pending=page.waitForEvent('download');await page.locator('#expOne').click();const archive=JSON.parse(readLibraryZIP(await readFile(await(await pending).path())));
   expect(archive.originals[0].description).toBeUndefined();expect(archive.glyphs[0].description).toBe('Edited description');
   await page.locator('#revertBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');await page.locator('#undoBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('Edited description');
-  await page.locator('#resetLibraryBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');
-  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await page.locator('#undoLibraryResetBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('Edited description');
+  await showPlace(page,'library','organize');await page.locator('#resetLibraryBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await showPlace(page,'library','organize');await page.locator('#undoLibraryResetBtn').click();await showPlace(page,'icon');await expect(page.locator('#iconDescription')).toHaveValue('Edited description');
   await page.locator('#impFile').setInputFiles({name:'archive.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(archive))});
   await page.locator('#confirmImportBtn').click();
   await expect(page.locator('#hdrName')).toHaveText('reset-fixture-2');await page.locator('#revertBtn').click();await expect(page.locator('#iconDescription')).toHaveValue('');
@@ -408,13 +408,13 @@ test('primary groups organize library and ZIP folders; tags search, collapsed gr
  await page.locator('#libSearch').fill('pagination');await expect(page.locator('.lib-item:visible')).toHaveCount(1);await page.locator('#libSearch').fill('');
  const section=page.locator('.lib-group[data-group="Navigation/Arrows"]');await section.locator('summary').click();await expect(section).not.toHaveAttribute('open');
  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await expect(section).not.toHaveAttribute('open');await page.locator('#libSearch').fill('table');await expect(section).toHaveAttribute('open');await page.locator('#libSearch').fill('');
- await page.locator('#organizeLibraryBtn').click();await expect(page.locator('#organizeSummary')).toContainText('Navigation/Arrows: 3');await page.locator('#applyOrganizeBtn').click();await expect(page.locator('.lib-group')).toHaveCount(1);await expect(page.locator('#status')).toContainText('Name-based');
+ await showPlace(page,'library','organize');await page.locator('#organizeLibraryBtn').click();await expect(page.locator('#organizeSummary')).toContainText('Navigation/Arrows: 3');await page.locator('#applyOrganizeBtn').click();await expect(page.locator('.lib-group')).toHaveCount(1);await expect(page.locator('#status')).toContainText('Name-based');
  await openDisclosures(page,'.export-options');await page.locator('#exportRoot').fill('icons');await page.locator('#exportRoot').press('Tab');
  const pending=page.waitForEvent('download');await page.locator('#expAll').click();const download=await pending;expect(download.suggestedFilename()).toMatch(/\.zip$/);const bytes=await readFile(await download.path());
  const exported=JSON.parse(readLibraryZIP(bytes));expect(exported.glyphs.filter(icon=>icon.group==='Navigation/Arrows')).toHaveLength(4);
  // Import the ZIP through the real picker flow and cancel first: no library mutation.
  await page.locator('#impFile').setInputFiles({name:'roundtrip.zip',mimeType:'application/zip',buffer:bytes});await expect(page.locator('#importSummary')).toContainText('4 matching existing names');await page.locator('#cancelImportBtn').click();await expect(page.locator('.lib-item')).toHaveCount(4);
- await page.locator('#undoOrganizationBtn').click();await expect(page.locator('.lib-group')).toHaveCount(2);await expect(page.locator('#iconTags')).toHaveValue('pagination, table');
+ await showPlace(page,'library','organize');await page.locator('#undoOrganizationBtn').click();await expect(page.locator('.lib-group')).toHaveCount(2);await showPlace(page,'icon');await expect(page.locator('#iconTags')).toHaveValue('pagination, table');
 });
 
 test('library selection deletes ranges durably and restores edited icons with originals after reload',async({page})=>{

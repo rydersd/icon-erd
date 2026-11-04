@@ -1,15 +1,15 @@
 import {test,expect} from '@playwright/test';
-import {openDisclosure} from './helpers.js';
+import {openDisclosure,showPlace} from './helpers.js';
 test('startup checks checkpoint IDs without loading checkpoint documents or duplicating saved history',async({page})=>{
   await page.addInitScript(()=>{
     window.snapshotScans=0;
     const getAll=IDBObjectStore.prototype.getAll;
     IDBObjectStore.prototype.getAll=function(...args){if(this.name==='snapshots')window.snapshotScans++;return getAll.apply(this,args);};
   });
-  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosure(page,'[data-collapse="libraryActions"]');
+  await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await showPlace(page,'library','versions');
   expect(await page.evaluate(()=>window.snapshotScans)).toBe(0);
   await page.locator('#libraryVersionsBtn').click();await expect(page.locator('#libraryVersionsList')).toContainText('Initial library checkpoint');await page.locator('#closeLibraryVersionsBtn').click();
-  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);
+  await page.reload();await page.waitForFunction(()=>window.__gw?.ready);await showPlace(page,'library','versions');
   expect(await page.evaluate(()=>window.snapshotScans)).toBe(0);
   await page.locator('#libraryVersionsBtn').click();await expect(page.locator('.version-row')).toHaveCount(1);
 });

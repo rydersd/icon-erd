@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {openDisclosures,openDrawingControls} from './helpers.js';
+import {openDisclosures,openDrawingControls,showPlace} from './helpers.js';
 const ready=async page=>{await page.goto('/');await page.waitForFunction(()=>window.__gw?.ready);await openDisclosures(page,'.set-settings');await openDrawingControls(page);};
 const fixture=async page=>page.evaluate(async()=>{const w=window.__gw;await w.importLibraryText(JSON.stringify({name:'snap-test',grid:0.1,weight:1.2,layers:[{id:'line',paint:'stroke',node:{shape:'pen',closed:false,pts:[{x:1.14,y:2.26},{x:5.05,y:6.34},{x:8.18,y:5.78}]}}]}),'snap.json');w.S.sel=[{l:0,p:[]}];w.setTool('direct');w.S.selectedAnchors=[{selection:{l:0,p:[]},index:0},{selection:{l:0,p:[]},index:1}];w.S.anchor=0;w.refresh(true);});
 const pointOnScreen=async(page,index)=>page.evaluate(index=>{const cv=document.querySelector('#canvas'),q=window.__gw.S.glyph.layers[0].node.pts[index];const p=cv.createSVGPoint();const m=window.__gw.fullMatrix({l:0,p:[]});p.x=m[0]*q.x+m[2]*q.y+m[4];p.y=m[1]*q.x+m[3]*q.y+m[5];const screen=p.matrixTransform(cv.getScreenCTM());return {x:screen.x,y:screen.y};},index);
@@ -21,7 +21,7 @@ test('anchor canvas menu snaps selected points to the UI spacing, undo redraws, 
  await page.mouse.click(current.x+35,current.y+35,{button:'right'});expect(await page.evaluate(()=>JSON.stringify(window.__gw.S.glyph))).toBe(before);
 });
 test('Undo/Redo refresh stroke thickness on canvas and previews and restore set settings across the library',async({page})=>{
- await ready(page);const initial=await page.locator('#gLayers path').first().getAttribute('stroke-width');await page.locator('#setThicknessEnabled').check();await page.locator('#setThickness').fill('2.4');await page.locator('#setThickness').press('Tab');
+ await ready(page);const initial=await page.locator('#gLayers path').first().getAttribute('stroke-width');await showPlace(page,'library','tokens');await page.locator('#setThicknessEnabled').check();await page.locator('#setThickness').fill('2.4');await page.locator('#setThickness').press('Tab');
  await expect(page.locator('#gLayers path').first()).toHaveAttribute('stroke-width','2.4');
  await page.locator('#undoBtn').click();await expect(page.locator('#gLayers path').first()).toHaveAttribute('stroke-width','1.6');
  await page.locator('#undoBtn').click();await expect(page.locator('#gLayers path').first()).toHaveAttribute('stroke-width',initial);

@@ -2,6 +2,7 @@ export const SHORTCUT_ACTIONS = {
   select: { label: 'Selection', key: 'V' }, direct: { label: 'Direct selection', key: 'A' }, pen: { label: 'Pen', key: 'P' },
   handles: { label: 'Toggle shape / transform handles', key: 'T' }, selectAll: { label: 'Select all objects', key: 'Mod+A' },
   undo: { label: 'Undo', key: 'Mod+Z' }, redo: { label: 'Redo', key: 'Mod+Shift+Z' },
+  libraryPlace: { label: 'Library place', key: 'Mod+L' },
   duplicate: { label: 'Duplicate', key: 'Mod+D' }, group: { label: 'Group', key: 'Mod+G' }, ungroup: { label: 'Ungroup', key: 'Mod+Shift+G' },
   delete: { label: 'Delete', key: 'Delete' },
 };
@@ -22,4 +23,18 @@ export function setShortcut(shortcuts, action, value) {
   const conflict = Object.keys(shortcuts).find(other => other !== action && shortcuts[other] === key);
   if (conflict) throw new Error(`${key} is already assigned to ${SHORTCUT_ACTIONS[conflict].label}.`);
   return { ...shortcuts, [action]: key };
+}
+export function restoreShortcuts(stored = {}) {
+  const saved = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+  let restored = {};
+  for (const action of Object.keys(SHORTCUT_ACTIONS)) {
+    if (action === 'libraryPlace') continue;
+    restored = setShortcut(restored, action, saved[action] ?? DEFAULT_SHORTCUTS[action]);
+  }
+  const requested = Object.prototype.hasOwnProperty.call(saved, 'libraryPlace') ? [saved.libraryPlace] : [DEFAULT_SHORTCUTS.libraryPlace, 'Mod+Shift+L', 'Mod+Alt+L', 'Alt+L', 'Shift+L', 'L'];
+  let error;
+  for (const key of requested) {
+    try { return setShortcut(restored, 'libraryPlace', key); } catch (caught) { error = caught; }
+  }
+  throw error;
 }
